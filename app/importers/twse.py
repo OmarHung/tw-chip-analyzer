@@ -1,0 +1,147 @@
+"""TWSE 盤後資料解析（純函式：raw JSON → 可 upsert 的 record dict）。
+
+- OHLCV：MI_INDEX（type=ALLBUT0999）
+- 三大法人：T86
+- 融資融券：MI_MARGN（selectType=STOCK）
+
+欄位以標題名稱定位（避免順序變動）；MI_MARGN 因欄名重複改用固定位置。
+"""
+from __future__ import annotations
+
+import datetime as dt
+
+from app.importers.base import (
+    availability_for,
+    col_index,
+    is_stock_symbol,
+    parse_float,
+    parse_int,
+)
+
+
+def _ohlcv_table(raw: dict) -> dict | None:
+    for t in raw.get("tables", []):
+        f = t.get("fields") or []
+        if "收盤價" in [str(x).strip() for x in f] and "證券代號" in [
+            str(x).strip() for x in f
+        ]:
+            return t
+    return None
+
+
+def parse_ohlcv(raw: dict, data_date: dt.date) -> tuple[list[dict], list[dict]]:
+    """回傳 (stocks, prices)。stocks 供 Stock 主檔 upsert。"""
+    table = _ohlcv_table(raw)
+    if table is None:
+        return [], []
+    f = table["fields"]
+    i_sym = col_index(f, "證券代號")
+    i_name = col_index(f, "證券名稱")
+    i_vol = col_index(f, "成交股數")
+    i_turn = col_index(f, "成交金額")
+    i_open = col_index(f, "開盤價")
+    i_high = col_index(f, "最高價")
+    i_low = col_index(f, "最低價")
+    i_close = col_index(f, "收盤價")
+    av = availability_for(data_date)
+
+    stocks: list[dict] = []
+    prices: list[dict] = []
+    for row in table.get("data", []):
+        sym = str(row[i_sym]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        stocks.append(
+            {"symbol": sym, "name": str(row[i_name]).strip(), "market": "TWSE"}
+        )
+        prices.append(
+            {
+                "symbol": sym,
+                "data_date": data_date,
+                "available_at": av,
+                "open": parse_float(row[i_open]),
+                "high": parse_float(row[i_high]),
+                "low": parse_float(row[i_low]),
+                "close": parse_float(row[i_close]),
+                "volume": parse_int(row[i_vol]),
+                "turnover": parse_float(row[i_turn]),
+            }
+        )
+    return stocks, prices
+
+
+def parse_institutional(raw: dict, data_date: dt.date) -> list[dict]:
+    f = raw.get("fields") or []
+    i_sym = col_index(f, "證券代號")
+    i_foreign = col_index(f, "外陸資買賣超股數(不含外資自營商)", "外資買賣超股數")
+    i_foreign_dealer = col_index(f, "外資自營商買賣超股數")
+    i_trust = col_index(f, "投信買賣超股數")
+    i_dealer_self = col_index(f, "自營商買賣超股數(自行買賣)")
+    i_dealer_hedge = col_index(f, "自營商買賣超股數(避險)")
+    av = availability_for(data_date)
+
+    out: list[dict] = []
+    for row in raw.get("data", []):
+        sym = str(row[i_sym]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        foreign = parse_int(row[i_foreign]) or 0
+        if i_foreign_dealer is not None:
+            foreign += parse_int(row[i_foreign_dealer]) or 0
+        out.append(
+            {
+                "symbol": sym,
+                "data_date": data_date,
+                "available_at": av,
+                "foreign_net": foreign,
+                "trust_net": parse_int(row[i_trust]),
+                "dealer_self_net": parse_int(row[i_dealer_self])
+                if i_dealer_self is not None
+                else None,
+                "dealer_hedge_net": parse_int(row[i_dealer_hedge])
+                if i_dealer_hedge is not None
+                else None,
+            }
+        )
+    return out
+
+
+def _margin_table(raw: dict) -> dict | None:
+    for t in raw.get("tables", []):
+        f = t.get("fields") or []
+        if "資券互抵" in [str(x).strip() for x in f]:
+            return t
+    return None
+
+
+# MI_MARGN 固定欄位位置（欄名重複，見 docs 註記）
+_M = {
+    "sym": 0, "margin_buy": 2, "margin_sell": 3, "margin_balance": 6,
+    "short_sell": 9, "short_cover": 10, "short_balance": 12,
+}
+
+
+def parse_margin(raw: dict, data_date: dt.date) -> list[dict]:
+    table = _margin_table(raw)
+    if table is None:
+        return []
+    av = availability_for(data_date)
+    out: list[dict] = []
+    for row in table.get("data", []):
+        sym = str(row[_M["sym"]]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        out.append(
+            {
+                "symbol": sym,
+                "data_date": data_date,
+                "available_at": av,
+                "margin_buy": parse_int(row[_M["margin_buy"]]),
+                "margin_sell": parse_int(row[_M["margin_sell"]]),
+                "margin_balance": parse_int(row[_M["margin_balance"]]),
+                "short_sell": parse_int(row[_M["short_sell"]]),
+                "short_cover": parse_int(row[_M["short_cover"]]),
+                "short_balance": parse_int(row[_M["short_balance"]]),
+            }
+        )
+    return out

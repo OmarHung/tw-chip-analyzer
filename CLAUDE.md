@@ -30,7 +30,11 @@
 
 ## 現況與目錄
 
-已完成 docs/01–05 骨架與核心邏輯、docs/06 Backtest 引擎、以及 docs/05 §16 的 Next.js UI（rule-based，含測試）。尚未做：資料 importer（TWSE/TPEx/TDCC 真實抓取與清洗）、feature 計算 job、Shioaji realtime、走勢圖時序 API。
+已完成 docs/01–06 全部（骨架、演算法、評分、決策、API、Backtest）、docs/05 §16 Next.js UI，以及 TWSE 真實資料 importer + feature 計算 job（rule-based，含測試）。系統可吃真實台股盤後資料端到端運作。
+
+**已知限制（重要）**：目前只有 institutional + margin + OHLCV 是真實資料；**holder(TDCC) 與 market 成分尚無資料源、以中性 50 代入**，使 composite 分數被往 50 壓縮（institutional 佔重約 46%，單靠它總分上限約 60）。ranking 正確但絕對分數偏低。要拉開分數需補 TDCC importer（holder）與大盤資料（market）。
+
+尚未做：TDCC importer（openapi 僅當週、change-Z 需累積多週或用歷史 scraper）、SBL importer、TPEx connector、大盤/market score、Shioaji realtime、走勢圖時序 API。
 
 實際結構：
 - `app/core/`：`config.py`（env 用 pydantic-settings；門檻用 `config/thresholds.yaml`）、`logging.py`
@@ -44,10 +48,15 @@
 - `app/services/market_scan.py`：scanner 與 dashboard 共用的全市場掃描
 - `frontend/`：Next.js 16 + TS + Tailwind v4（App Router）。頁面：`app/page.tsx`（Dashboard）、`app/scanner/page.tsx`（client，篩選表格）、`app/stocks/[symbol]/page.tsx`（詳情）；`lib/api.ts` 型別化 client（`NEXT_PUBLIC_API_BASE`，預設 :8099）。走勢 K 線待時序 API
 - `app/backtest/`：`costs.py`（成本模型，禁 0 成本）、`forward_returns.py`（1/3/5/10/20D + MFE/MAE）、`metrics.py`（win/PF/expectancy/DD/Sharpe/Sortino）、`engine.py`（look-ahead 安全進場 + score bucket/threshold 聚合）、`runner.py`（DB-backed）
-- `app/connectors/{twse,tdcc,shioaji_stream}.py`：starter connector（**尚未整合進 importer/DB，待補**）
+- `app/connectors/twse.py`：TWSE 抓取（`fetch_ohlcv` MI_INDEX、`fetch_institutional` T86、`fetch_margin` MI_MARGN）；`tdcc.py`/`shioaji_stream.py` 仍為 starter，待整合
+- `app/importers/`：`base.py`（TWSE 數字/日期解析、`is_stock_symbol`、`availability_for`）、`twse.py`（純函式 parser，欄位以標題名定位；MI_MARGN 用固定位置）、`service.py`（冪等 upsert 入 DB，FK stub 保護）
+- `app/repositories/upsert.py`：PostgreSQL `on_conflict` 冪等 upsert（do_update / do_nothing）
+- `app/services/feature_builder.py`：原始表 → `feature_daily`。兩段正規化（個股 5 日淨額/20 日均量 → 市場橫斷面 Z-score），look-ahead 只用 `data_date<=target`
+- `app/jobs/daily.py`：CLI「抓取→匯入→建特徵」，`APP_ENV=dev python -m app.jobs.daily YYYY-MM-DD`
+- `tests/fixtures/`：TWSE 真實回應切片（T86/MI_INDEX/MI_MARGN），供 parser 測試不打網路
 - `app/models/signal.py`：領域 dataclasses（features / Action / SignalResult）
 - `scripts/`：`seed_dev.py`（API 示範資料）、`backtest_demo.py`（合成行情跑回測，輸出 bucket 表）
-- `tests/`：59 passed（DB roundtrip、order flow、scoring、decision、API 整合、backtest）
+- `tests/`：71 passed（DB roundtrip、order flow、scoring、decision、API 整合、backtest、importer、feature builder）
 - 完整建議目錄結構見 `docs/01-overview-architecture.md §5`。
 
 ## 環境與指令
@@ -60,6 +69,7 @@
 - Seed 開發資料：`APP_ENV=dev python -m scripts.seed_dev`
 - Backtest 示範：`APP_ENV=dev python -m scripts.backtest_demo`（輸出各 score bucket × 5D 績效）
 - 前端：`cd frontend && pnpm install && pnpm dev`（:3000）。注意 dev 模式 HMR websocket 在本沙箱會失敗而卡住 client hydration；驗證請用 `pnpm build && pnpm start`。
+- 每日盤後匯入 + 建特徵：`APP_ENV=dev python -m app.jobs.daily 2025-09-03`（需先匯入約 10 個交易日歷史，feature 的 5 日/20 日視窗才有意義）。
 
 ## 文件導覽（`docs/`）
 
