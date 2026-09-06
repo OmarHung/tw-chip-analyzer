@@ -38,8 +38,9 @@ async def scan(
     filtered.sort(key=lambda x: x.chip_score, reverse=True)
     out = [
         ScannerRow(
-            symbol=r.symbol, price=r.price, chip_score=r.chip_score,
-            intraday=r.intraday, institutional=r.institutional, holder=r.holder,
+            symbol=r.symbol, name=r.name, price=r.price, change_pct=r.change_pct,
+            chip_score=r.chip_score, intraday=r.intraday,
+            institutional=r.institutional, holder=r.holder,
             action=r.action, turnover=r.turnover, rr=r.rr,
         )
         for r in filtered[:limit]

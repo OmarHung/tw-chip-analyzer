@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { ActionBadge } from "@/components/ActionBadge";
-import { Card } from "@/components/Card";
-import { ScoreBar } from "@/components/ScoreBar";
+import { Card, SectionTitle } from "@/components/Card";
+import { Change } from "@/components/Change";
+import { ScoreBar, ScoreRing } from "@/components/ScoreBar";
 import { api } from "@/lib/api";
-import { fmtPrice, scoreColor } from "@/lib/format";
+import { fmtPrice } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -13,17 +14,16 @@ export default async function StockDetailPage({
   params: Promise<{ symbol: string }>;
 }) {
   const { symbol } = await params;
-
   let data;
   try {
     data = await api.analysis(symbol);
   } catch {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center text-slate-400">
+      <div className="rounded-2xl border border-line-soft bg-panel/70 p-10 text-center text-ink-dim">
         找不到 {symbol} 的分析資料。
         <div className="mt-4">
-          <Link href="/scanner" className="text-emerald-400 hover:underline">
-            ← 回 Scanner
+          <Link href="/scanner" className="text-gold hover:underline">
+            ← 回選股
           </Link>
         </div>
       </div>
@@ -33,97 +33,102 @@ export default async function StockDetailPage({
   const { scores, risk } = data;
 
   return (
-    <div className="space-y-6">
-      <Link href="/scanner" className="text-sm text-slate-400 hover:text-white">
-        ← 回 Scanner
+    <div className="space-y-8">
+      <Link
+        href="/scanner"
+        className="inline-flex items-center gap-1 font-mono text-xs tracking-wider text-ink-faint uppercase transition-colors hover:text-ink"
+      >
+        ← 回選股
       </Link>
 
-      <div className="flex flex-wrap items-center gap-4">
-        <h1 className="text-3xl font-bold">{data.symbol}</h1>
-        <span className="text-2xl tabular-nums text-slate-300">
-          {fmtPrice(data.price)}
-        </span>
-        <ActionBadge action={data.action} />
-        <div className="ml-auto text-right">
-          <div className="text-xs text-slate-500">Chip Score</div>
-          <div className={`text-4xl font-bold tabular-nums ${scoreColor(data.chip_score)}`}>
-            {data.chip_score.toFixed(1)}
+      {/* 標頭 */}
+      <section className="reveal flex flex-wrap items-center gap-x-8 gap-y-4">
+        <div>
+          <div className="flex items-baseline gap-3">
+            <h1 className="font-mono text-3xl font-bold text-ink">{data.symbol}</h1>
+            <span className="font-display text-2xl italic text-ink-dim">
+              {data.name}
+            </span>
+          </div>
+          <div className="mt-2 flex items-baseline gap-3">
+            <span className="font-mono text-2xl tnum text-ink">
+              {fmtPrice(data.price)}
+            </span>
+            <Change pct={data.change_pct} className="text-lg" />
+            <ActionBadge action={data.action} showZh />
           </div>
         </div>
-      </div>
+        <div className="ml-auto flex items-center gap-4">
+          <ScoreRing score={data.chip_score} />
+        </div>
+      </section>
 
       <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <h2 className="mb-4 text-sm font-semibold text-slate-300">分數拆解</h2>
-          <div className="space-y-4">
-            <ScoreBar label="盤中 Intraday" score={scores.intraday} />
-            <ScoreBar label="法人 Institutional" score={scores.institutional} />
-            <ScoreBar label="TDCC Holder" score={scores.holder} />
-            <ScoreBar label="市場 Market" score={scores.market} />
+        {/* 分數拆解 */}
+        <Card className="reveal" >
+          <SectionTitle>分數拆解</SectionTitle>
+          <div className="space-y-5">
+            <ScoreBar label="盤中 Intraday" score={scores.intraday} delay={0} hint="Phase 1 中性（已排除加權）" />
+            <ScoreBar label="法人 Institutional" score={scores.institutional} delay={80} />
+            <ScoreBar label="集保 TDCC" score={scores.holder} delay={160} />
+            <ScoreBar label="大盤 Market" score={scores.market} delay={240} />
           </div>
-          <p className="mt-4 text-xs text-slate-600">
-            盤中分數於 Phase 1 為中性（無即時資料，已排除於加權）。
-          </p>
         </Card>
 
-        <Card>
-          <h2 className="mb-4 text-sm font-semibold text-slate-300">
-            風險/報酬計畫
-          </h2>
-          <dl className="grid grid-cols-2 gap-y-3 text-sm">
-            <Row label="進場區間">
+        {/* 風險報酬 */}
+        <Card className="reveal">
+          <SectionTitle>風險 / 報酬計畫</SectionTitle>
+          <div className="space-y-4">
+            <RiskRow label="進場區間">
               {data.entry
                 ? `${fmtPrice(data.entry.low)} – ${fmtPrice(data.entry.high)}`
                 : "—"}
-            </Row>
-            <Row label="停損">
-              {risk.stop_loss != null ? fmtPrice(risk.stop_loss) : "—"}
-            </Row>
-            <Row label="TP1">
-              {risk.tp1 != null ? fmtPrice(risk.tp1) : "—"}
-            </Row>
-            <Row label="TP2">
-              {risk.tp2 != null ? fmtPrice(risk.tp2) : "—"}
-            </Row>
-            <Row label="風險報酬 RR">
-              <span className="font-semibold text-emerald-400">
+            </RiskRow>
+            <div className="grid grid-cols-3 gap-3">
+              <PriceStat label="停損" value={risk.stop_loss} tone="down" />
+              <PriceStat label="TP1" value={risk.tp1} tone="up" />
+              <PriceStat label="TP2" value={risk.tp2} tone="up" />
+            </div>
+            <div className="flex items-center justify-between border-t border-line-soft pt-4">
+              <span className="text-sm text-ink-dim">風險報酬比 RR</span>
+              <span className="font-mono text-2xl font-bold tnum text-gold">
                 {risk.rr != null ? risk.rr.toFixed(2) : "—"}
               </span>
-            </Row>
-          </dl>
+            </div>
+          </div>
         </Card>
       </div>
 
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold text-slate-300">訊號原因</h2>
+      {/* 訊號原因 */}
+      <Card className="reveal">
+        <SectionTitle>訊號原因</SectionTitle>
         {data.reasons.length ? (
-          <ul className="space-y-1.5 text-sm text-slate-300">
+          <ul className="grid gap-2 sm:grid-cols-2">
             {data.reasons.map((r, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="text-emerald-500">›</span>
+              <li key={i} className="flex gap-2.5 text-sm text-ink">
+                <span className="mt-0.5 text-gold">◆</span>
                 {r}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-slate-500">無顯著訊號</p>
+          <p className="text-sm text-ink-faint">無顯著訊號</p>
         )}
       </Card>
 
+      {/* 走勢圖佔位 */}
       <Card className="border-dashed">
-        <h2 className="mb-2 text-sm font-semibold text-slate-300">
-          價格 / CVD / 法人 / TDCC 走勢圖
-        </h2>
-        <p className="text-sm text-slate-500">
+        <SectionTitle>價格 / CVD / 法人 / TDCC 走勢</SectionTitle>
+        <p className="text-sm leading-relaxed text-ink-faint">
           K 線、CVD、大單淨量、OBI、Absorption、法人買賣超、融資、TDCC 持股比等時間序列圖，
-          需後端提供時序資料 API（Phase 3 realtime 與盤後 importer 完成後補上）。
+          需後端提供時序資料 API（Phase 3 realtime 與盤後 importer 擴充後補上）。
         </p>
       </Card>
     </div>
   );
 }
 
-function Row({
+function RiskRow({
   label,
   children,
 }: {
@@ -131,9 +136,34 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <>
-      <dt className="text-slate-400">{label}</dt>
-      <dd className="text-right tabular-nums">{children}</dd>
-    </>
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-ink-dim">{label}</span>
+      <span className="font-mono tnum text-ink">{children}</span>
+    </div>
+  );
+}
+
+function PriceStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | null;
+  tone: "up" | "down";
+}) {
+  return (
+    <div className="rounded-xl border border-line-soft bg-panel-2/50 p-3 text-center">
+      <div className="font-mono text-[10px] tracking-wider text-ink-faint uppercase">
+        {label}
+      </div>
+      <div
+        className={`mt-1 font-mono text-lg font-bold tnum ${
+          tone === "up" ? "text-up" : "text-down"
+        }`}
+      >
+        {value != null ? fmtPrice(value) : "—"}
+      </div>
+    </div>
   );
 }

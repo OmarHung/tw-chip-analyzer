@@ -18,7 +18,9 @@ router = APIRouter(prefix="/api", tags=["dashboard"])
 
 class TopRow(BaseModel):
     symbol: str
+    name: str
     chip_score: float
+    change_pct: float | None = None
     action: str
 
 
@@ -96,5 +98,11 @@ async def dashboard(
         watch_candidates=counts.get("WATCH", 0),
         avg_chip_score=avg,
         market=market,
-        top=[TopRow(symbol=r.symbol, chip_score=r.chip_score, action=r.action) for r in top],
+        top=[
+            TopRow(
+                symbol=r.symbol, name=r.name, chip_score=r.chip_score,
+                change_pct=r.change_pct, action=r.action,
+            )
+            for r in top
+        ],
     )

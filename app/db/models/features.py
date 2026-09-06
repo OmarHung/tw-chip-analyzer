@@ -33,6 +33,7 @@ class FeatureDaily(Base, AvailabilityMixin, TimestampMixin):
 
     # 價格結構
     close: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    change_pct: Mapped[float | None] = mapped_column()  # 當日漲跌幅（對前一交易日）
     atr14: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     ma20: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     vwap: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))

@@ -20,7 +20,9 @@ export interface Scores {
 
 export interface AnalysisResponse {
   symbol: string;
+  name: string;
   price: number;
+  change_pct: number | null;
   chip_score: number;
   scores: Scores;
   action: Action;
@@ -36,7 +38,9 @@ export interface AnalysisResponse {
 
 export interface ScannerRow {
   symbol: string;
+  name: string;
   price: number;
+  change_pct: number | null;
   chip_score: number;
   intraday: number;
   institutional: number;
@@ -70,7 +74,13 @@ export interface DashboardResponse {
   watch_candidates: number;
   avg_chip_score: number;
   market: MarketInfo | null;
-  top: { symbol: string; chip_score: number; action: Action }[];
+  top: {
+    symbol: string;
+    name: string;
+    chip_score: number;
+    change_pct: number | null;
+    action: Action;
+  }[];
 }
 
 async function get<T>(path: string): Promise<T> {

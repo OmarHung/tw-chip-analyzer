@@ -28,7 +28,9 @@ def _f(value, default: float = 0.0) -> float:
 @dataclass
 class AnalysisResult:
     symbol: str
+    name: str
     price: float
+    change_pct: float | None
     chip: ChipScoreResult
     signal: SignalResult
 
@@ -61,6 +63,7 @@ class AnalysisService:
         fd: FeatureDaily,
         market: MarketContext | None = None,
         already_in_position: bool = False,
+        name: str | None = None,
     ) -> AnalysisResult:
         market = market or MarketContext()
         # Phase 1 尚無盤中即時資料 → 排除 intraday，權重重分配給其餘成分
@@ -97,5 +100,10 @@ class AnalysisService:
             thresholds=self.t,
         )
         return AnalysisResult(
-            symbol=fd.symbol, price=last_price, chip=chip, signal=signal
+            symbol=fd.symbol,
+            name=name or fd.symbol,
+            price=last_price,
+            change_pct=_f(fd.change_pct) if fd.change_pct is not None else None,
+            chip=chip,
+            signal=signal,
         )

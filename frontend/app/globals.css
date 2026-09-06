@@ -1,26 +1,110 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ── Terminal Luxe：精煉金融終端 ──────────────────────────────
+   台股語意：紅漲(up) / 綠跌(down)。招牌色：琥珀金。 */
+@theme {
+  --color-bg: #0a0a0c;
+  --color-bg-soft: #101014;
+  --color-panel: #141419;
+  --color-panel-2: #191920;
+  --color-line: #26262e;
+  --color-line-soft: #1c1c22;
+  --color-ink: #ece9e2;
+  --color-ink-dim: #9a968c;
+  --color-ink-faint: #63615b;
+
+  --color-gold: #e0b063;
+  --color-gold-bright: #f2c67e;
+  --color-gold-dim: #8a6d38;
+
+  --color-up: #f0555c; /* 漲 / 紅 */
+  --color-down: #24b981; /* 跌 / 綠 */
+
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-tc);
+  --font-mono: var(--font-jbmono);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans), "Noto Sans TC", sans-serif;
+  /* 大氣氛圍：金色徑向光暈 + 細噪點網格 */
+  background-image:
+    radial-gradient(120% 80% at 100% -10%, rgba(224, 176, 99, 0.06), transparent 55%),
+    radial-gradient(90% 60% at -10% 0%, rgba(36, 185, 129, 0.04), transparent 50%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* 細噪點覆層 */
+.grain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 進場錯落淡入 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.reveal {
+  opacity: 0;
+  animation: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* 分數條填充動畫 */
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.bar-fill {
+  transform-origin: left;
+  animation: grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* 極簡捲軸 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }

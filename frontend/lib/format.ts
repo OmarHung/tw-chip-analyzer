@@ -1,26 +1,56 @@
 import type { Action } from "./api";
 
+/* 台股語意：紅漲(up) / 綠跌(down)。動作/分數用金色系，與價格紅綠區隔。 */
+
 export const ACTION_STYLE: Record<Action, string> = {
-  BUY: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30",
-  WATCH: "bg-amber-500/15 text-amber-400 ring-amber-500/30",
-  HOLD: "bg-slate-500/15 text-slate-300 ring-slate-500/30",
-  REDUCE: "bg-orange-500/15 text-orange-400 ring-orange-500/30",
-  EXIT: "bg-rose-500/15 text-rose-400 ring-rose-500/30",
-  AVOID: "bg-rose-500/15 text-rose-400 ring-rose-500/30",
+  BUY: "bg-gold/15 text-gold-bright ring-gold/40",
+  WATCH: "bg-gold/10 text-gold ring-gold/25",
+  HOLD: "bg-white/5 text-ink-dim ring-white/10",
+  REDUCE: "bg-up/10 text-up ring-up/25",
+  EXIT: "bg-up/15 text-up ring-up/30",
+  AVOID: "bg-white/5 text-ink-faint ring-white/5",
 };
 
+export const ACTION_LABEL: Record<Action, string> = {
+  BUY: "買進",
+  WATCH: "觀察",
+  HOLD: "持有",
+  REDUCE: "減碼",
+  EXIT: "出場",
+  AVOID: "避開",
+};
+
+/* Chip score → 金色強度 */
 export function scoreColor(score: number): string {
-  if (score >= 75) return "text-emerald-400";
-  if (score >= 65) return "text-amber-400";
-  if (score >= 50) return "text-slate-300";
-  return "text-rose-400";
+  if (score >= 75) return "text-gold-bright";
+  if (score >= 65) return "text-gold";
+  if (score >= 50) return "text-ink-dim";
+  return "text-ink-faint";
 }
 
 export function scoreBarColor(score: number): string {
-  if (score >= 75) return "bg-emerald-500";
-  if (score >= 65) return "bg-amber-500";
-  if (score >= 50) return "bg-slate-500";
-  return "bg-rose-500";
+  if (score >= 75) return "bg-gold-bright";
+  if (score >= 65) return "bg-gold";
+  if (score >= 50) return "bg-ink-faint";
+  return "bg-line";
+}
+
+/* 漲跌方向色（台股：漲紅跌綠） */
+export function dirColor(v: number | null | undefined): string {
+  if (v == null || v === 0) return "text-ink-dim";
+  return v > 0 ? "text-up" : "text-down";
+}
+
+export function fmtChange(pct: number | null | undefined): string {
+  if (pct == null) return "—";
+  const p = pct * 100;
+  const sign = p > 0 ? "+" : "";
+  return `${sign}${p.toFixed(2)}%`;
+}
+
+export function changeArrow(v: number | null | undefined): string {
+  if (v == null || v === 0) return "";
+  return v > 0 ? "▲" : "▼";
 }
 
 export function fmtTurnover(v: number): string {

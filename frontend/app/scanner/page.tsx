@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ActionBadge } from "@/components/ActionBadge";
+import { Change } from "@/components/Change";
 import { api, type Action, type ScannerRow } from "@/lib/api";
 import { fmtPrice, fmtTurnover, scoreColor } from "@/lib/format";
 
@@ -36,16 +37,23 @@ export default function ScannerPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Scanner</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          資料日期 {asOf ?? "—"}　·　{rows.length} 檔
-        </p>
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="font-display text-4xl leading-none">
+            選<span className="italic text-gold">股</span>
+          </h1>
+          <p className="mt-2 font-mono text-xs tracking-wider text-ink-faint">
+            {asOf ?? "—"} · {rows.length} 檔{loading && " · 載入中"}
+          </p>
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-slate-400">最低 Score</span>
+      {/* 篩選 */}
+      <div className="flex flex-wrap items-center gap-8 rounded-2xl border border-line-soft bg-panel/70 px-6 py-4">
+        <label className="flex items-center gap-3 text-sm">
+          <span className="font-mono text-[11px] tracking-wider text-ink-faint uppercase">
+            最低分數
+          </span>
           <input
             type="range"
             min={0}
@@ -53,16 +61,18 @@ export default function ScannerPage() {
             step={5}
             value={minScore}
             onChange={(e) => setMinScore(Number(e.target.value))}
-            className="accent-emerald-500"
+            className="accent-gold"
           />
-          <span className="w-8 tabular-nums text-slate-200">{minScore}</span>
+          <span className="w-8 font-mono text-sm tnum text-gold">{minScore}</span>
         </label>
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-slate-400">Action</span>
+        <label className="flex items-center gap-3 text-sm">
+          <span className="font-mono text-[11px] tracking-wider text-ink-faint uppercase">
+            動作
+          </span>
           <select
             value={action}
             onChange={(e) => setAction(e.target.value as Action | "")}
-            className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-slate-100"
+            className="rounded-lg border border-line bg-panel-2 px-3 py-1.5 text-sm text-ink outline-none focus:border-gold/50"
           >
             {ACTIONS.map((a) => (
               <option key={a} value={a}>
@@ -74,55 +84,61 @@ export default function ScannerPage() {
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center text-slate-400">
+        <div className="rounded-2xl border border-line-soft bg-panel/70 p-10 text-center text-ink-dim">
           {error}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-800">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-900/80 text-slate-400">
-              <tr>
+        <div className="overflow-x-auto rounded-2xl border border-line-soft bg-panel/50">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-line-soft font-mono text-[10px] tracking-[0.12em] text-ink-faint uppercase">
                 <Th>股票</Th>
-                <Th right>價格</Th>
-                <Th right>Chip</Th>
-                <Th right>盤中</Th>
+                <Th right>收盤</Th>
+                <Th right>漲跌</Th>
+                <Th right>籌碼</Th>
                 <Th right>法人</Th>
                 <Th right>TDCC</Th>
-                <Th center>Action</Th>
-                <Th right>成交金額</Th>
+                <Th center>動作</Th>
+                <Th right>成交額</Th>
                 <Th right>RR</Th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
-              {rows.map((r) => (
-                <tr key={r.symbol} className="hover:bg-slate-900/50">
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/stocks/${r.symbol}`}
-                      className="font-medium text-emerald-400 hover:underline"
-                    >
-                      {r.symbol}
+            <tbody>
+              {rows.map((r, i) => (
+                <tr
+                  key={r.symbol}
+                  className="reveal border-b border-line-soft/60 transition-colors last:border-0 hover:bg-white/[0.02]"
+                  style={{ animationDelay: `${Math.min(i * 12, 360)}ms` }}
+                >
+                  <td className="py-3 pl-5 pr-3">
+                    <Link href={`/stocks/${r.symbol}`} className="group flex items-baseline gap-2">
+                      <span className="font-mono text-sm font-medium text-ink group-hover:text-gold">
+                        {r.symbol}
+                      </span>
+                      <span className="truncate text-sm text-ink-dim">{r.name}</span>
                     </Link>
                   </td>
-                  <Td right>{fmtPrice(r.price)}</Td>
+                  <Td right mono>{fmtPrice(r.price)}</Td>
+                  <td className="px-3 py-3 text-right">
+                    <Change pct={r.change_pct} className="text-sm" />
+                  </td>
                   <Td right>
-                    <span className={`font-semibold ${scoreColor(r.chip_score)}`}>
+                    <span className={`font-mono font-bold tnum ${scoreColor(r.chip_score)}`}>
                       {r.chip_score.toFixed(1)}
                     </span>
                   </Td>
-                  <Td right>{r.intraday.toFixed(0)}</Td>
-                  <Td right>{r.institutional.toFixed(0)}</Td>
-                  <Td right>{r.holder.toFixed(0)}</Td>
-                  <td className="px-3 py-2 text-center">
+                  <Td right mono dim>{r.institutional.toFixed(0)}</Td>
+                  <Td right mono dim>{r.holder.toFixed(0)}</Td>
+                  <td className="px-3 py-3 text-center">
                     <ActionBadge action={r.action} />
                   </td>
-                  <Td right>{fmtTurnover(r.turnover)}</Td>
-                  <Td right>{r.rr?.toFixed(1) ?? "—"}</Td>
+                  <Td right mono dim>{fmtTurnover(r.turnover)}</Td>
+                  <Td right mono dim>{r.rr?.toFixed(1) ?? "—"}</Td>
                 </tr>
               ))}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="py-12 text-center text-ink-faint">
                     無符合條件的標的
                   </td>
                 </tr>
@@ -146,7 +162,7 @@ function Th({
 }) {
   return (
     <th
-      className={`px-3 py-2 font-medium ${
+      className={`px-3 py-3 font-medium first:pl-5 ${
         right ? "text-right" : center ? "text-center" : "text-left"
       }`}
     >
@@ -155,9 +171,23 @@ function Th({
   );
 }
 
-function Td({ children, right }: { children: React.ReactNode; right?: boolean }) {
+function Td({
+  children,
+  right,
+  mono,
+  dim,
+}: {
+  children: React.ReactNode;
+  right?: boolean;
+  mono?: boolean;
+  dim?: boolean;
+}) {
   return (
-    <td className={`px-3 py-2 tabular-nums ${right ? "text-right" : ""}`}>
+    <td
+      className={`px-3 py-3 text-sm ${right ? "text-right" : ""} ${
+        mono ? "font-mono tnum" : ""
+      } ${dim ? "text-ink-dim" : "text-ink"}`}
+    >
       {children}
     </td>
   );

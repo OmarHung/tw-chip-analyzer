@@ -69,9 +69,16 @@ def _price_features(g: pd.DataFrame) -> dict | None:
     vwap = (last_turn / last_vol) if last_vol and last_vol > 0 else last_close
     swing_low = low.tail(10).min()
     avg_vol20 = vol.tail(20).mean()
+    prev_close = close.iloc[-2] if len(close) >= 2 else None
+    change_pct = (
+        float((last_close - prev_close) / prev_close)
+        if prev_close and prev_close > 0
+        else None
+    )
 
     return {
         "close": round(last_close, 4),
+        "change_pct": change_pct,
         "atr14": round(float(atr14), 4) if np.isfinite(atr14) else None,
         "ma20": round(float(ma20), 4) if np.isfinite(ma20) else None,
         "vwap": round(float(vwap), 4),

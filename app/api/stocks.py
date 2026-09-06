@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import AnalysisResponse
+from app.db.models.market import Stock
 from app.db.session import get_session
 from app.repositories.features import FeatureDailyRepository
 from app.repositories.market import load_market_context
@@ -23,5 +24,7 @@ async def get_analysis(
     if fd is None:
         raise HTTPException(status_code=404, detail=f"無 {symbol} 的特徵資料")
     market = await load_market_context(session, fd.data_date)
-    result = AnalysisService().analyze(fd, market=market)
+    stock = await session.get(Stock, symbol)
+    name = stock.name if stock else symbol
+    result = AnalysisService().analyze(fd, market=market, name=name)
     return AnalysisResponse.from_result(result)

@@ -27,7 +27,9 @@ class RiskInfo(BaseModel):
 
 class AnalysisResponse(BaseModel):
     symbol: str
+    name: str
     price: float
+    change_pct: float | None = None
     chip_score: float
     scores: Scores
     action: str
@@ -45,7 +47,9 @@ class AnalysisResponse(BaseModel):
         )
         return cls(
             symbol=r.symbol,
+            name=r.name,
             price=r.price,
+            change_pct=r.change_pct,
             chip_score=r.chip.chip_score,
             scores=Scores(
                 intraday=r.chip.intraday,
@@ -64,7 +68,9 @@ class AnalysisResponse(BaseModel):
 
 class ScannerRow(BaseModel):
     symbol: str
+    name: str
     price: float
+    change_pct: float | None = None
     chip_score: float
     intraday: float
     institutional: float
