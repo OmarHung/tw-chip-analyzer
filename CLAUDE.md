@@ -33,10 +33,10 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 已完成 docs/01–06 全部（骨架、演算法、評分、決策、API、Backtest）、docs/05 §16 Next.js UI，可吃真實台股盤後資料端到端運作。真實資料涵蓋 OHLCV + institutional + margin（TWSE）+ TDCC 股權分散 + TAIEX 大盤 regime；四大分項中 institutional / holder / market 為真實資料。已對 2026-09-04 全市場（~1080 檔）驗證分層正常。intraday 分項已可併入全市場 composite（有逐筆的標的走四維，無者三維排除）。
 
 **已知限制 / 待辦（會影響決策，讀不出來的部分）**：
-- **BUY(75) 仍偏難達**：intraday 6 個內部成分目前只餵 3 個（large_trade_delta / cvd / obi），另 3 個（absorption / trade_speed / price_efficiency）中性 0，intraday 子分數頂部受限；2026-09-04 全市場最高 73.7。要更易出 BUY 需補齊 intraday 成分或於 config 調降 `signal.buy_score`——屬校準取捨，勿擅自更動。
+- **BUY(75) 仍偏難達，且補齊 intraday 未使其更易達**：intraday 6 個成分已全數接線（absorption / trade_speed / price_efficiency 於 2026-09-06 由當日 tick 算出橫斷面 z，見 `orderflow_intraday._bar_absorption/_bar_trade_speed` 與 `orderflow/price_efficiency.py`）。**經驗發現**：補齊後 2026-09-04 全市場最高 chip_score 由 73.7 **降至 71.0**——新三成分對當時頂部標的偏中性/偏弱，反而稀釋，故「補齊 intraday 能更易出 BUY」的原假設不成立。要更易出 BUY 只剩於 config 調降 `signal.buy_score`——屬校準取捨，勿擅自更動。intraday 是否真有 alpha 仍待累積多日 tick 後回測驗證。
 - **TDCC holder 為橫斷面 level proxy**：openapi 僅當週快照，無法算 week-over-week change，暫以當週集中度橫斷面 Z-score 代替；累積 ≥2 週後改真實 change。`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
 - **industry_trend 仍中性**：OHLCV importer 未帶產業別。
-- 尚未做：SBL importer、TPEx connector、真實 TDCC change、產業別/趨勢、Shioaji realtime、走勢圖時序 API、intraday 補齊三成分、intraday 併入 backtest 驗證單調性。
+- 尚未做：SBL importer、TPEx connector、真實 TDCC change、產業別/趨勢、Shioaji realtime、走勢圖時序 API、intraday 併入 backtest 驗證單調性（需先累積多日 tick）。
 
 ## 頂層地圖
 

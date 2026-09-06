@@ -56,6 +56,9 @@ class AnalysisService:
             cvd_z=_f(fd.cvd_z),
             large_trade_delta_z=_f(fd.large_trade_delta_z),
             obi=_f(fd.intraday_obi),
+            absorption_z=_f(fd.absorption_z),
+            trade_speed_z=_f(fd.trade_speed_z),
+            price_efficiency_z=_f(fd.price_efficiency_z),
         )
 
     def _weekly(self, fd: FeatureDaily) -> WeeklyFeatures:

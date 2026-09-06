@@ -60,6 +60,7 @@ async def _intraday_signals(
 
     # 各標的有界訊號（皆 turnover-neutral 比率/正規化值）
     net_aggr, large_net, obi = {}, {}, {}
+    absorp, tspeed, peff = {}, {}, {}
     for sym, ticks in by_symbol.items():
         of = compute_orderflow(ticks)
         if of.trade_count == 0:
@@ -67,14 +68,23 @@ async def _intraday_signals(
         net_aggr[sym] = of.net_aggressor
         large_net[sym] = of.large_net
         obi[sym] = of.cvd_slope_norm
+        absorp[sym] = of.absorption_signal
+        tspeed[sym] = of.trade_speed_signal
+        peff[sym] = of.price_efficiency
 
     z_cvd = _zscore_map(net_aggr)          # net aggressor = 正規化 CVD 方向
     z_large = _zscore_map(large_net)       # 大單淨額方向
+    z_absorp = _zscore_map(absorp)         # 吸收（低檔承接 vs 高檔賣壓）
+    z_tspeed = _zscore_map(tspeed)         # 盤中成交加速
+    z_peff = _zscore_map(peff)             # 價格路徑效率
     return {
         sym: {
             "cvd_z": z_cvd.get(sym, 0.0),
             "large_trade_delta_z": z_large.get(sym, 0.0),
             "intraday_obi": obi.get(sym, 0.0),
+            "absorption_z": z_absorp.get(sym, 0.0),
+            "trade_speed_z": z_tspeed.get(sym, 0.0),
+            "price_efficiency_z": z_peff.get(sym, 0.0),
         }
         for sym in net_aggr
     }
@@ -275,6 +285,9 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
                 "cvd_z": intra["cvd_z"] if intra else None,
                 "large_trade_delta_z": intra["large_trade_delta_z"] if intra else None,
                 "intraday_obi": intra["intraday_obi"] if intra else None,
+                "absorption_z": intra["absorption_z"] if intra else None,
+                "trade_speed_z": intra["trade_speed_z"] if intra else None,
+                "price_efficiency_z": intra["price_efficiency_z"] if intra else None,
             }
         )
 

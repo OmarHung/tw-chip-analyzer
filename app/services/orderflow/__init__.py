@@ -5,5 +5,6 @@ from app.services.orderflow import (  # noqa: F401
     cvd,
     large_trade,
     obi,
+    price_efficiency,
     trade_speed,
 )

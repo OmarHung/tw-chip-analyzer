@@ -62,6 +62,9 @@ class FeatureDaily(Base, AvailabilityMixin, TimestampMixin):
     cvd_z: Mapped[float | None] = mapped_column()
     large_trade_delta_z: Mapped[float | None] = mapped_column()
     intraday_obi: Mapped[float | None] = mapped_column()
+    absorption_z: Mapped[float | None] = mapped_column()
+    trade_speed_z: Mapped[float | None] = mapped_column()
+    price_efficiency_z: Mapped[float | None] = mapped_column()
 
 
 class SignalSnapshot(Base, AvailabilityMixin, TimestampMixin):
