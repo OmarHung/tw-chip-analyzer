@@ -106,3 +106,13 @@ async def test_scanner_industry_filter(client):
     r = await client.get("/api/scanner", params={"industry": "半導體"})
     body = r.json()
     assert [row["symbol"] for row in body["rows"]] == ["2330"]
+
+
+async def test_dashboard(client):
+    r = await client.get("/api/dashboard")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 2
+    assert sum(body["action_counts"].values()) == 2
+    assert body["top"][0]["symbol"] == "2330"  # 分數最高在前
+    assert 0 <= body["avg_chip_score"] <= 100

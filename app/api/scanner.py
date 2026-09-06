@@ -5,15 +5,11 @@ query：min_score / action / min_turnover / industry / limit，依 chip_score �
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import ScannerResponse, ScannerRow
-from app.db.models.features import FeatureDaily
-from app.db.models.market import Stock
 from app.db.session import get_session
-from app.repositories.features import FeatureDailyRepository
-from app.services.analysis import AnalysisService
+from app.services.market_scan import scan_all
 
 router = APIRouter(prefix="/api", tags=["scanner"])
 
@@ -27,42 +23,25 @@ async def scan(
     industry: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
 ) -> ScannerResponse:
-    repo = FeatureDailyRepository(session)
-    as_of = await repo.latest_date()
+    as_of, rows = await scan_all(session)
     if as_of is None:
         return ScannerResponse(as_of=None, count=0, rows=[])
 
-    stmt = (
-        select(FeatureDaily, Stock.industry)
-        .join(Stock, Stock.symbol == FeatureDaily.symbol)
-        .where(FeatureDaily.data_date == as_of)
-    )
-    if industry:
-        stmt = stmt.where(Stock.industry == industry)
-
-    service = AnalysisService()
-    rows: list[ScannerRow] = []
-    for fd, _industry in (await session.execute(stmt)).all():
-        r = service.analyze(fd)
-        if r.chip.chip_score < min_score:
-            continue
-        if min_turnover and r.price and (fd.turnover or 0) < min_turnover:
-            continue
-        if action and r.signal.action.value != action.upper():
-            continue
-        rows.append(
-            ScannerRow(
-                symbol=r.symbol,
-                price=r.price,
-                chip_score=r.chip.chip_score,
-                intraday=r.chip.intraday,
-                institutional=r.chip.institutional,
-                holder=r.chip.holder,
-                action=r.signal.action.value,
-                turnover=float(fd.turnover or 0),
-                rr=r.signal.risk_reward,
-            )
+    filtered = [
+        r
+        for r in rows
+        if r.chip_score >= min_score
+        and (not min_turnover or r.turnover >= min_turnover)
+        and (not action or r.action == action.upper())
+        and (not industry or r.industry == industry)
+    ]
+    filtered.sort(key=lambda x: x.chip_score, reverse=True)
+    out = [
+        ScannerRow(
+            symbol=r.symbol, price=r.price, chip_score=r.chip_score,
+            intraday=r.intraday, institutional=r.institutional, holder=r.holder,
+            action=r.action, turnover=r.turnover, rr=r.rr,
         )
-
-    rows.sort(key=lambda x: x.chip_score, reverse=True)
-    return ScannerResponse(as_of=str(as_of), count=len(rows[:limit]), rows=rows[:limit])
+        for r in filtered[:limit]
+    ]
+    return ScannerResponse(as_of=str(as_of), count=len(out), rows=out)

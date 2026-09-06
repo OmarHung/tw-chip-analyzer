@@ -30,7 +30,7 @@
 
 ## 現況與目錄
 
-已完成 docs/01–05 骨架與核心邏輯，以及 docs/06 的 Backtest 引擎（rule-based，含測試）。尚未做：資料 importer（TWSE/TPEx/TDCC 真實抓取與清洗）、feature 計算 job、Shioaji realtime、UI。
+已完成 docs/01–05 骨架與核心邏輯、docs/06 Backtest 引擎、以及 docs/05 §16 的 Next.js UI（rule-based，含測試）。尚未做：資料 importer（TWSE/TPEx/TDCC 真實抓取與清洗）、feature 計算 job、Shioaji realtime、走勢圖時序 API。
 
 實際結構：
 - `app/core/`：`config.py`（env 用 pydantic-settings；門檻用 `config/thresholds.yaml`）、`logging.py`
@@ -40,7 +40,9 @@
 - `app/services/chip/`：intraday / institutional / holder / market 分項 + `composite.py`（config 驅動權重 + 缺成分權重重分配）
 - `app/services/decision/`：`risk.py` / `entry.py` / `exit.py` + `__init__.decide()` 整合
 - `app/services/{normalize,analysis}.py`：正規化工具、FeatureDaily→分析結果
-- `app/api/`：`stocks.py`（`GET /api/stocks/{symbol}/analysis`）、`scanner.py`（`GET /api/scanner`）、`schemas.py`
+- `app/api/`：`stocks.py`（`GET /api/stocks/{symbol}/analysis`）、`scanner.py`（`GET /api/scanner`）、`dashboard.py`（`GET /api/dashboard`）、`schemas.py`；CORS 允許 :3000（見 `main.py`）
+- `app/services/market_scan.py`：scanner 與 dashboard 共用的全市場掃描
+- `frontend/`：Next.js 16 + TS + Tailwind v4（App Router）。頁面：`app/page.tsx`（Dashboard）、`app/scanner/page.tsx`（client，篩選表格）、`app/stocks/[symbol]/page.tsx`（詳情）；`lib/api.ts` 型別化 client（`NEXT_PUBLIC_API_BASE`，預設 :8099）。走勢 K 線待時序 API
 - `app/backtest/`：`costs.py`（成本模型，禁 0 成本）、`forward_returns.py`（1/3/5/10/20D + MFE/MAE）、`metrics.py`（win/PF/expectancy/DD/Sharpe/Sortino）、`engine.py`（look-ahead 安全進場 + score bucket/threshold 聚合）、`runner.py`（DB-backed）
 - `app/connectors/{twse,tdcc,shioaji_stream}.py`：starter connector（**尚未整合進 importer/DB，待補**）
 - `app/models/signal.py`：領域 dataclasses（features / Action / SignalResult）
@@ -57,6 +59,7 @@
 - 啟動：`APP_ENV=dev uvicorn app.main:app --reload`；Swagger 於 `/docs`
 - Seed 開發資料：`APP_ENV=dev python -m scripts.seed_dev`
 - Backtest 示範：`APP_ENV=dev python -m scripts.backtest_demo`（輸出各 score bucket × 5D 績效）
+- 前端：`cd frontend && pnpm install && pnpm dev`（:3000）。注意 dev 模式 HMR websocket 在本沙箱會失敗而卡住 client hydration；驗證請用 `pnpm build && pnpm start`。
 
 ## 文件導覽（`docs/`）
 

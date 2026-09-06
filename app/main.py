@@ -8,6 +8,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -34,15 +35,25 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # 允許本機前端(Next.js dev)跨埠呼叫
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     @app.get("/health", tags=["system"])
     async def health() -> dict:
         return {"status": "ok", "env": get_settings().app_env}
 
+    from app.api.dashboard import router as dashboard_router
     from app.api.scanner import router as scanner_router
     from app.api.stocks import router as stocks_router
 
     app.include_router(stocks_router)
     app.include_router(scanner_router)
+    app.include_router(dashboard_router)
 
     return app
 

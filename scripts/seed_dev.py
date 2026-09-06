@@ -7,6 +7,8 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
+from sqlalchemy import delete
+
 from app.db.models.features import FeatureDaily
 from app.db.models.market import Stock
 from app.db.session import get_sessionmaker
@@ -26,6 +28,11 @@ async def main() -> None:
     async with sm() as s:
         d = dt.date(2026, 9, 5)
         av = dt.datetime(2026, 9, 5, 15, 0)
+        syms = [row[0] for row in SAMPLE]
+        # 冪等：先清掉本組示範資料
+        await s.execute(delete(FeatureDaily).where(FeatureDaily.symbol.in_(syms)))
+        await s.execute(delete(Stock).where(Stock.symbol.in_(syms)))
+        await s.flush()
         for sym, name, ind, close, atr, turnover, fz, tz, mz, lhz, rhz in SAMPLE:
             await s.merge(Stock(symbol=sym, name=name, market="TWSE", industry=ind))
             await s.flush()

@@ -1,0 +1,85 @@
+// 型別化 API client，對應 FastAPI 後端（見 docs/05）。
+
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8099";
+
+export type Action =
+  | "BUY"
+  | "WATCH"
+  | "HOLD"
+  | "REDUCE"
+  | "EXIT"
+  | "AVOID";
+
+export interface Scores {
+  intraday: number;
+  institutional: number;
+  holder: number;
+  market: number;
+}
+
+export interface AnalysisResponse {
+  symbol: string;
+  price: number;
+  chip_score: number;
+  scores: Scores;
+  action: Action;
+  entry: { low: number; high: number } | null;
+  risk: {
+    stop_loss: number | null;
+    tp1: number | null;
+    tp2: number | null;
+    rr: number | null;
+  };
+  reasons: string[];
+}
+
+export interface ScannerRow {
+  symbol: string;
+  price: number;
+  chip_score: number;
+  intraday: number;
+  institutional: number;
+  holder: number;
+  action: Action;
+  turnover: number;
+  rr: number | null;
+}
+
+export interface ScannerResponse {
+  as_of: string | null;
+  count: number;
+  rows: ScannerRow[];
+}
+
+export interface DashboardResponse {
+  as_of: string | null;
+  total: number;
+  action_counts: Record<string, number>;
+  buy_candidates: number;
+  watch_candidates: number;
+  avg_chip_score: number;
+  top: { symbol: string; chip_score: number; action: Action }[];
+}
+
+async function get<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`API ${path} 失敗：${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export const api = {
+  dashboard: () => get<DashboardResponse>("/api/dashboard"),
+  scanner: (params: Record<string, string | number | undefined> = {}) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== "") q.set(k, String(v));
+    }
+    const qs = q.toString();
+    return get<ScannerResponse>(`/api/scanner${qs ? `?${qs}` : ""}`);
+  },
+  analysis: (symbol: string) =>
+    get<AnalysisResponse>(`/api/stocks/${symbol}/analysis`),
+};
