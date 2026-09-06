@@ -134,6 +134,20 @@ Market        10%
 
 最後轉成 0~100。
 
+### 成分缺資料時的權重重分配（實作補充）
+
+Phase 1 尚無盤中 intraday 即時資料。若把缺資料成分以中性值（50）代入，會把
+整體分數往中間灌水、壓低有效訊號（例：法人+大戶皆強仍打不到 BUY）。
+
+依 OECD《Handbook on Constructing Composite Indicators》標準做法：**某成分在
+該期完全無資料時，將其排除並把權重按比例重分配給其餘成分**，使總權重仍為 1。
+
+實作於 `ChipScorer.score(..., active_components=...)`；`AnalysisService`（Phase 1）
+傳入 `{"institutional","holder","market"}`（排除 intraday）。待 Phase 3 接上
+Shioaji realtime 後，intraday 自然納入，無需改動評分邏輯。
+
+參考：[OECD Handbook on Constructing Composite Indicators](https://www.oecd.org/content/dam/oecd/en/publications/reports/2008/08/handbook-on-constructing-composite-indicators-methodology-and-user-guide_g1gh9301/9789264043466-en.pdf)
+
 ## 11. Signal 分級
 
 ```text

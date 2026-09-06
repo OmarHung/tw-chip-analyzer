@@ -45,19 +45,31 @@ class ChipScorer:
         daily: DailyFeatures,
         weekly: WeeklyFeatures,
         market: MarketContext,
+        active_components: set[str] | None = None,
     ) -> ChipScoreResult:
+        """active_components：本期實際有資料的成分。
+
+        某成分無資料時（例如 Phase 1 尚無盤中 intraday），依 OECD 複合指標
+        標準做法排除該成分，並把權重按比例重分配給其餘成分（避免以中性值
+        灌水拉低訊號）。預設四項全用。
+        """
         w = self.t.weights
         s_intra = intraday_score(intraday, w["intraday"])
         s_inst = institutional_score(daily, w["institutional"])
         s_hold = holder_score(weekly, w["holder"])
         s_mkt = market_score(market, w["market"])
 
+        subscores = {
+            "intraday": s_intra,
+            "institutional": s_inst,
+            "holder": s_hold,
+            "market": s_mkt,
+        }
+        active = active_components or set(subscores)
         cw = w["composite"]
-        composite = (
-            cw["intraday"] * s_intra
-            + cw["institutional"] * s_inst
-            + cw["holder"] * s_hold
-            + cw["market"] * s_mkt
+        active_weight = sum(cw[k] for k in active) or 1.0
+        composite = sum(
+            (cw[k] / active_weight) * subscores[k] for k in active
         )
 
         return ChipScoreResult(

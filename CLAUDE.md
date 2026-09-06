@@ -30,9 +30,31 @@
 
 ## 現況與目錄
 
-- `app/` 為 starter（`tw_chip_analyzer_mvp.zip` 解壓）：已含 Shioaji adapter、TWSE/TDCC connector、CVD、Large Trade、OBI、Chip Scoring、Risk、Decision。**不可視為 production-ready。** 優先補：DB layer、async、reconnect/retry、validation、config、tests、observability。
-  - 現有檔案：`app/main.py`、`app/connectors/{twse,tdcc,shioaji_stream}.py`、`app/services/{scoring,orderflow,decision,risk}.py`、`app/models/signal.py`
+已完成 docs/01–05 的骨架與核心邏輯（rule-based，含測試）。尚未做：資料 importer（TWSE/TPEx/TDCC 真實抓取與清洗）、feature 計算 job、Backtest、Shioaji realtime、UI。
+
+實際結構：
+- `app/core/`：`config.py`（env 用 pydantic-settings；門檻用 `config/thresholds.yaml`）、`logging.py`
+- `app/db/`：`base.py`、`session.py`（async engine）、`models/`（10 張表，`mixins.py` 含 look-ahead `data_date`/`available_at`）
+- `alembic/`：migration（初始 schema 已套用）
+- `app/services/orderflow/`：aggressor / cvd / large_trade / obi / absorption / trade_speed（純函式）
+- `app/services/chip/`：intraday / institutional / holder / market 分項 + `composite.py`（config 驅動權重 + 缺成分權重重分配）
+- `app/services/decision/`：`risk.py` / `entry.py` / `exit.py` + `__init__.decide()` 整合
+- `app/services/{normalize,analysis}.py`：正規化工具、FeatureDaily→分析結果
+- `app/api/`：`stocks.py`（`GET /api/stocks/{symbol}/analysis`）、`scanner.py`（`GET /api/scanner`）、`schemas.py`
+- `app/connectors/{twse,tdcc,shioaji_stream}.py`：starter connector（**尚未整合進 importer/DB，待補**）
+- `app/models/signal.py`：領域 dataclasses（features / Action / SignalResult）
+- `scripts/seed_dev.py`：開發環境示範資料
+- `tests/`：48 passed（DB roundtrip、order flow、scoring、decision、API 整合）
 - 完整建議目錄結構見 `docs/01-overview-architecture.md §5`。
+
+## 環境與指令
+
+- DB：本機 PostgreSQL，開發庫 `twchip`、測試庫 `twchip_test`（角色 `omar`，見 `.env`）。測試以 `APP_ENV=test` 走測試庫，`conftest.py` 每個 test 重建 schema。
+- 安裝：`pip install -r requirements.txt`
+- Migration：`alembic upgrade head`（新增 model 後 `alembic revision --autogenerate -m "..."`）
+- 測試：`python -m pytest`
+- 啟動：`APP_ENV=dev uvicorn app.main:app --reload`；Swagger 於 `/docs`
+- Seed 開發資料：`APP_ENV=dev python -m scripts.seed_dev`
 
 ## 文件導覽（`docs/`）
 

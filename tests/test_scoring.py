@@ -77,6 +77,19 @@ class TestChipScorer:
         )
         assert r.chip_score == 50.0
 
+    def test_reweight_excludes_missing_component(self):
+        """排除 intraday 後，強法人/大戶不應被中性 intraday 灌水拉低。"""
+        intra = IntradayFeatures()  # 中性
+        daily = DailyFeatures(foreign_5d_z=2.5, trust_5d_z=2.5)
+        weekly = WeeklyFeatures(large_holder_ratio_change_z=2.5)
+        mkt = MarketContext()
+        full = ChipScorer().score(intra, daily, weekly, mkt)
+        reweighted = ChipScorer().score(
+            intra, daily, weekly, mkt,
+            active_components={"institutional", "holder", "market"},
+        )
+        assert reweighted.chip_score > full.chip_score
+
     def test_monotonic_stronger_input_higher_score(self):
         """核心成功標準的雛形：越強的輸入 → 越高的分數。"""
         weak = ChipScorer().score(
