@@ -94,6 +94,7 @@ export function StockCharts({ symbol }: { symbol: string }) {
             bars={data.intraday}
             prevClose={data.prev_close}
             selected={selected}
+            onSelect={setSelected}
           />
         )}
       </div>
@@ -149,15 +150,19 @@ function AreaChart({
   bars,
   prevClose,
   selected,
+  onSelect,
 }: {
   bars: Bar[];
   prevClose: number | null;
   selected: number | null;
+  onSelect: (t: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const priceMap = useRef<Map<number, number>>(new Map());
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   useEffect(() => {
     if (!ref.current || bars.length === 0) return;
@@ -202,6 +207,10 @@ function AreaChart({
     chart.timeScale().fitContent();
     chartRef.current = chart;
     seriesRef.current = s;
+    // 反向連動：點分時圖 → 選到對應明細
+    chart.subscribeClick((param) => {
+      if (param.time != null) onSelectRef.current(Number(param.time));
+    });
     const ro = new ResizeObserver(() => chart.timeScale().fitContent());
     ro.observe(ref.current);
     return () => {
@@ -250,11 +259,16 @@ function TradeTable({
     );
   }
   const rows = [...bars].reverse(); // 最新在上
+  const activeRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    if (selected != null) activeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+
   return (
     <div>
-      <SectionTitle>當日交易明細（每分鐘 · 點列於分時圖定位）</SectionTitle>
-      <div className="max-h-80 overflow-y-auto rounded-xl border border-line-soft">
-        <table className="w-full">
+      <SectionTitle>當日交易明細（每分鐘 · 與分時圖雙向連動）</SectionTitle>
+      <div className="max-h-80 overflow-auto rounded-xl border border-line-soft">
+        <table className="w-full min-w-[420px]">
           <thead className="sticky top-0 z-10 bg-panel">
             <tr className="border-b border-line-soft font-mono text-[10px] tracking-wider text-ink-faint uppercase">
               <th className="px-4 py-2 text-left">時間</th>
@@ -273,6 +287,7 @@ function TradeTable({
               return (
                 <tr
                   key={t}
+                  ref={active ? activeRef : undefined}
                   onClick={() => onSelect(t)}
                   className={`cursor-pointer border-b border-line-soft/50 font-mono text-sm tnum transition-colors last:border-0 ${
                     active ? "bg-gold/10" : "hover:bg-white/[0.03]"
