@@ -14,7 +14,7 @@ export function Nav() {
     <header className="sticky top-0 z-20 border-b border-line-soft bg-bg/70 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center gap-8 px-6 py-4">
         <Link href="/" className="group flex items-baseline gap-2">
-          <span className="font-display text-xl italic text-gold">Chip</span>
+          <span className="font-display text-xl text-gold">Chip</span>
           <span className="text-sm font-medium tracking-[0.2em] text-ink uppercase">
             Terminal
           </span>

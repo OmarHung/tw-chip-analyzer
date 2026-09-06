@@ -29,7 +29,7 @@ export default async function DashboardPage() {
         <div className="mb-6 flex items-end justify-between">
           <div>
             <h1 className="font-display text-4xl leading-none">
-              市場<span className="italic text-gold">概覽</span>
+              市場<span className="text-gold">概覽</span>
             </h1>
             <p className="mt-2 font-mono text-xs tracking-wider text-ink-faint">
               {data.as_of} · 全市場 {data.total} 檔
@@ -62,7 +62,7 @@ export default async function DashboardPage() {
                 <Label>大盤氣氛</Label>
                 <div className="mt-2 flex items-center gap-2">
                   <span
-                    className={`font-display text-3xl italic ${dirColor(m.trend_score)}`}
+                    className={`font-display text-3xl ${dirColor(m.trend_score)}`}
                   >
                     {m.regime}
                   </span>

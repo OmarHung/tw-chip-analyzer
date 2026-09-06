@@ -83,6 +83,23 @@ export interface DashboardResponse {
   }[];
 }
 
+export interface Bar {
+  t: string | number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+}
+
+export interface ChartResponse {
+  symbol: string;
+  name: string;
+  prev_close: number | null;
+  daily: Bar[];
+  intraday: Bar[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -103,4 +120,5 @@ export const api = {
   },
   analysis: (symbol: string) =>
     get<AnalysisResponse>(`/api/stocks/${symbol}/analysis`),
+  chart: (symbol: string) => get<ChartResponse>(`/api/stocks/${symbol}/chart`),
 };

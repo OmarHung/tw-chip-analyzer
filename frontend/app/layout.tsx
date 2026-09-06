@@ -7,7 +7,6 @@ const fraunces = Fraunces({
   subsets: ["latin"],
   variable: "--font-fraunces",
   weight: ["400", "500", "600"],
-  style: ["normal", "italic"],
 });
 const jbmono = JetBrains_Mono({
   subsets: ["latin"],

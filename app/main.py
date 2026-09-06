@@ -38,7 +38,7 @@ def create_app() -> FastAPI:
     # 允許本機前端(Next.js dev)跨埠呼叫
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
         allow_methods=["*"],
         allow_headers=["*"],
     )

@@ -3,6 +3,7 @@ import { ActionBadge } from "@/components/ActionBadge";
 import { Card, SectionTitle } from "@/components/Card";
 import { Change } from "@/components/Change";
 import { ScoreBar, ScoreRing } from "@/components/ScoreBar";
+import { StockCharts } from "@/components/StockCharts";
 import { api } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
 
@@ -46,7 +47,7 @@ export default async function StockDetailPage({
         <div>
           <div className="flex items-baseline gap-3">
             <h1 className="font-mono text-3xl font-bold text-ink">{data.symbol}</h1>
-            <span className="font-display text-2xl italic text-ink-dim">
+            <span className="font-display text-2xl text-ink-dim">
               {data.name}
             </span>
           </div>
@@ -116,13 +117,9 @@ export default async function StockDetailPage({
         )}
       </Card>
 
-      {/* 走勢圖佔位 */}
-      <Card className="border-dashed">
-        <SectionTitle>價格 / CVD / 法人 / TDCC 走勢</SectionTitle>
-        <p className="text-sm leading-relaxed text-ink-faint">
-          K 線、CVD、大單淨量、OBI、Absorption、法人買賣超、融資、TDCC 持股比等時間序列圖，
-          需後端提供時序資料 API（Phase 3 realtime 與盤後 importer 擴充後補上）。
-        </p>
+      {/* 走勢圖 + 當日交易明細 */}
+      <Card className="reveal">
+        <StockCharts symbol={data.symbol} />
       </Card>
     </div>
   );

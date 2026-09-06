@@ -49,11 +49,11 @@
 - `app/services/chip/`：intraday / institutional / holder / market 分項 + `composite.py`（config 驅動權重 + 缺成分權重重分配）
 - `app/services/decision/`：`risk.py` / `entry.py` / `exit.py` + `__init__.decide()` 整合
 - `app/services/{normalize,analysis}.py`：正規化工具、FeatureDaily→分析結果
-- `app/api/`：`stocks.py`（`GET /api/stocks/{symbol}/analysis`）、`scanner.py`（`GET /api/scanner`）、`dashboard.py`（`GET /api/dashboard`）、`schemas.py`；CORS 允許 :3000（見 `main.py`）
+- `app/api/`：`stocks.py`（`GET /api/stocks/{symbol}/analysis`、`/chart` 日K+分時）、`scanner.py`（`GET /api/scanner`）、`dashboard.py`（`GET /api/dashboard`）、`schemas.py`；CORS 允許任意 localhost 埠（regex，見 `main.py`）
 - `app/services/market_scan.py`：scanner 與 dashboard 共用的全市場掃描
-- `frontend/`：Next.js 16 + TS + Tailwind v4（App Router）。「Terminal Luxe」設計：字體 Fraunces(display)/JetBrains Mono(數字)/Noto Sans TC(中文)，招牌琥珀金，深炭黑底 + 噪點；**台股語意紅漲綠跌**（`lib/format.ts` 的 `dirColor`/`Change`）。頁面：`app/page.tsx`(總覽，TAIEX 大盤列+統計+Top10)、`app/scanner/page.tsx`(client，含股名/漲跌幅)、`app/stocks/[symbol]/page.tsx`(詳情，ScoreRing)；components：Nav/Card/ActionBadge/ScoreBar+ScoreRing/Change。`lib/api.ts` 型別化 client（`NEXT_PUBLIC_API_BASE`；.env.local 目前 :8000）。走勢 K 線待時序 API
+- `frontend/`：Next.js 16 + TS + Tailwind v4（App Router）。「Terminal Luxe」設計：字體 Fraunces(display)/JetBrains Mono(數字)/Noto Sans TC(中文)，招牌琥珀金，深炭黑底 + 噪點；**台股語意紅漲綠跌**（`lib/format.ts` 的 `dirColor`/`Change`）。頁面：`app/page.tsx`(總覽)、`app/scanner/page.tsx`(client)、`app/stocks/[symbol]/page.tsx`(詳情，ScoreRing + `StockCharts`：日K蠟燭/分時區域/當日交易明細,用 lightweight-charts v5，資料來自 `/api/stocks/{symbol}/chart`→Yahoo)；components：Nav/Card/ActionBadge/ScoreBar+ScoreRing/Change/StockCharts。**無斜體**。`lib/api.ts` 型別化 client（`NEXT_PUBLIC_API_BASE`；.env.local 目前 :8000）。
 - `app/backtest/`：`costs.py`（成本模型，禁 0 成本）、`forward_returns.py`（1/3/5/10/20D + MFE/MAE）、`metrics.py`（win/PF/expectancy/DD/Sharpe/Sortino）、`engine.py`（look-ahead 安全進場 + score bucket/threshold 聚合）、`runner.py`（DB-backed）
-- `app/connectors/`：`twse.py`（`fetch_ohlcv` MI_INDEX、`fetch_institutional` T86、`fetch_margin` MI_MARGN）、`tdcc.py`（openapi 1-5，當週全市場）；`shioaji_stream.py` 仍為 starter
+- `app/connectors/`：`twse.py`（`fetch_ohlcv` MI_INDEX、`fetch_institutional` T86、`fetch_margin` MI_MARGN、`fetch_index_month` FMTQIK）、`tdcc.py`（openapi 1-5）、`yahoo.py`（日K/1分鐘分時，個股頁圖表用；Shioaji 金鑰無 production 權限故改用 Yahoo）；`shioaji_stream.py` 仍為 starter
 - `app/importers/`：`base.py`（TWSE 數字/日期解析、`is_stock_symbol`、`availability_for`）、`twse.py`（parser，欄位以標題名定位；MI_MARGN 用固定位置）、`tdcc.py`（代號需 strip 尾隨空白；級距→retail/medium/large/super_large 依 config 門檻）、`service.py`（冪等 upsert，FK stub 保護；`import_tdcc`）
 - `app/repositories/upsert.py`：PostgreSQL `on_conflict` 冪等 upsert（do_update / do_nothing）
 - `app/services/feature_builder.py`：原始表 → `feature_daily`。兩段正規化（個股 5 日淨額/20 日均量 → 市場橫斷面 Z-score），look-ahead 只用 `data_date<=target`

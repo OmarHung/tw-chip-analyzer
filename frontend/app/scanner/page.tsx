@@ -40,7 +40,7 @@ export default function ScannerPage() {
       <div className="flex items-end justify-between">
         <div>
           <h1 className="font-display text-4xl leading-none">
-            選<span className="italic text-gold">股</span>
+            選<span className="text-gold">股</span>
           </h1>
           <p className="mt-2 font-mono text-xs tracking-wider text-ink-faint">
             {asOf ?? "—"} · {rows.length} 檔{loading && " · 載入中"}
