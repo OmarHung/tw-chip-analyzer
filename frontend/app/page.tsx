@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ActionBadge } from "@/components/ActionBadge";
 import { Card, SectionTitle, StatCard } from "@/components/Card";
 import { Change } from "@/components/Change";
-import { api, type Action } from "@/lib/api";
+import { api, type Action, type DivergenceScanRow } from "@/lib/api";
 import { dirColor, scoreColor } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,20 @@ export default async function DashboardPage() {
   }
   if (data.total === 0) {
     return <ErrorState message="尚無特徵資料。請先執行盤後匯入 job。" />;
+  }
+
+  // 今日主力背離快報（掃描失敗不應讓首頁掛掉）
+  let bullish: DivergenceScanRow[] = [];
+  let bearish: DivergenceScanRow[] = [];
+  try {
+    const [b, s] = await Promise.all([
+      api.divergenceScan({ status: "bullish_div", limit: 5 }),
+      api.divergenceScan({ status: "bearish_div", limit: 5 }),
+    ]);
+    bullish = b.rows;
+    bearish = s.rows;
+  } catch {
+    // 忽略：快報為附加資訊
   }
 
   const m = data.market;
@@ -182,12 +196,96 @@ export default async function DashboardPage() {
         </section>
       </div>
 
+      {/* 今日主力背離快報 */}
+      {(bullish.length > 0 || bearish.length > 0) && (
+        <section className="reveal" style={{ animationDelay: "320ms" }}>
+          <div className="mb-4 flex items-end justify-between">
+            <SectionTitle>今日主力背離</SectionTitle>
+            <Link
+              href="/divergence"
+              className="font-mono text-xs text-gold transition-colors hover:text-gold-bright"
+            >
+              看全部 →
+            </Link>
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <FlashList
+              title="正背離"
+              sub="價跌 · 主力買 → 疑逢低吸籌"
+              tone="text-up"
+              rows={bullish}
+            />
+            <FlashList
+              title="負背離"
+              sub="價漲 · 主力賣 → 疑逢高出貨"
+              tone="text-down"
+              rows={bearish}
+            />
+          </div>
+          <p className="mt-3 text-[11px] text-ink-faint">
+            60 日量價背離；回測方向正確但非單調、樣本半年，作為多訊號交叉驗證之一，非單獨交易依據。
+          </p>
+        </section>
+      )}
+
       <p className="text-[11px] leading-relaxed text-ink-faint">
         盤中(intraday)分項於 Phase 1 尚無即時資料源，暫不計入加權；產業趨勢待接入。
         價格漲跌以台股慣例顯示（<span className="text-up">紅漲</span> /{" "}
         <span className="text-down">綠跌</span>）。
       </p>
     </div>
+  );
+}
+
+function FlashList({
+  title,
+  sub,
+  tone,
+  rows,
+}: {
+  title: string;
+  sub: string;
+  tone: string;
+  rows: DivergenceScanRow[];
+}) {
+  return (
+    <Card className="p-0">
+      <div className="border-b border-line-soft px-4 py-4 sm:px-5">
+        <div className={`font-mono text-sm font-bold ${tone}`}>{title}</div>
+        <div className="mt-0.5 text-[11px] text-ink-faint">{sub}</div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="px-4 py-6 text-center text-xs text-ink-faint sm:px-5">
+          今日無{title}標的
+        </div>
+      ) : (
+        <ul>
+          {rows.map((r) => (
+            <li key={r.symbol}>
+              <Link
+                href={`/stocks/${r.symbol}?tab=flows`}
+                className="flex items-center gap-3 border-t border-line-soft px-4 py-2.5 transition-colors hover:bg-white/[0.02] sm:px-5"
+              >
+                <span className="shrink-0 font-mono text-sm font-medium text-ink">
+                  {r.symbol}
+                </span>
+                <span className="min-w-0 truncate text-xs text-ink-dim">{r.name}</span>
+                <Change pct={r.change_pct} className="ml-auto text-xs" />
+                <span
+                  className={`w-16 text-right font-mono text-xs font-bold tnum ${
+                    (r.flow_ratio ?? 0) > 0 ? "text-up" : "text-down"
+                  }`}
+                >
+                  {r.flow_ratio != null
+                    ? `${r.flow_ratio > 0 ? "+" : ""}${(r.flow_ratio * 100).toFixed(1)}%`
+                    : "—"}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 
