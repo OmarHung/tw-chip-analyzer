@@ -152,6 +152,66 @@ export interface ScoreHistoryResponse {
   points: ScorePoint[];
 }
 
+export interface FlowPoint {
+  t: string; // data_date YYYY-MM-DD
+  close: number | null;
+  foreign: number | null; // 外資（張，買超為正）
+  trust: number | null; // 投信
+  dealer: number | null; // 自營商（自行+避險）
+  inst_total: number | null; // 三大法人合計
+  margin_balance: number | null; // 融資餘額（張）
+  short_balance: number | null; // 融券餘額（張）
+}
+
+export interface TdccSnapshot {
+  date: string;
+  retail_ratio: number | null;
+  medium_ratio: number | null;
+  large_ratio: number | null;
+  super_large_ratio: number | null;
+  holder_count: number | null;
+}
+
+export interface FlowSummary {
+  foreign_5d: number;
+  foreign_20d: number;
+  foreign_60d: number;
+  inst_5d: number;
+  inst_20d: number;
+  inst_60d: number;
+  foreign_streak: number; // 外資連買(正)/連賣(負)天數
+  margin_chg_20d: number; // 融資餘額近 20 交易日變化（張）
+}
+
+export type DivergenceStatus =
+  | "bullish_div"
+  | "bearish_div"
+  | "aligned_up"
+  | "aligned_down"
+  | "neutral";
+
+export interface DivergenceItem {
+  window: number;
+  price_return: number | null;
+  inst_net: number; // 區間三大法人淨買超（張）
+  inst_flow_ratio: number | null; // 淨買超佔區間成交比重
+  price_inst_corr: number | null;
+  status: DivergenceStatus;
+  label: string;
+  note: string;
+}
+
+export interface FlowsResponse {
+  symbol: string;
+  name: string;
+  count: number;
+  days: number;
+  points: FlowPoint[];
+  tdcc: TdccSnapshot | null;
+  summary: FlowSummary | null;
+  divergence: DivergenceItem[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -178,4 +238,6 @@ export const api = {
     get<ScoreHistoryResponse>(`/api/stocks/${symbol}/scores`),
   orderflow: (symbol: string) =>
     get<OrderFlowResponse>(`/api/stocks/${symbol}/orderflow`),
+  flows: (symbol: string, days = 90) =>
+    get<FlowsResponse>(`/api/stocks/${symbol}/flows?days=${days}`),
 };

@@ -45,6 +45,15 @@ tdcc:
   large_min_lots: 400
   super_large_min_lots: 1000
 
+# 主力進出 vs 股價「量價背離」偵測(前端主力進出面板的背離卡)。
+# 鐵則 4/5:門檻 config 化、禁 magic number;鐵則 6:主力淨買超以「佔區間成交比重」正規化,
+# 而非直接比張數,故跨股票可比。price_eps/flow_eps 是判定「顯著」的最小幅度。
+divergence:
+  windows: [20, 60]        # 觀察窗(交易日);短窗抓轉折、長窗看趨勢
+  price_eps: 0.03          # 區間報酬達 ±3% 才算價格「明顯」漲/跌
+  flow_eps: 0.02           # 主力淨買超佔區間成交比重達 ±2% 才算主力「明顯」進/出
+  min_points: 10           # 窗內有效樣本不足此數則不判定(回 null)
+
 # 每日盤後 EOD 排程(app.jobs.scheduler;鐵則 4:排程時間 config 化,禁硬編碼)
 schedule:
   enabled: true            # 隨 API server(FastAPI lifespan)自動起停;test env 一律不啟動

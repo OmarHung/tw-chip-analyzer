@@ -18,6 +18,7 @@ import {
   type Tick,
 } from "@/lib/api";
 import { SectionTitle } from "@/components/Card";
+import { FlowsPanel } from "@/components/FlowsPanel";
 
 const UP = "#f0555c"; // 漲/買/外盤 → 紅
 const DOWN = "#24b981"; // 跌/賣/內盤 → 綠
@@ -56,13 +57,23 @@ function nearestTickIdx(ticks: Tick[], t: number): number {
   return lo;
 }
 
-type Tab = "daily" | "intraday" | "scores";
+type Tab = "daily" | "intraday" | "scores" | "flows";
 
-export function StockCharts({ symbol }: { symbol: string }) {
+const TABS: readonly Tab[] = ["daily", "intraday", "scores", "flows"];
+
+export function StockCharts({
+  symbol,
+  initialTab,
+}: {
+  symbol: string;
+  initialTab?: string;
+}) {
   const [data, setData] = useState<ChartResponse | null>(null);
   const [ticks, setTicks] = useState<Tick[]>([]);
   const [scores, setScores] = useState<ScorePoint[]>([]);
-  const [tab, setTab] = useState<Tab>("daily");
+  const [tab, setTab] = useState<Tab>(
+    TABS.includes(initialTab as Tab) ? (initialTab as Tab) : "daily",
+  );
   const [tickIdx, setTickIdx] = useState<number | null>(null);
   const [err, setErr] = useState(false);
 
@@ -96,7 +107,7 @@ export function StockCharts({ symbol }: { symbol: string }) {
     <div className="space-y-6">
       <div>
         <div className="mb-4 flex items-center justify-between">
-          <SectionTitle>價格走勢</SectionTitle>
+          <SectionTitle>{tab === "flows" ? "主力進出" : "價格走勢"}</SectionTitle>
           <div className="flex gap-1 rounded-lg border border-line-soft bg-panel-2/50 p-0.5">
             <TabBtn active={tab === "daily"} onClick={() => setTab("daily")}>
               日K線
@@ -115,6 +126,9 @@ export function StockCharts({ symbol }: { symbol: string }) {
             >
               籌碼分數
             </TabBtn>
+            <TabBtn active={tab === "flows"} onClick={() => setTab("flows")}>
+              主力進出
+            </TabBtn>
           </div>
         </div>
         {tab === "daily" ? (
@@ -126,17 +140,21 @@ export function StockCharts({ symbol }: { symbol: string }) {
             selectedTime={selectedTime}
             onSelect={onChartSelect}
           />
-        ) : (
+        ) : tab === "scores" ? (
           <ScoreChart points={scores} />
+        ) : (
+          <FlowsPanel symbol={symbol} />
         )}
       </div>
 
-      <TickTable
-        ticks={ticks}
-        prevClose={data.prev_close}
-        selectedIdx={tickIdx}
-        onSelect={onRowSelect}
-      />
+      {tab !== "flows" && (
+        <TickTable
+          ticks={ticks}
+          prevClose={data.prev_close}
+          selectedIdx={tickIdx}
+          onSelect={onRowSelect}
+        />
+      )}
     </div>
   );
 }

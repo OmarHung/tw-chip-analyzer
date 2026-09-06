@@ -93,6 +93,10 @@ class Thresholds:
         return self._data.get("tdcc", {})
 
     @property
+    def divergence(self) -> dict[str, Any]:
+        return self._data.get("divergence", {})
+
+    @property
     def schedule(self) -> dict[str, Any]:
         return self._data.get("schedule", {})
 

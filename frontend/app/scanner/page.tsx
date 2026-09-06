@@ -147,7 +147,7 @@ export default function ScannerPage() {
                   style={{ animationDelay: `${Math.min(i * 12, 360)}ms` }}
                 >
                   <td className="py-3 pl-4 pr-2 sm:pl-5 sm:pr-3">
-                    <Link href={`/stocks/${r.symbol}`} className="group flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+                    <Link href={`/stocks/${r.symbol}?tab=flows`} className="group flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
                       <span className="font-mono text-sm font-medium text-ink group-hover:text-gold">
                         {r.symbol}
                       </span>

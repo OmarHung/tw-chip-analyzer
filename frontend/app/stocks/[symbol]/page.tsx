@@ -12,10 +12,13 @@ export const dynamic = "force-dynamic";
 
 export default async function StockDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ symbol: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { symbol } = await params;
+  const { tab } = await searchParams;
   let data;
   try {
     data = await api.analysis(symbol);
@@ -125,7 +128,7 @@ export default async function StockDetailPage({
 
       {/* 走勢圖 + 當日逐筆明細 */}
       <Card className="reveal">
-        <StockCharts symbol={data.symbol} />
+        <StockCharts symbol={data.symbol} initialTab={tab} />
       </Card>
     </div>
   );
