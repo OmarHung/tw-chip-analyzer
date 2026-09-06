@@ -77,6 +77,10 @@ class Thresholds:
         return self._data.get("entry_filter", {})
 
     @property
+    def exit_rules(self) -> dict[str, Any]:
+        return self._data.get("exit", {})
+
+    @property
     def large_trade(self) -> dict[str, Any]:
         return self._data.get("large_trade", {})
 

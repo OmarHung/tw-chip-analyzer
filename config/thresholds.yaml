@@ -21,6 +21,12 @@ entry_filter:
   max_vwap_deviation_pct: 0.08   # 收盤價不可高於 VWAP 逾 8%
   max_ma20_deviation_pct: 0.12   # 收盤價不可高於 MA20 逾 12%
   min_turnover: 20000000         # 最低成交金額(流動性門檻)，單位 TWD
+  strong_bear_market_score: -0.5 # market_score <= 此值視為 Strong Bear，禁止 BUY
+
+exit:
+  # Distribution Warning：價創高但買盤/大單背離、上方賣壓增
+  distribution_cvd_slope_max: 0.0
+  distribution_large_delta_max: 0.0
 
 large_trade:
   percentile: 0.95
