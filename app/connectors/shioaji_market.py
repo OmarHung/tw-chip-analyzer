@@ -37,6 +37,23 @@ def _get_api():
         return _api
 
 
+def usage_sync() -> dict | None:
+    """回傳 Shioaji 資料用量 {bytes, limit_bytes, used_pct}；取不到回 None。
+
+    供批次逐筆匯入監看配額，避免超量。api.usage() 為同步 API。
+    """
+    try:
+        api = _get_api()
+        u = api.usage()
+    except Exception as e:  # noqa: BLE001 — 監看失敗不應中斷批次
+        logger.warning("Shioaji usage() 取得失敗：%s", e)
+        return None
+    used = getattr(u, "bytes", None)
+    limit = getattr(u, "limit_bytes", None)
+    pct = (used / limit * 100) if used is not None and limit else None
+    return {"bytes": used, "limit_bytes": limit, "used_pct": pct}
+
+
 # Shioaji tick_type → aggressor_side（1=買/外盤、-1=賣/內盤、0=無法判定）
 _SIDE = {1: 1, 2: -1, 0: 0}
 

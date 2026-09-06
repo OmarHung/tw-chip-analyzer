@@ -85,6 +85,10 @@ class Thresholds:
         return self._data.get("large_trade", {})
 
     @property
+    def intraday_batch(self) -> dict[str, Any]:
+        return self._data.get("intraday_batch", {})
+
+    @property
     def tdcc(self) -> dict[str, Any]:
         return self._data.get("tdcc", {})
 

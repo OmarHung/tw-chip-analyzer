@@ -61,6 +61,11 @@ risk:
 large_trade:
   percentile: 0.95
   min_samples: 500
+intraday_batch:              # 批次逐筆匯入範圍（app.jobs.import_ticks）
+  max_symbols: 200           # 依當日 turnover 由高到低取前 N 檔
+  min_turnover: 20000000     # 成交金額下限（TWD）
+  throttle_ms: 200           # 每檔之間節流（毫秒）
+  usage_stop_pct: 95         # Shioaji api.usage() 用量達此 % 即停批次
 tdcc:
   retail_max_lots: 50
   large_min_lots: 400

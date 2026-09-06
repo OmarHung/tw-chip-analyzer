@@ -51,6 +51,13 @@ class AnalysisService:
             close_vs_vwap_pct=_f(fd.close_vs_vwap_pct),
         )
 
+    def _intraday(self, fd: FeatureDaily) -> IntradayFeatures:
+        return IntradayFeatures(
+            cvd_z=_f(fd.cvd_z),
+            large_trade_delta_z=_f(fd.large_trade_delta_z),
+            obi=_f(fd.intraday_obi),
+        )
+
     def _weekly(self, fd: FeatureDaily) -> WeeklyFeatures:
         return WeeklyFeatures(
             large_holder_ratio_change_z=_f(fd.large_holder_ratio_change_z),
@@ -66,14 +73,18 @@ class AnalysisService:
         name: str | None = None,
     ) -> AnalysisResult:
         market = market or MarketContext()
-        # Phase 1 尚無盤中即時資料 → 排除 intraday，權重重分配給其餘成分
-        # （OECD 複合指標標準做法，見 docs/03 §10 補充）。
+        # 有當日逐筆的標的 → 四維（含 intraday）；無者維持排除、權重重分配給其餘
+        # 成分（OECD 複合指標標準做法，見 docs/03 §10 補充）。
+        has_intraday = fd.cvd_z is not None or fd.large_trade_delta_z is not None
+        active = {"institutional", "holder", "market"}
+        if has_intraday:
+            active.add("intraday")
         chip = self.scorer.score(
-            IntradayFeatures(),
+            self._intraday(fd) if has_intraday else IntradayFeatures(),
             self._daily(fd),
             self._weekly(fd),
             market,
-            active_components={"institutional", "holder", "market"},
+            active_components=active,
         )
 
         last_price = _f(fd.close)

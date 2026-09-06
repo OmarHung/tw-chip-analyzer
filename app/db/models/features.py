@@ -55,6 +55,14 @@ class FeatureDaily(Base, AvailabilityMixin, TimestampMixin):
     retail_holder_ratio_change_z: Mapped[float | None] = mapped_column()
     holder_count_change_z: Mapped[float | None] = mapped_column()
 
+    # 盤中 order flow（由當日逐筆計算；無逐筆的標的為 NULL → composite 排除 intraday）。
+    # cvd_z / large_trade_delta_z：對「當日有逐筆的標的集合」做橫斷面 Z-score
+    # （訊號本身已是 turnover-neutral 比率，滿足跨股票可比較）；
+    # intraday_obi：CVD 斜率的每分鐘量正規化值（-1..1），走 clamp 管線。
+    cvd_z: Mapped[float | None] = mapped_column()
+    large_trade_delta_z: Mapped[float | None] = mapped_column()
+    intraday_obi: Mapped[float | None] = mapped_column()
+
 
 class SignalSnapshot(Base, AvailabilityMixin, TimestampMixin):
     """每個訊號的完整快照（含 feature payload），供回測與未來 ML。"""

@@ -30,6 +30,7 @@ class OrderFlowResult:
     net_aggressor: float = 0.0    # -1..1
     large_net: float = 0.0        # -1..1
     cvd_slope: float = 0.0
+    cvd_slope_norm: float = 0.0   # -1..1（以每分鐘平均量正規化，turnover-neutral）
 
 
 def compute_orderflow(
@@ -101,4 +102,5 @@ def compute_orderflow(
         net_aggressor=round(net_aggressor, 4),
         large_net=round(large_net, 4),
         cvd_slope=round(cvd_slope, 2),
+        cvd_slope_norm=round(cvd_slope_norm, 4),
     )

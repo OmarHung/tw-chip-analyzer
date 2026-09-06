@@ -32,6 +32,14 @@ large_trade:
   percentile: 0.95
   min_samples: 500
 
+# 盤中逐筆批次匯入範圍（見 docs/07 §21）。避免 Shioaji 資料配額爆量，
+# 只抓當日成交金額前 N 檔且 >= 門檻的標的，非全市場。
+intraday_batch:
+  max_symbols: 200          # 依當日 turnover 由高到低取前 N 檔
+  min_turnover: 20000000    # 成交金額下限（TWD），低於此不抓逐筆
+  throttle_ms: 200          # 每檔之間的節流（毫秒），降低配額/連線壓力
+  usage_stop_pct: 95        # api.usage() 用量達此百分比即停止批次
+
 tdcc:
   retail_max_lots: 50
   large_min_lots: 400

@@ -17,11 +17,67 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.chips import InstitutionalDaily, MarginDaily, TdccSummaryWeekly
 from app.db.models.features import FeatureDaily
+from app.db.models.intraday import RawTick
 from app.db.models.market import DailyPrice
 from app.importers.base import availability_for
 from app.repositories.upsert import upsert_many
+from app.services.orderflow_intraday import compute_orderflow
 
 LOTS_TO_SHARES = 1000  # 融資融券單位為張
+
+
+def _tick_epoch(ts: dt.datetime) -> int:
+    """RawTick.ts 為 naive 台北牆鐘；視為 UTC 秒（僅供每分鐘取樣分桶）。"""
+    return int(ts.replace(tzinfo=dt.timezone.utc).timestamp())
+
+
+async def _intraday_signals(
+    session: AsyncSession, target: dt.date
+) -> dict[str, dict[str, float]]:
+    """對「當日有逐筆的標的」用 compute_orderflow 取有界訊號，做橫斷面 Z-score。
+
+    只讀 data_date == target 的 raw_tick（look-ahead：盤中資料收盤後才可用，
+    available_at 已在盤後）。回傳 {symbol: {cvd_z, large_trade_delta_z, intraday_obi}}。
+    無逐筆時回空 dict → 該日所有標的 intraday 欄位維持 NULL。
+    """
+    rows = (
+        await session.execute(
+            select(
+                RawTick.symbol, RawTick.ts, RawTick.price,
+                RawTick.volume, RawTick.aggressor_side,
+            ).where(RawTick.data_date == target).order_by(RawTick.symbol, RawTick.ts)
+        )
+    ).all()
+    if not rows:
+        return {}
+
+    by_symbol: dict[str, list[dict]] = {}
+    for sym, ts, price, volume, side in rows:
+        by_symbol.setdefault(sym, []).append(
+            {"t": _tick_epoch(ts), "price": float(price),
+             "volume": int(volume), "side": int(side) if side is not None else 0}
+        )
+
+    # 各標的有界訊號（皆 turnover-neutral 比率/正規化值）
+    net_aggr, large_net, obi = {}, {}, {}
+    for sym, ticks in by_symbol.items():
+        of = compute_orderflow(ticks)
+        if of.trade_count == 0:
+            continue
+        net_aggr[sym] = of.net_aggressor
+        large_net[sym] = of.large_net
+        obi[sym] = of.cvd_slope_norm
+
+    z_cvd = _zscore_map(net_aggr)          # net aggressor = 正規化 CVD 方向
+    z_large = _zscore_map(large_net)       # 大單淨額方向
+    return {
+        sym: {
+            "cvd_z": z_cvd.get(sym, 0.0),
+            "large_trade_delta_z": z_large.get(sym, 0.0),
+            "intraday_obi": obi.get(sym, 0.0),
+        }
+        for sym in net_aggr
+    }
 
 
 def _zscore_map(strength: dict[str, float]) -> dict[str, float]:
@@ -191,10 +247,14 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     z_large_holder = _zscore_map(large_conc)
     z_retail_holder = _zscore_map(retail_conc)
 
+    # 盤中 order flow 橫斷面 z（僅當日有逐筆的標的；其餘維持 NULL）
+    intraday = await _intraday_signals(session, target)
+
     av_at = availability_for(target)
     rows: list[dict] = []
     for sym, feat in pf.items():
         feat = {k: v for k, v in feat.items() if not k.startswith("_")}
+        intra = intraday.get(sym)
         rows.append(
             {
                 "symbol": sym,
@@ -211,6 +271,10 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
                 "large_holder_ratio_change_z": z_large_holder.get(sym, 0.0),
                 "retail_holder_ratio_change_z": z_retail_holder.get(sym, 0.0),
                 "holder_count_change_z": 0.0,
+                # intraday：有逐筆才填，否則 NULL（composite 動態排除）
+                "cvd_z": intra["cvd_z"] if intra else None,
+                "large_trade_delta_z": intra["large_trade_delta_z"] if intra else None,
+                "intraday_obi": intra["intraday_obi"] if intra else None,
             }
         )
 
