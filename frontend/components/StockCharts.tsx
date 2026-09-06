@@ -122,8 +122,19 @@ export function StockCharts({ symbol }: { symbol: string }) {
   );
 }
 
+type OHLCInfo = {
+  time: string;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  chg: number | null;
+};
+
 function CandleChart({ bars }: { bars: Bar[] }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [info, setInfo] = useState<OHLCInfo | null>(null);
+
   useEffect(() => {
     if (!ref.current || bars.length === 0) return;
     const chart = createChart(ref.current, {
@@ -143,6 +154,50 @@ function CandleChart({ bars }: { bars: Bar[] }) {
       bars.map((b) => ({ time: b.t as string, open: b.o, high: b.h, low: b.l, close: b.c })),
     );
     chart.timeScale().fitContent();
+
+    // 前一根收盤，供漲跌計算（依時間對齊）
+    const prevCloseByTime = new Map<string, number>();
+    for (let i = 1; i < bars.length; i++) {
+      prevCloseByTime.set(bars[i].t as string, bars[i - 1].c);
+    }
+    const showLast = () => {
+      const b = bars[bars.length - 1];
+      const pc = prevCloseByTime.get(b.t as string) ?? null;
+      setInfo({
+        time: b.t as string,
+        o: b.o,
+        h: b.h,
+        l: b.l,
+        c: b.c,
+        chg: pc != null ? (b.c - pc) / pc : null,
+      });
+    };
+    showLast();
+
+    chart.subscribeCrosshairMove((param) => {
+      if (param.time == null || !param.point) {
+        showLast();
+        return;
+      }
+      const bar = param.seriesData.get(s) as
+        | { open: number; high: number; low: number; close: number }
+        | undefined;
+      if (!bar) {
+        showLast();
+        return;
+      }
+      const t = param.time as string;
+      const pc = prevCloseByTime.get(t) ?? null;
+      setInfo({
+        time: t,
+        o: bar.open,
+        h: bar.high,
+        l: bar.low,
+        c: bar.close,
+        chg: pc != null ? (bar.close - pc) / pc : null,
+      });
+    });
+
     const ro = new ResizeObserver(() => chart.timeScale().fitContent());
     ro.observe(ref.current);
     return () => {
@@ -150,7 +205,43 @@ function CandleChart({ bars }: { bars: Bar[] }) {
       chart.remove();
     };
   }, [bars]);
-  return <div ref={ref} className="h-[340px] w-full" />;
+
+  return (
+    <div className="relative">
+      {info && (
+        <div className="pointer-events-none absolute left-2 top-2 z-10 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-lg border border-line-soft bg-panel/85 px-3 py-1.5 font-mono text-xs tnum backdrop-blur-sm">
+          <span className="text-ink-dim">{info.time}</span>
+          <OHLCItem label="開" value={info.o} />
+          <OHLCItem label="高" value={info.h} />
+          <OHLCItem label="低" value={info.l} />
+          <OHLCItem label="收" value={info.c} />
+          <span
+            className={
+              info.chg == null || info.chg === 0
+                ? "text-ink-dim"
+                : info.chg > 0
+                  ? "text-up"
+                  : "text-down"
+            }
+          >
+            {info.chg != null
+              ? `${info.chg > 0 ? "+" : ""}${(info.chg * 100).toFixed(2)}%`
+              : "—"}
+          </span>
+        </div>
+      )}
+      <div ref={ref} className="h-[340px] w-full" />
+    </div>
+  );
+}
+
+function OHLCItem({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="text-ink-faint">
+      {label}
+      <span className="ml-0.5 text-ink">{value.toFixed(2)}</span>
+    </span>
+  );
 }
 
 function AreaChart({
@@ -282,7 +373,7 @@ function TickTable({
       >
         <table className="w-full min-w-[520px]">
           <thead className="sticky top-0 z-10 bg-panel">
-            <tr className="border-b border-line-soft font-mono text-[10px] tracking-wider text-ink-faint uppercase">
+            <tr className="border-b border-line-soft font-mono text-[10px] tracking-wider text-ink-faint whitespace-nowrap uppercase">
               <th className="px-4 py-2 text-left">時間</th>
               <th className="px-4 py-2 text-right">成交</th>
               <th className="px-4 py-2 text-right">漲跌</th>
@@ -306,7 +397,7 @@ function TickTable({
                   key={i}
                   ref={active ? activeRef : undefined}
                   onClick={() => onSelect(i)}
-                  className={`cursor-pointer border-b border-line-soft/40 font-mono text-sm tnum transition-colors last:border-0 ${
+                  className={`cursor-pointer whitespace-nowrap border-b border-line-soft/40 font-mono text-sm tnum transition-colors last:border-0 ${
                     active ? "bg-gold/10" : "hover:bg-white/[0.03]"
                   }`}
                 >

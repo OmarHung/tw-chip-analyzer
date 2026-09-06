@@ -33,10 +33,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="grain min-h-full flex flex-col">
         <div className="relative z-10 flex min-h-full flex-col">
           <Nav />
-          <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
+          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
             {children}
           </main>
-          <footer className="border-t border-line-soft px-6 py-5 text-center text-[11px] tracking-widest text-ink-faint uppercase">
+          <footer className="border-t border-line-soft px-4 py-5 text-center text-[11px] tracking-widest text-ink-faint uppercase sm:px-6">
             僅供分析與研究 · 非投資建議
           </footer>
         </div>

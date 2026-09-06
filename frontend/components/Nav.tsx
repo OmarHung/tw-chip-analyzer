@@ -12,7 +12,7 @@ export function Nav() {
   const pathname = usePathname();
   return (
     <header className="sticky top-0 z-20 border-b border-line-soft bg-bg/70 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-6xl items-center gap-8 px-6 py-4">
+      <div className="mx-auto flex max-w-6xl items-center gap-5 px-4 py-4 sm:gap-8 sm:px-6">
         <Link href="/" className="group flex items-baseline gap-2">
           <span className="font-display text-xl text-gold">Chip</span>
           <span className="text-sm font-medium tracking-[0.2em] text-ink uppercase">

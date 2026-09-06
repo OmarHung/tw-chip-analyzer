@@ -1,6 +1,6 @@
 """全市場掃描 API（見 docs/05 §15）。
 
-query：min_score / action / min_turnover / industry / limit，依 chip_score 排序。
+query：q（代號/名稱搜尋）/ min_score / action / min_turnover / industry / limit，依 chip_score 排序。
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api", tags=["scanner"])
 @router.get("/scanner", response_model=ScannerResponse)
 async def scan(
     session: AsyncSession = Depends(get_session),
+    q: str | None = Query(None),
     min_score: float = Query(0, ge=0, le=100),
     action: str | None = Query(None),
     min_turnover: float = Query(0, ge=0),
@@ -27,6 +28,7 @@ async def scan(
     if as_of is None:
         return ScannerResponse(as_of=None, count=0, rows=[])
 
+    keyword = q.strip().lower() if q else ""
     filtered = [
         r
         for r in rows
@@ -34,6 +36,7 @@ async def scan(
         and (not min_turnover or r.turnover >= min_turnover)
         and (not action or r.action == action.upper())
         and (not industry or r.industry == industry)
+        and (not keyword or keyword in r.symbol.lower() or keyword in r.name.lower())
     ]
     filtered.sort(key=lambda x: x.chip_score, reverse=True)
     out = [

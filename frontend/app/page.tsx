@@ -117,7 +117,7 @@ export default async function DashboardPage() {
       {/* 訊號分布 + Top */}
       <div className="grid gap-6 lg:grid-cols-5">
         <section
-          className="reveal lg:col-span-2"
+          className="reveal min-w-0 lg:col-span-2"
           style={{ animationDelay: "160ms" }}
         >
           <Card>
@@ -146,11 +146,11 @@ export default async function DashboardPage() {
         </section>
 
         <section
-          className="reveal lg:col-span-3"
+          className="reveal min-w-0 lg:col-span-3"
           style={{ animationDelay: "240ms" }}
         >
           <Card className="p-0">
-            <div className="px-6 pt-6">
+            <div className="px-4 pt-6 sm:px-6">
               <SectionTitle>籌碼強度 Top 10</SectionTitle>
             </div>
             <ul>
@@ -158,15 +158,15 @@ export default async function DashboardPage() {
                 <li key={t.symbol}>
                   <Link
                     href={`/stocks/${t.symbol}`}
-                    className="flex items-center gap-4 border-t border-line-soft px-6 py-3 transition-colors hover:bg-white/[0.02]"
+                    className="flex items-center gap-3 border-t border-line-soft px-4 py-3 transition-colors hover:bg-white/[0.02] sm:gap-4 sm:px-6"
                   >
-                    <span className="w-4 font-mono text-xs text-ink-faint">
+                    <span className="w-4 shrink-0 font-mono text-xs text-ink-faint">
                       {i + 1}
                     </span>
-                    <span className="font-mono text-sm font-medium text-ink">
+                    <span className="shrink-0 font-mono text-sm font-medium text-ink">
                       {t.symbol}
                     </span>
-                    <span className="truncate text-sm text-ink-dim">{t.name}</span>
+                    <span className="min-w-0 truncate text-sm text-ink-dim">{t.name}</span>
                     <Change pct={t.change_pct} className="ml-auto text-xs" />
                     <span
                       className={`w-12 text-right font-mono text-sm font-bold tnum ${scoreColor(t.chip_score)}`}
