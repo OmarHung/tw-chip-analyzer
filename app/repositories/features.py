@@ -53,3 +53,16 @@ class SignalRepository:
         self.session.add(snapshot)
         await self.session.flush()
         return snapshot
+
+    async def list_history(
+        self, symbol: str, limit: int = 250
+    ) -> list[SignalSnapshot]:
+        """某檔近 limit 個交易日的分數時序(升冪),供走勢圖疊分數演變。"""
+        stmt = (
+            select(SignalSnapshot)
+            .where(SignalSnapshot.symbol == symbol)
+            .order_by(SignalSnapshot.data_date.desc())
+            .limit(limit)
+        )
+        rows = (await self.session.execute(stmt)).scalars().all()
+        return list(reversed(rows))

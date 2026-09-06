@@ -135,6 +135,23 @@ export interface OrderFlowResponse {
   cvd_series: { t: number; cvd: number }[];
 }
 
+export interface ScorePoint {
+  t: string; // data_date YYYY-MM-DD
+  chip_score: number;
+  intraday: number | null;
+  institutional: number | null;
+  holder: number | null;
+  market: number | null;
+  action: Action | null;
+}
+
+export interface ScoreHistoryResponse {
+  symbol: string;
+  name: string;
+  count: number;
+  points: ScorePoint[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -157,6 +174,8 @@ export const api = {
     get<AnalysisResponse>(`/api/stocks/${symbol}/analysis`),
   chart: (symbol: string) => get<ChartResponse>(`/api/stocks/${symbol}/chart`),
   ticks: (symbol: string) => get<TicksResponse>(`/api/stocks/${symbol}/ticks`),
+  scores: (symbol: string) =>
+    get<ScoreHistoryResponse>(`/api/stocks/${symbol}/scores`),
   orderflow: (symbol: string) =>
     get<OrderFlowResponse>(`/api/stocks/${symbol}/orderflow`),
 };

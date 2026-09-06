@@ -4,12 +4,19 @@ import {
   AreaSeries,
   CandlestickSeries,
   createChart,
+  LineSeries,
   type IChartApi,
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Bar, type ChartResponse, type Tick } from "@/lib/api";
+import {
+  api,
+  type Bar,
+  type ChartResponse,
+  type ScorePoint,
+  type Tick,
+} from "@/lib/api";
 import { SectionTitle } from "@/components/Card";
 
 const UP = "#f0555c"; // 漲/買/外盤 → 紅
@@ -49,11 +56,12 @@ function nearestTickIdx(ticks: Tick[], t: number): number {
   return lo;
 }
 
-type Tab = "daily" | "intraday";
+type Tab = "daily" | "intraday" | "scores";
 
 export function StockCharts({ symbol }: { symbol: string }) {
   const [data, setData] = useState<ChartResponse | null>(null);
   const [ticks, setTicks] = useState<Tick[]>([]);
+  const [scores, setScores] = useState<ScorePoint[]>([]);
   const [tab, setTab] = useState<Tab>("daily");
   const [tickIdx, setTickIdx] = useState<number | null>(null);
   const [err, setErr] = useState(false);
@@ -62,6 +70,7 @@ export function StockCharts({ symbol }: { symbol: string }) {
     let cancelled = false;
     api.chart(symbol).then((d) => !cancelled && setData(d)).catch(() => !cancelled && setErr(true));
     api.ticks(symbol).then((r) => !cancelled && setTicks(r.ticks)).catch(() => {});
+    api.scores(symbol).then((r) => !cancelled && setScores(r.points)).catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -71,6 +80,7 @@ export function StockCharts({ symbol }: { symbol: string }) {
   if (!data) return <Empty msg="載入圖表中…" />;
 
   const hasIntraday = data.intraday.length > 0;
+  const hasScores = scores.length > 0;
   const selectedTime = tickIdx != null && ticks[tickIdx] ? ticks[tickIdx].t : null;
 
   const onChartSelect = (t: number) => {
@@ -98,17 +108,26 @@ export function StockCharts({ symbol }: { symbol: string }) {
             >
               分時
             </TabBtn>
+            <TabBtn
+              active={tab === "scores"}
+              onClick={() => setTab("scores")}
+              disabled={!hasScores}
+            >
+              籌碼分數
+            </TabBtn>
           </div>
         </div>
         {tab === "daily" ? (
           <CandleChart bars={data.daily} />
-        ) : (
+        ) : tab === "intraday" ? (
           <AreaChart
             bars={data.intraday}
             prevClose={data.prev_close}
             selectedTime={selectedTime}
             onSelect={onChartSelect}
           />
+        ) : (
+          <ScoreChart points={scores} />
         )}
       </div>
 
@@ -325,6 +344,111 @@ function AreaChart({
   }, [selectedTime]);
 
   return <div ref={ref} className="h-[340px] w-full" />;
+}
+
+type ScoreKey = "chip_score" | "institutional" | "holder" | "intraday" | "market";
+
+const SCORE_LINES: {
+  key: ScoreKey;
+  label: string;
+  color: string;
+  width: 1 | 2 | 3;
+}[] = [
+  { key: "chip_score", label: "Chip", color: "#d9a441", width: 3 },
+  { key: "institutional", label: "法人", color: "#6ea8fe", width: 1 },
+  { key: "holder", label: "集中", color: "#b98cff", width: 1 },
+  { key: "intraday", label: "盤中", color: "#4bc0c0", width: 1 },
+  { key: "market", label: "大盤", color: "#8a95a5", width: 1 },
+];
+
+type ScoreInfo = { time: string } & Record<ScoreKey, number | null>;
+
+function toInfo(p: ScorePoint): ScoreInfo {
+  return {
+    time: p.t,
+    chip_score: p.chip_score,
+    institutional: p.institutional,
+    holder: p.holder,
+    intraday: p.intraday,
+    market: p.market,
+  };
+}
+
+/** Chip Score 與四維分項的每日時序(0~100,50 為中性)。 */
+function ScoreChart({ points }: { points: ScorePoint[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [info, setInfo] = useState<ScoreInfo | null>(null);
+
+  useEffect(() => {
+    if (!ref.current || points.length === 0) return;
+    const chart = createChart(ref.current, {
+      ...BASE_OPTS,
+      height: 340,
+      timeScale: { borderColor: "#26262e", fixLeftEdge: true, fixRightEdge: true },
+    });
+    let chipSeries: ISeriesApi<"Line"> | null = null;
+    for (const ln of SCORE_LINES) {
+      const s = chart.addSeries(LineSeries, {
+        color: ln.color,
+        lineWidth: ln.width,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: ln.key === "chip_score",
+      });
+      s.setData(
+        points
+          .filter((p) => p[ln.key] != null)
+          .map((p) => ({ time: p.t as string, value: p[ln.key] as number })),
+      );
+      if (ln.key === "chip_score") chipSeries = s;
+    }
+    chipSeries?.createPriceLine({
+      price: 50,
+      color: "#63615b",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: "中性",
+    });
+    chart.timeScale().fitContent();
+
+    const showLast = () => setInfo(toInfo(points[points.length - 1]));
+    showLast();
+    chart.subscribeCrosshairMove((param) => {
+      if (param.time == null) {
+        showLast();
+        return;
+      }
+      const p = points.find((x) => x.t === (param.time as string));
+      if (p) setInfo(toInfo(p));
+    });
+
+    const ro = new ResizeObserver(() => chart.timeScale().fitContent());
+    ro.observe(ref.current);
+    return () => {
+      ro.disconnect();
+      chart.remove();
+    };
+  }, [points]);
+
+  return (
+    <div className="relative">
+      {info && (
+        <div className="pointer-events-none absolute left-2 top-2 z-10 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-lg border border-line-soft bg-panel/85 px-3 py-1.5 font-mono text-xs tnum backdrop-blur-sm">
+          <span className="text-ink-dim">{info.time}</span>
+          {SCORE_LINES.map((ln) => (
+            <span key={ln.key} className="text-ink-faint">
+              <span style={{ color: ln.color }}>●</span> {ln.label}
+              <span className="ml-0.5 text-ink">
+                {info[ln.key] != null ? info[ln.key]!.toFixed(1) : "—"}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+      <div ref={ref} className="h-[340px] w-full" />
+    </div>
+  );
 }
 
 function TickTable({

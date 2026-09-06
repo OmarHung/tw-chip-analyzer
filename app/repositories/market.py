@@ -6,8 +6,25 @@ import datetime as dt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.market import MarketDaily
+from app.db.models.market import DailyPrice, MarketDaily
 from app.models.signal import MarketContext
+
+
+async def load_daily_prices(
+    session: AsyncSession, symbol: str, limit: int = 250
+) -> list[DailyPrice]:
+    """取某檔近 limit 個交易日的日 K(升冪),供走勢圖自家資料來源。
+
+    走勢圖只做展示,不涉回測,故取全部歷史(不依 available_at 過濾)。
+    """
+    stmt = (
+        select(DailyPrice)
+        .where(DailyPrice.symbol == symbol)
+        .order_by(DailyPrice.data_date.desc())
+        .limit(limit)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    return list(reversed(rows))
 
 
 async def load_market_daily(session: AsyncSession, as_of: dt.date) -> MarketDaily | None:

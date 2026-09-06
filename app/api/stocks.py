@@ -12,8 +12,8 @@ from app.connectors import yahoo
 from app.core.logging import get_logger
 from app.db.models.market import Stock
 from app.db.session import get_session
-from app.repositories.features import FeatureDailyRepository
-from app.repositories.market import load_market_context
+from app.repositories.features import FeatureDailyRepository, SignalRepository
+from app.repositories.market import load_daily_prices, load_market_context
 from app.services.analysis import AnalysisService
 from app.services.orderflow_intraday import compute_orderflow
 from app.services.ticks import get_ticks
@@ -103,15 +103,78 @@ async def get_chart(
     stock = await session.get(Stock, symbol)
     name = stock.name if stock else symbol
     market = stock.market if stock else "TWSE"
+    # 日 K:優先自家 daily_price(不依賴外部、與分析同源);缺才 fallback Yahoo。
+    rows = await load_daily_prices(session, symbol)
+    daily = [
+        {
+            "t": str(r.data_date),
+            "o": float(r.open), "h": float(r.high),
+            "l": float(r.low), "c": float(r.close),
+            "v": int(r.volume or 0),
+        }
+        for r in rows
+        if None not in (r.open, r.high, r.low, r.close)
+    ]
+    intraday: list[dict] = []
+    prev_close: float | None = None
     try:
-        daily = await yahoo.fetch_daily(symbol, market, range_="1y")
+        if not daily:  # 自家無資料才打 Yahoo 日 K
+            daily = await yahoo.fetch_daily(symbol, market, range_="1y")
         intraday, prev_close = await yahoo.fetch_intraday(symbol, market)
     except Exception as e:  # 外部來源失敗不應讓頁面掛掉
         logger.warning("Yahoo 圖表抓取失敗 %s: %s", symbol, e)
-        daily, intraday, prev_close = [], [], None
+    # prev_close fallback:Yahoo intraday 失敗時,用日 K 倒數第二根收盤。
+    if prev_close is None and len(daily) >= 2:
+        prev_close = daily[-2]["c"]
     return ChartResponse(
         symbol=symbol, name=name, prev_close=prev_close,
         daily=[Bar(**b) for b in daily], intraday=[Bar(**b) for b in intraday],
+    )
+
+
+class ScorePoint(BaseModel):
+    t: str  # data_date YYYY-MM-DD
+    chip_score: float
+    intraday: float | None = None
+    institutional: float | None = None
+    holder: float | None = None
+    market: float | None = None
+    action: str | None = None
+
+
+class ScoreHistoryResponse(BaseModel):
+    symbol: str
+    name: str
+    count: int
+    points: list[ScorePoint]
+
+
+@router.get("/{symbol}/scores", response_model=ScoreHistoryResponse)
+async def get_score_history(
+    symbol: str,
+    session: AsyncSession = Depends(get_session),
+) -> ScoreHistoryResponse:
+    """Chip Score 與四維分項的每日時序(供走勢圖疊分數演變)。"""
+    rows = await SignalRepository(session).list_history(symbol)
+    stock = await session.get(Stock, symbol)
+    name = stock.name if stock else symbol
+    points = [
+        ScorePoint(
+            t=str(r.data_date),
+            chip_score=float(r.chip_score),
+            intraday=None if r.intraday_score is None else float(r.intraday_score),
+            institutional=(
+                None if r.institutional_score is None
+                else float(r.institutional_score)
+            ),
+            holder=None if r.holder_score is None else float(r.holder_score),
+            market=None if r.market_score is None else float(r.market_score),
+            action=r.action,
+        )
+        for r in rows
+    ]
+    return ScoreHistoryResponse(
+        symbol=symbol, name=name, count=len(points), points=points
     )
 
 
