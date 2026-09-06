@@ -17,3 +17,8 @@ __pycache__/
 
 # Starter archive
 tw_chip_analyzer_mvp.zip
+
+# pytest / coverage
+.pytest_cache/
+htmlcov/
+.coverage

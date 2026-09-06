@@ -1,0 +1,61 @@
+# 交易/籌碼門檻設定 — 對應 docs/07-ops-config.md §21
+# 所有 threshold 一律 config 化，程式禁止硬編碼 magic number。
+
+signal:
+  buy_score: 75
+  watch_score: 65
+  reduce_score: 50
+  exit_score: 40
+
+risk:
+  atr_stop_multiplier: 1.5
+  swing_buffer_atr: 0.2
+  max_stop_pct: 0.06
+  tp1_r: 2.0
+  tp2_r: 3.0
+  entry_low_atr: 0.25    # entry zone 下緣 = last - 0.25 ATR
+  entry_high_atr: 0.15   # entry zone 上緣 = last + 0.15 ATR
+
+entry_filter:
+  min_risk_reward: 2.0
+  max_vwap_deviation_pct: 0.08   # 收盤價不可高於 VWAP 逾 8%
+  max_ma20_deviation_pct: 0.12   # 收盤價不可高於 MA20 逾 12%
+  min_turnover: 20000000         # 最低成交金額(流動性門檻)，單位 TWD
+
+large_trade:
+  percentile: 0.95
+  min_samples: 500
+
+tdcc:
+  retail_max_lots: 50
+  large_min_lots: 400
+  super_large_min_lots: 1000
+
+# Composite Chip Score 權重 — 對應 docs/03 §10
+weights:
+  composite:
+    intraday: 0.35
+    institutional: 0.30
+    holder: 0.25
+    market: 0.10
+  intraday:
+    large_trade_delta: 0.30
+    cvd: 0.25
+    absorption: 0.20
+    obi: 0.10
+    trade_speed: 0.10
+    price_efficiency: 0.05
+  institutional:
+    trust: 0.30
+    foreign: 0.25
+    dealer: 0.10
+    margin_change: -0.15
+    sbl_change: -0.10
+    short_change: -0.10
+  holder:
+    large_holder_change: 0.60
+    retail_holder_change: -0.25
+    holder_count_change: -0.15
+  market:
+    market_trend: 0.65
+    industry_trend: 0.35

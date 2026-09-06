@@ -1,45 +1,50 @@
-from app.models.signal import *
-from app.services.scoring import ChipScorer
-from app.services.decision import decide
+"""FastAPI 應用進入點。
 
-def demo():
-    intraday = IntradayFeatures(
-        cvd_z=1.8,
-        large_trade_delta_z=2.1,
-        obi=0.28,
-        absorption_z=1.3,
-        trade_speed_z=1.0,
-        price_efficiency_z=0.4,
-    )
-    daily = DailyFeatures(
-        foreign_5d_z=0.8,
-        trust_5d_z=1.4,
-        dealer_5d_z=0.2,
-        margin_balance_change_z=-1.0,
-        short_balance_change_z=0.1,
-        sbl_change_z=0.3,
-    )
-    weekly = WeeklyFeatures(
-        large_holder_ratio_change_z=1.3,
-        retail_holder_ratio_change_z=-1.1,
-        holder_count_change_z=-0.8,
-    )
-    market = MarketContext(
-        market_trend_score=0.4,
-        industry_trend_score=0.6,
-        volatility_percentile=0.5,
+Phase 1（Daily Chip Scanner）：提供 /health 與籌碼分析/掃描 API。
+啟動：uvicorn app.main:app --reload
+"""
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from app.core.config import get_settings
+from app.core.logging import get_logger
+
+logger = get_logger("app.main")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    logger.info("啟動 tw_chip_analyzer（env=%s）", settings.app_env)
+    yield
+    from app.db.session import reset_engine
+
+    await reset_engine()
+    logger.info("關閉 tw_chip_analyzer")
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="台股籌碼分析與進出場建議系統",
+        version="0.1.0",
+        description="Phase 1: Daily Chip Scanner",
+        lifespan=lifespan,
     )
 
-    score, reasons = ChipScorer().score(intraday, daily, weekly, market)
-    result = decide(
-        score=score,
-        reasons=reasons,
-        last_price=100,
-        atr14=2.2,
-        recent_swing_low=95.5,
-        already_in_position=False,
-    )
-    print(result)
+    @app.get("/health", tags=["system"])
+    async def health() -> dict:
+        return {"status": "ok", "env": get_settings().app_env}
 
-if __name__ == "__main__":
-    demo()
+    from app.api.scanner import router as scanner_router
+    from app.api.stocks import router as stocks_router
+
+    app.include_router(stocks_router)
+    app.include_router(scanner_router)
+
+    return app
+
+
+app = create_app()
