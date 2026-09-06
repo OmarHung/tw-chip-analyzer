@@ -5,9 +5,14 @@ import datetime as dt
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.chips import InstitutionalDaily, MarginDaily
+from app.db.models.chips import (
+    InstitutionalDaily,
+    MarginDaily,
+    TdccSummaryWeekly,
+    TdccWeekly,
+)
 from app.db.models.market import DailyPrice, Stock
-from app.importers import twse
+from app.importers import tdcc, twse
 from app.repositories.upsert import upsert_ignore, upsert_many
 
 
@@ -42,3 +47,15 @@ async def import_margin(session: AsyncSession, raw: dict, data_date: dt.date) ->
     n = await upsert_many(session, MarginDaily, rows, ["symbol", "data_date"])
     await session.commit()
     return n
+
+
+async def import_tdcc(session: AsyncSession, records: list[dict]) -> tuple[int, int]:
+    """回傳 (weekly 筆數, summary 筆數)。"""
+    _date, weekly, summary = tdcc.parse_distribution(records)
+    await _ensure_stocks(session, {r["symbol"] for r in summary})
+    nw = await upsert_many(session, TdccWeekly, weekly, ["symbol", "data_date", "level"])
+    ns = await upsert_many(
+        session, TdccSummaryWeekly, summary, ["symbol", "data_date"]
+    )
+    await session.commit()
+    return nw, ns

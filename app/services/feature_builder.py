@@ -15,7 +15,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.chips import InstitutionalDaily, MarginDaily
+from app.db.models.chips import InstitutionalDaily, MarginDaily, TdccSummaryWeekly
 from app.db.models.features import FeatureDaily
 from app.db.models.market import DailyPrice
 from app.importers.base import availability_for
@@ -115,6 +115,12 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
         ["symbol", "data_date", "margin_balance", "short_balance"],
         start, target,
     )
+    # TDCC 週資料：取 data_date<=target 的最新一筆/每檔
+    tdcc = await _load_df(
+        session, TdccSummaryWeekly,
+        ["symbol", "data_date", "retail_ratio", "large_ratio", "super_large_ratio"],
+        target - dt.timedelta(days=30), target,
+    )
 
     # 只處理當日有價格的個股
     symbols_today = set(prices.loc[prices["data_date"] == target, "symbol"])
@@ -154,12 +160,29 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
             if sc is not None:
                 short_chg[sym] = sc * LOTS_TO_SHARES / av
 
+    # TDCC 大戶/散戶集中度（Phase 1：以橫斷面 level 為 proxy；
+    # 待累積 >=2 週快照後改為真實 week-over-week change，見 docs/03 §10）。
+    large_conc, retail_conc = {}, {}
+    if not tdcc.empty:
+        latest = (
+            tdcc.sort_values("data_date").groupby("symbol").tail(1).set_index("symbol")
+        )
+        for sym in symbols_today:
+            if sym in latest.index:
+                row = latest.loc[sym]
+                large_conc[sym] = float(row["large_ratio"] or 0) + float(
+                    row["super_large_ratio"] or 0
+                )
+                retail_conc[sym] = float(row["retail_ratio"] or 0)
+
     # 市場層橫斷面 Z-score
     z_foreign = _zscore_map(foreign_str)
     z_trust = _zscore_map(trust_str)
     z_dealer = _zscore_map(dealer_str)
     z_margin = _zscore_map(margin_chg)
     z_short = _zscore_map(short_chg)
+    z_large_holder = _zscore_map(large_conc)
+    z_retail_holder = _zscore_map(retail_conc)
 
     av_at = availability_for(target)
     rows: list[dict] = []
@@ -177,9 +200,9 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
                 "margin_balance_change_z": z_margin.get(sym, 0.0),
                 "short_balance_change_z": z_short.get(sym, 0.0),
                 "sbl_change_z": 0.0,  # 待 SBL importer
-                # TDCC 週資料待 importer；先留 0（holder 分項為中性）
-                "large_holder_ratio_change_z": 0.0,
-                "retail_holder_ratio_change_z": 0.0,
+                # TDCC：large/retail 為橫斷面集中度 proxy；count 待真實 change
+                "large_holder_ratio_change_z": z_large_holder.get(sym, 0.0),
+                "retail_holder_ratio_change_z": z_retail_holder.get(sym, 0.0),
                 "holder_count_change_z": 0.0,
             }
         )

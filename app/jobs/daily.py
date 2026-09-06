@@ -10,17 +10,36 @@ import argparse
 import asyncio
 import datetime as dt
 
+from app.connectors import tdcc as tdcc_conn
 from app.connectors import twse as twse_conn
 from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
-from app.importers.service import import_institutional, import_margin, import_ohlcv
+from app.importers.service import (
+    import_institutional,
+    import_margin,
+    import_ohlcv,
+    import_tdcc,
+)
 from app.services.feature_builder import build_features
 
 logger = get_logger("jobs.daily")
 
 
-async def run(target: dt.date, do_import: bool = True, do_features: bool = True) -> None:
+async def run(
+    target: dt.date,
+    do_import: bool = True,
+    do_features: bool = True,
+    do_tdcc: bool = False,
+) -> None:
     sm = get_sessionmaker()
+
+    if do_tdcc:
+        # TDCC openapi 只有當週快照（無日期參數）。
+        logger.info("抓取 TDCC 股權分散（當週）...")
+        records = await tdcc_conn.fetch_shareholder_distribution()
+        async with sm() as s:
+            nw, ns = await import_tdcc(s, records)
+        logger.info("TDCC 匯入完成：weekly=%d summary=%d", nw, ns)
 
     if do_import:
         logger.info("抓取 TWSE 盤後資料 %s ...", target)
@@ -50,10 +69,16 @@ def main() -> None:
     p.add_argument("date", help="交易日 YYYY-MM-DD")
     p.add_argument("--skip-import", action="store_true")
     p.add_argument("--skip-features", action="store_true")
+    p.add_argument("--tdcc", action="store_true", help="同時抓取當週 TDCC 股權分散")
     args = p.parse_args()
     target = dt.date.fromisoformat(args.date)
     asyncio.run(
-        run(target, do_import=not args.skip_import, do_features=not args.skip_features)
+        run(
+            target,
+            do_import=not args.skip_import,
+            do_features=not args.skip_features,
+            do_tdcc=args.tdcc,
+        )
     )
 
 

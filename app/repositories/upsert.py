@@ -6,6 +6,15 @@ from typing import Any
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# PostgreSQL 單一語句參數上限 65535；依欄位數換算安全批次列數。
+_MAX_PARAMS = 60000
+
+
+def _chunks(rows: list[dict], n_cols: int):
+    size = max(1, _MAX_PARAMS // max(1, n_cols))
+    for i in range(0, len(rows), size):
+        yield rows[i : i + size]
+
 
 async def upsert_many(
     session: AsyncSession,
@@ -23,12 +32,14 @@ async def upsert_many(
     if not rows:
         return 0
 
-    stmt = insert(model).values(rows)
+    n_cols = len(rows[0])
     if update_columns is None:
         update_columns = [c for c in rows[0].keys() if c not in index_elements]
-    set_ = {c: getattr(stmt.excluded, c) for c in update_columns}
-    stmt = stmt.on_conflict_do_update(index_elements=index_elements, set_=set_)
-    await session.execute(stmt)
+    for chunk in _chunks(rows, n_cols):
+        stmt = insert(model).values(chunk)
+        set_ = {c: getattr(stmt.excluded, c) for c in update_columns}
+        stmt = stmt.on_conflict_do_update(index_elements=index_elements, set_=set_)
+        await session.execute(stmt)
     return len(rows)
 
 
@@ -41,9 +52,11 @@ async def upsert_ignore(
     """衝突時不更新（ON CONFLICT DO NOTHING）。用於補 FK 主檔 stub。"""
     if not rows:
         return 0
-    stmt = insert(model).values(rows).on_conflict_do_nothing(
-        index_elements=index_elements
-    )
-    await session.execute(stmt)
+    n_cols = len(rows[0])
+    for chunk in _chunks(rows, n_cols):
+        stmt = insert(model).values(chunk).on_conflict_do_nothing(
+            index_elements=index_elements
+        )
+        await session.execute(stmt)
     return len(rows)
 
