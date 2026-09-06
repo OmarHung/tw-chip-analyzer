@@ -47,6 +47,18 @@ def twse_date(d: dt.date) -> str:
     return d.strftime("%Y%m%d")
 
 
+def parse_roc_date(s: str) -> dt.date | None:
+    """民國日期 '115/09/04' → date(2026, 9, 4)。"""
+    try:
+        parts = str(s).strip().split("/")
+        if len(parts) != 3:
+            return None
+        y, m, d = int(parts[0]) + 1911, int(parts[1]), int(parts[2])
+        return dt.date(y, m, d)
+    except (ValueError, TypeError):
+        return None
+
+
 def is_stock_symbol(symbol: str) -> bool:
     """只保留 4 位數普通股（排除 ETF/權證/00 開頭等）。第一版聚焦一般個股。"""
     s = symbol.strip()

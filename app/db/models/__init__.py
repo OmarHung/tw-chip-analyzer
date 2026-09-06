@@ -7,11 +7,13 @@ from app.db.models.chips import (
     TdccWeekly,
 )
 from app.db.models.features import FeatureDaily, SignalSnapshot
-from app.db.models.market import DailyPrice, Stock
+from app.db.models.market import DailyPrice, MarketDaily, MarketIndex, Stock
 
 __all__ = [
     "Stock",
     "DailyPrice",
+    "MarketIndex",
+    "MarketDaily",
     "InstitutionalDaily",
     "MarginDaily",
     "SblDaily",

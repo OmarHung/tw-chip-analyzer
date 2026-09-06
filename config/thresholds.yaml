@@ -87,3 +87,13 @@ weights:
   market:
     market_trend: 0.65
     industry_trend: 0.35
+
+# 大盤 regime 計算（market_trend_score，見 docs/03 §10）
+market_regime:
+  above_ma20: 0.25       # TAIEX > MA20
+  above_ma60: 0.20       # TAIEX > MA60
+  ma20_slope: 0.20       # MA20 斜率（正規化）
+  breadth: 0.25          # 漲跌家數
+  volatility: 0.10       # 波動 regime（高波動偏空）
+  slope_scale: 0.02      # ma20_slope 正規化：日斜率/MA20 * 60 天 → tanh
+  high_vol_pct: 0.03     # 近 20 日報酬標準差 > 3% 視為高波動

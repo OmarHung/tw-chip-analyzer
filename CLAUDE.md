@@ -32,13 +32,14 @@
 
 已完成 docs/01–06 全部（骨架、演算法、評分、決策、API、Backtest）、docs/05 §16 Next.js UI，以及 TWSE 真實資料 importer + feature 計算 job（rule-based，含測試）。系統可吃真實台股盤後資料端到端運作。
 
-真實資料涵蓋：OHLCV + institutional + margin（TWSE）+ TDCC 股權分散（holder）。已對 2026-09-04 全市場（~1080 檔）驗證，分數分層正常（HOLD/WATCH/AVOID）。
+真實資料涵蓋：OHLCV + institutional + margin（TWSE）+ TDCC 股權分散（holder）+ TAIEX 大盤 regime（market）。四大分項中 institutional / holder / market 皆為真實資料；已對 2026-09-04 全市場（~1080 檔）驗證，分數分層正常（avg 53.4、WATCH 62、AVOID 43），Dashboard 顯示真實 TAIEX/regime/漲跌家數。
 
 **已知限制（重要）**：
-- **market 成分尚無資料源、以中性 50 代入**，壓住 composite 頂部（故目前難達 BUY 門檻 75）。
-- **TDCC holder 為橫斷面 level proxy**：openapi 僅當週快照，無法算 week-over-week change，暫以「當週大戶/散戶集中度的橫斷面 Z-score」代替 change-Z；待累積 ≥2 週快照後改真實 change（見 `feature_builder.py` 註解）。available_at 目前設為快照日盤後（demo 對齊），生產應 lag 至實際揭露日。
+- **BUY(75) 在 Phase 1 幾乎不可達**：排除 intraday（35% 權重）後只剩 3 成分，頂部約落在 74（2026-09-04 最高 3045=73.7）。要產生 BUY 需 intraday（Phase 3）或於 config 調降 `signal.buy_score`。屬校準取捨，未擅自更動。
+- **TDCC holder 為橫斷面 level proxy**：openapi 僅當週快照，無法算 week-over-week change，暫以「當週大戶/散戶集中度的橫斷面 Z-score」代替；待累積 ≥2 週後改真實 change。available_at 目前設快照日盤後（demo 對齊），生產應 lag 至揭露日。
+- **產業趨勢（industry_trend）仍中性**：OHLCV importer 未帶產業別。
 
-尚未做：SBL importer、TPEx connector、market/大盤 score、真實 TDCC change（需累積多週）、Shioaji realtime、走勢圖時序 API。
+尚未做：SBL importer、TPEx connector、真實 TDCC change（需累積多週）、產業別/產業趨勢、Shioaji realtime、走勢圖時序 API。
 
 實際結構：
 - `app/core/`：`config.py`（env 用 pydantic-settings；門檻用 `config/thresholds.yaml`）、`logging.py`
@@ -56,11 +57,13 @@
 - `app/importers/`：`base.py`（TWSE 數字/日期解析、`is_stock_symbol`、`availability_for`）、`twse.py`（parser，欄位以標題名定位；MI_MARGN 用固定位置）、`tdcc.py`（代號需 strip 尾隨空白；級距→retail/medium/large/super_large 依 config 門檻）、`service.py`（冪等 upsert，FK stub 保護；`import_tdcc`）
 - `app/repositories/upsert.py`：PostgreSQL `on_conflict` 冪等 upsert（do_update / do_nothing）
 - `app/services/feature_builder.py`：原始表 → `feature_daily`。兩段正規化（個股 5 日淨額/20 日均量 → 市場橫斷面 Z-score），look-ahead 只用 `data_date<=target`
-- `app/jobs/daily.py`：CLI「抓取→匯入→建特徵」，`APP_ENV=dev python -m app.jobs.daily YYYY-MM-DD`
+- `app/services/market_score.py`：TAIEX（MA20/MA60/斜率/波動）+ 全市場漲跌家數 → `market_daily.market_trend_score`（config `market_regime`）
+- `app/repositories/market.py`：`load_market_context`（→ MarketContext）、`load_market_daily`
+- `app/jobs/daily.py`：CLI「抓取→匯入→建特徵→大盤脈絡」，`APP_ENV=dev python -m app.jobs.daily YYYY-MM-DD [--tdcc] [--index]`
 - `tests/fixtures/`：TWSE 真實回應切片（T86/MI_INDEX/MI_MARGN），供 parser 測試不打網路
 - `app/models/signal.py`：領域 dataclasses（features / Action / SignalResult）
 - `scripts/`：`seed_dev.py`（API 示範資料）、`backtest_demo.py`（合成行情跑回測，輸出 bucket 表）
-- `tests/`：76 passed（DB roundtrip、order flow、scoring、decision、API 整合、backtest、importer、TDCC、feature builder）
+- `tests/`：80 passed（DB roundtrip、order flow、scoring、decision、API 整合、backtest、importer、TDCC、feature builder、market score）
 - 完整建議目錄結構見 `docs/01-overview-architecture.md §5`。
 
 ## 環境與指令
@@ -73,7 +76,7 @@
 - Seed 開發資料：`APP_ENV=dev python -m scripts.seed_dev`
 - Backtest 示範：`APP_ENV=dev python -m scripts.backtest_demo`（輸出各 score bucket × 5D 績效）
 - 前端：`cd frontend && pnpm install && pnpm dev`（:3000）。注意 dev 模式 HMR websocket 在本沙箱會失敗而卡住 client hydration；驗證請用 `pnpm build && pnpm start`。
-- 每日盤後匯入 + 建特徵：`APP_ENV=dev python -m app.jobs.daily 2026-09-04`（需先匯入約 10 個交易日歷史，feature 的 5 日/20 日視窗才有意義）；加 `--tdcc` 一併抓當週 TDCC 股權分散。
+- 每日盤後匯入 + 建特徵：`APP_ENV=dev python -m app.jobs.daily 2026-09-04`（需先匯入約 10 個交易日歷史，feature 的 5 日/20 日視窗才有意義）；`--tdcc` 抓當週 TDCC 股權分散；`--index` 抓近 4 個月 TAIEX 並建大盤脈絡（MA60 需足夠歷史）。
 
 ## 文件導覽（`docs/`）
 

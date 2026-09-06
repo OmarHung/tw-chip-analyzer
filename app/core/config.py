@@ -96,6 +96,10 @@ class Thresholds:
     def backtest(self) -> dict[str, Any]:
         return self._data.get("backtest", {})
 
+    @property
+    def market_regime(self) -> dict[str, Any]:
+        return self._data.get("market_regime", {})
+
 
 @lru_cache
 def get_settings() -> Settings:

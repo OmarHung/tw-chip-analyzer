@@ -48,3 +48,13 @@ async def fetch_margin(date: dt.date) -> dict:
             f"{BASE}/rwd/zh/marginTrading/MI_MARGN",
             {"date": twse_date(date), "selectType": "STOCK", "response": "json"},
         )
+
+
+async def fetch_index_month(date: dt.date) -> dict:
+    """FMTQIK：回傳該月每日大盤成交與 TAIEX 收盤指數。"""
+    async with httpx.AsyncClient(timeout=30) as client:
+        return await _get(
+            client,
+            f"{BASE}/rwd/zh/afterTrading/FMTQIK",
+            {"date": twse_date(date), "response": "json"},
+        )

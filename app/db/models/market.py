@@ -23,6 +23,34 @@ class Stock(Base, TimestampMixin):
     shares_outstanding: Mapped[int | None] = mapped_column(BigInteger)
 
 
+class MarketIndex(Base, AvailabilityMixin, TimestampMixin):
+    """大盤加權指數（TAIEX）日線。"""
+
+    __tablename__ = "market_index"
+    __table_args__ = (UniqueConstraint("data_date", name="uq_market_index"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    taiex_close: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    turnover: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
+
+
+class MarketDaily(Base, AvailabilityMixin, TimestampMixin):
+    """每日大盤脈絡（由 MarketIndex + 全市場漲跌家數計算）。"""
+
+    __tablename__ = "market_daily"
+    __table_args__ = (UniqueConstraint("data_date", name="uq_market_daily"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    taiex_close: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    taiex_ma20: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    taiex_ma60: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    ma20_slope: Mapped[float | None] = mapped_column()
+    advancers: Mapped[int | None] = mapped_column(BigInteger)
+    decliners: Mapped[int | None] = mapped_column(BigInteger)
+    volatility_pct: Mapped[float | None] = mapped_column()
+    market_trend_score: Mapped[float | None] = mapped_column()  # -1..1
+
+
 class DailyPrice(Base, AvailabilityMixin, TimestampMixin):
     """日 OHLCV（含成交金額，供流動性/量比）。"""
 

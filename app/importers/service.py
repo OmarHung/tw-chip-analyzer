@@ -11,7 +11,7 @@ from app.db.models.chips import (
     TdccSummaryWeekly,
     TdccWeekly,
 )
-from app.db.models.market import DailyPrice, Stock
+from app.db.models.market import DailyPrice, MarketIndex, Stock
 from app.importers import tdcc, twse
 from app.repositories.upsert import upsert_ignore, upsert_many
 
@@ -45,6 +45,14 @@ async def import_margin(session: AsyncSession, raw: dict, data_date: dt.date) ->
     rows = twse.parse_margin(raw, data_date)
     await _ensure_stocks(session, {r["symbol"] for r in rows})
     n = await upsert_many(session, MarginDaily, rows, ["symbol", "data_date"])
+    await session.commit()
+    return n
+
+
+async def import_index(session: AsyncSession, raw: dict) -> int:
+    """匯入一個月的 TAIEX 日線（FMTQIK）。"""
+    rows = twse.parse_index(raw)
+    n = await upsert_many(session, MarketIndex, rows, ["data_date"])
     await session.commit()
     return n
 

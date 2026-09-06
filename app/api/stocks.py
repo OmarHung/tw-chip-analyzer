@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.schemas import AnalysisResponse
 from app.db.session import get_session
 from app.repositories.features import FeatureDailyRepository
+from app.repositories.market import load_market_context
 from app.services.analysis import AnalysisService
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
@@ -21,5 +22,6 @@ async def get_analysis(
     fd = await repo.get_latest(symbol)
     if fd is None:
         raise HTTPException(status_code=404, detail=f"無 {symbol} 的特徵資料")
-    result = AnalysisService().analyze(fd)
+    market = await load_market_context(session, fd.data_date)
+    result = AnalysisService().analyze(fd, market=market)
     return AnalysisResponse.from_result(result)

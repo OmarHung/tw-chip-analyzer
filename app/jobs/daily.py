@@ -15,14 +15,27 @@ from app.connectors import twse as twse_conn
 from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
 from app.importers.service import (
+    import_index,
     import_institutional,
     import_margin,
     import_ohlcv,
     import_tdcc,
 )
 from app.services.feature_builder import build_features
+from app.services.market_score import build_market_daily
 
 logger = get_logger("jobs.daily")
+
+
+def _month_starts(target: dt.date, months: int) -> list[dt.date]:
+    """target 當月起往前 months 個月的每月 1 號（供 FMTQIK 逐月抓取）。"""
+    out, y, m = [], target.year, target.month
+    for _ in range(months):
+        out.append(dt.date(y, m, 1))
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    return out
 
 
 async def run(
@@ -30,8 +43,19 @@ async def run(
     do_import: bool = True,
     do_features: bool = True,
     do_tdcc: bool = False,
+    do_index: bool = False,
 ) -> None:
     sm = get_sessionmaker()
+
+    if do_index:
+        # 抓近 4 個月 TAIEX（確保 MA60 有足夠歷史），再算大盤脈絡。
+        logger.info("抓取 TAIEX 指數（近 4 個月）...")
+        total = 0
+        for mstart in _month_starts(target, 4):
+            raw = await twse_conn.fetch_index_month(mstart)
+            async with sm() as s:
+                total += await import_index(s, raw)
+        logger.info("TAIEX 匯入完成：%d 日", total)
 
     if do_tdcc:
         # TDCC openapi 只有當週快照（無日期參數）。
@@ -62,6 +86,9 @@ async def run(
         async with sm() as s:
             n = await build_features(s, target)
         logger.info("特徵建立完成：feature_daily=%d", n)
+        async with sm() as s:
+            ok = await build_market_daily(s, target)
+        logger.info("大盤脈絡：%s", "已建立" if ok else "略過（無 TAIEX 或非交易日）")
 
 
 def main() -> None:
@@ -70,6 +97,7 @@ def main() -> None:
     p.add_argument("--skip-import", action="store_true")
     p.add_argument("--skip-features", action="store_true")
     p.add_argument("--tdcc", action="store_true", help="同時抓取當週 TDCC 股權分散")
+    p.add_argument("--index", action="store_true", help="抓取 TAIEX 並建大盤脈絡")
     args = p.parse_args()
     target = dt.date.fromisoformat(args.date)
     asyncio.run(
@@ -78,6 +106,7 @@ def main() -> None:
             do_import=not args.skip_import,
             do_features=not args.skip_features,
             do_tdcc=args.tdcc,
+            do_index=args.index,
         )
     )
 

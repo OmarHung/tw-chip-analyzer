@@ -52,6 +52,16 @@ export interface ScannerResponse {
   rows: ScannerRow[];
 }
 
+export interface MarketInfo {
+  taiex_close: number | null;
+  taiex_ma20: number | null;
+  taiex_ma60: number | null;
+  advancers: number | null;
+  decliners: number | null;
+  trend_score: number | null;
+  regime: string;
+}
+
 export interface DashboardResponse {
   as_of: string | null;
   total: number;
@@ -59,6 +69,7 @@ export interface DashboardResponse {
   buy_candidates: number;
   watch_candidates: number;
   avg_chip_score: number;
+  market: MarketInfo | null;
   top: { symbol: string; chip_score: number; action: Action }[];
 }
 

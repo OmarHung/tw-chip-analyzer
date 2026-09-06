@@ -16,6 +16,7 @@ from app.importers.base import (
     is_stock_symbol,
     parse_float,
     parse_int,
+    parse_roc_date,
 )
 
 
@@ -101,6 +102,30 @@ def parse_institutional(raw: dict, data_date: dt.date) -> list[dict]:
                 "dealer_hedge_net": parse_int(row[i_dealer_hedge])
                 if i_dealer_hedge is not None
                 else None,
+            }
+        )
+    return out
+
+
+def parse_index(raw: dict) -> list[dict]:
+    """FMTQIK → 每日 TAIEX 收盤指數（民國日期）。"""
+    f = raw.get("fields") or []
+    i_date = col_index(f, "日期")
+    i_close = col_index(f, "發行量加權股價指數")
+    i_turn = col_index(f, "成交金額")
+    if i_date is None or i_close is None:
+        return []
+    out: list[dict] = []
+    for row in raw.get("data", []):
+        d = parse_roc_date(row[i_date])
+        if d is None:
+            continue
+        out.append(
+            {
+                "data_date": d,
+                "available_at": availability_for(d),
+                "taiex_close": parse_float(row[i_close]),
+                "turnover": parse_float(row[i_turn]) if i_turn is not None else None,
             }
         )
     return out
