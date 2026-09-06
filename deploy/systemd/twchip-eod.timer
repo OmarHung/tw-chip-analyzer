@@ -1,0 +1,12 @@
+[Unit]
+Description=tw_chip_analyzer EOD 排程觸發(週一~週五 14:30 Asia/Taipei)
+
+[Timer]
+# 台股盤後。若主機時區非 Asia/Taipei,此處已明寫時區。
+OnCalendar=Mon..Fri 14:30 Asia/Taipei
+# 關機/休眠錯過時,開機後補跑一次(對每日累積很重要)
+Persistent=true
+Unit=twchip-eod.service
+
+[Install]
+WantedBy=timers.target

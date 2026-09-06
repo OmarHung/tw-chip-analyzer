@@ -1,0 +1,24 @@
+[Unit]
+Description=tw_chip_analyzer API (FastAPI/uvicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=twchip
+Group=twchip
+WorkingDirectory=/home/twchip/tw_chip_analyzer
+# APP_ENV=prod 走正式庫(DATABASE_URL);機密由專案根 .env 載入(pydantic-settings)
+Environment=APP_ENV=prod
+# 單 worker:APScheduler 於 lifespan 內,多 worker 會讓 EOD 重複跑。
+# 若改用 systemd timer 跑 EOD,請於 config/thresholds.yaml 設 schedule.enabled=false。
+ExecStart=/home/twchip/tw_chip_analyzer/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+# 基本硬化
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

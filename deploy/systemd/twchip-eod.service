@@ -1,0 +1,17 @@
+[Unit]
+Description=tw_chip_analyzer EOD (每日盤後匯入+特徵+分數)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=twchip
+Group=twchip
+WorkingDirectory=/home/twchip/tw_chip_analyzer
+Environment=APP_ENV=prod
+# 不帶日期參數 = 跑今天;eod.sh 內串 daily(行情/法人/融資/TDCC/TAIEX/特徵)
+# → import_ticks(逐筆,容錯)→ daily --skip-import(重建含 intraday 特徵 + 落地分數)。
+# 非交易日 daily 偵測無 OHLCV 會自動空跑。
+ExecStart=/home/twchip/tw_chip_analyzer/scripts/eod.sh
+# EOD 可能跑數分鐘~數十分鐘(全市場),放寬逾時
+TimeoutStartSec=3600
