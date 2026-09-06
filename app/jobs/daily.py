@@ -23,6 +23,7 @@ from app.importers.service import (
 )
 from app.services.feature_builder import build_features
 from app.services.market_score import build_market_daily
+from app.services.signal_persist import persist_signals
 
 logger = get_logger("jobs.daily")
 
@@ -42,6 +43,7 @@ async def run(
     target: dt.date,
     do_import: bool = True,
     do_features: bool = True,
+    do_signals: bool = True,
     do_tdcc: bool = False,
     do_index: bool = False,
 ) -> None:
@@ -90,12 +92,19 @@ async def run(
             ok = await build_market_daily(s, target)
         logger.info("大盤脈絡：%s", "已建立" if ok else "略過（無 TAIEX 或非交易日）")
 
+    if do_signals:
+        # composite 分數落地(供 backtest / ML / 追蹤);前置為 feature_daily 已建。
+        async with sm() as s:
+            n_sig = await persist_signals(s, target)
+        logger.info("訊號落地：signal_snapshot=%d", n_sig)
+
 
 def main() -> None:
     p = argparse.ArgumentParser(description="每日盤後 import + feature job")
     p.add_argument("date", help="交易日 YYYY-MM-DD")
     p.add_argument("--skip-import", action="store_true")
     p.add_argument("--skip-features", action="store_true")
+    p.add_argument("--skip-signals", action="store_true", help="不落地 signal_snapshot")
     p.add_argument("--tdcc", action="store_true", help="同時抓取當週 TDCC 股權分散")
     p.add_argument("--index", action="store_true", help="抓取 TAIEX 並建大盤脈絡")
     args = p.parse_args()
@@ -105,6 +114,7 @@ def main() -> None:
             target,
             do_import=not args.skip_import,
             do_features=not args.skip_features,
+            do_signals=not args.skip_signals,
             do_tdcc=args.tdcc,
             do_index=args.index,
         )

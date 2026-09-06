@@ -45,6 +45,15 @@ tdcc:
   large_min_lots: 400
   super_large_min_lots: 1000
 
+# 每日盤後 EOD 排程(app.jobs.scheduler;鐵則 4:排程時間 config 化,禁硬編碼)
+schedule:
+  enabled: true            # 隨 API server(FastAPI lifespan)自動起停;test env 一律不啟動
+  timezone: Asia/Taipei
+  eod:
+    day_of_week: "mon-fri"   # 交易日;國定假日由 daily 偵測無 OHLCV 自動空跑
+    hour: 14
+    minute: 30
+
 # Backtest — 對應 docs/06 §17-18、docs/08 §31
 backtest:
   # 交易成本(台股)。禁止 0 成本回測。每邊各收一次手續費，賣出加證交稅。

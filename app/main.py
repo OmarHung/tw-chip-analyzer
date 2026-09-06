@@ -20,7 +20,12 @@ logger = get_logger("app.main")
 async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("啟動 tw_chip_analyzer（env=%s）", settings.app_env)
+    # EOD 排程器隨 API server 起停(test / schedule.enabled=false 時不啟動)
+    from app.jobs.scheduler import shutdown_scheduler, start_scheduler
+
+    start_scheduler()
     yield
+    shutdown_scheduler()
     from app.db.session import reset_engine
 
     await reset_engine()
