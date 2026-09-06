@@ -60,7 +60,7 @@ async def get_chart(
     name = stock.name if stock else symbol
     market = stock.market if stock else "TWSE"
     try:
-        daily = await yahoo.fetch_daily(symbol, market, range_="3mo")
+        daily = await yahoo.fetch_daily(symbol, market, range_="1y")
         intraday, prev_close = await yahoo.fetch_intraday(symbol, market)
     except Exception as e:  # 外部來源失敗不應讓頁面掛掉
         logger.warning("Yahoo 圖表抓取失敗 %s: %s", symbol, e)

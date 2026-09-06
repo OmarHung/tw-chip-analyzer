@@ -260,14 +260,24 @@ function TradeTable({
   }
   const rows = [...bars].reverse(); // 最新在上
   const activeRef = useRef<HTMLTableRowElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (selected != null) activeRef.current?.scrollIntoView({ block: "nearest" });
+    if (selected == null) return;
+    const c = scrollRef.current;
+    const row = activeRef.current;
+    if (!c || !row) return;
+    // 捲到選取列，並讓它落在 sticky 表頭下方（顯示為第一列，不被擋住）
+    const thead = c.querySelector("thead") as HTMLElement | null;
+    c.scrollTop = row.offsetTop - (thead?.offsetHeight ?? 0);
   }, [selected]);
 
   return (
     <div>
       <SectionTitle>當日交易明細（每分鐘 · 與分時圖雙向連動）</SectionTitle>
-      <div className="max-h-80 overflow-auto rounded-xl border border-line-soft">
+      <div
+        ref={scrollRef}
+        className="max-h-80 overflow-auto rounded-xl border border-line-soft"
+      >
         <table className="w-full min-w-[420px]">
           <thead className="sticky top-0 z-10 bg-panel">
             <tr className="border-b border-line-soft font-mono text-[10px] tracking-wider text-ink-faint uppercase">
