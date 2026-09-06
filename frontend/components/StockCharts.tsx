@@ -118,7 +118,7 @@ export function StockCharts({ symbol }: { symbol: string }) {
           </div>
         </div>
         {tab === "daily" ? (
-          <CandleChart bars={data.daily} />
+          <CandleChart bars={data.daily} scores={scores} />
         ) : tab === "intraday" ? (
           <AreaChart
             bars={data.intraday}
@@ -150,15 +150,17 @@ type OHLCInfo = {
   chg: number | null;
 };
 
-function CandleChart({ bars }: { bars: Bar[] }) {
+function CandleChart({ bars, scores }: { bars: Bar[]; scores: ScorePoint[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [info, setInfo] = useState<OHLCInfo | null>(null);
+  // chip_score 副圖與 K 線同時間軸；顯示當根(crosshair)分數
+  const [chip, setChip] = useState<number | null>(null);
 
   useEffect(() => {
     if (!ref.current || bars.length === 0) return;
     const chart = createChart(ref.current, {
       ...BASE_OPTS,
-      height: 340,
+      height: 420,
       timeScale: { borderColor: "#26262e", fixLeftEdge: true, fixRightEdge: true },
     });
     const s = chart.addSeries(CandlestickSeries, {
@@ -172,6 +174,38 @@ function CandleChart({ bars }: { bars: Bar[] }) {
     s.setData(
       bars.map((b) => ({ time: b.t as string, open: b.o, high: b.h, low: b.l, close: b.c })),
     );
+
+    // Chip Score 副圖(pane 1)——與價格時間軸對齊，呈現籌碼分數演變
+    const chipByTime = new Map<string, number>();
+    const chipPts = scores.filter((p) => p.chip_score != null);
+    if (chipPts.length > 0) {
+      const cs = chart.addSeries(
+        LineSeries,
+        {
+          color: "#d9a441",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          crosshairMarkerVisible: true,
+        },
+        1,
+      );
+      cs.setData(chipPts.map((p) => ({ time: p.t as string, value: p.chip_score })));
+      cs.createPriceLine({
+        price: 50,
+        color: "#63615b",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "中性",
+      });
+      for (const p of chipPts) chipByTime.set(p.t as string, p.chip_score);
+      const panes = chart.panes();
+      if (panes.length > 1) {
+        panes[0].setStretchFactor(3);
+        panes[1].setStretchFactor(1);
+      }
+    }
     chart.timeScale().fitContent();
 
     // 前一根收盤，供漲跌計算（依時間對齊）
@@ -190,6 +224,7 @@ function CandleChart({ bars }: { bars: Bar[] }) {
         c: b.c,
         chg: pc != null ? (b.c - pc) / pc : null,
       });
+      setChip(chipByTime.get(b.t as string) ?? null);
     };
     showLast();
 
@@ -215,6 +250,7 @@ function CandleChart({ bars }: { bars: Bar[] }) {
         c: bar.close,
         chg: pc != null ? (bar.close - pc) / pc : null,
       });
+      setChip(chipByTime.get(t) ?? null);
     });
 
     const ro = new ResizeObserver(() => chart.timeScale().fitContent());
@@ -223,7 +259,7 @@ function CandleChart({ bars }: { bars: Bar[] }) {
       ro.disconnect();
       chart.remove();
     };
-  }, [bars]);
+  }, [bars, scores]);
 
   return (
     <div className="relative">
@@ -247,9 +283,15 @@ function CandleChart({ bars }: { bars: Bar[] }) {
               ? `${info.chg > 0 ? "+" : ""}${(info.chg * 100).toFixed(2)}%`
               : "—"}
           </span>
+          {chip != null && (
+            <span className="text-ink-faint">
+              <span style={{ color: "#d9a441" }}>●</span> Chip
+              <span className="ml-0.5 text-ink">{chip.toFixed(1)}</span>
+            </span>
+          )}
         </div>
       )}
-      <div ref={ref} className="h-[340px] w-full" />
+      <div ref={ref} className="h-[420px] w-full" />
     </div>
   );
 }
