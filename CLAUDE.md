@@ -30,7 +30,7 @@
 
 ## 現況與目錄
 
-已完成 docs/01–05 的骨架與核心邏輯（rule-based，含測試）。尚未做：資料 importer（TWSE/TPEx/TDCC 真實抓取與清洗）、feature 計算 job、Backtest、Shioaji realtime、UI。
+已完成 docs/01–05 骨架與核心邏輯，以及 docs/06 的 Backtest 引擎（rule-based，含測試）。尚未做：資料 importer（TWSE/TPEx/TDCC 真實抓取與清洗）、feature 計算 job、Shioaji realtime、UI。
 
 實際結構：
 - `app/core/`：`config.py`（env 用 pydantic-settings；門檻用 `config/thresholds.yaml`）、`logging.py`
@@ -41,10 +41,11 @@
 - `app/services/decision/`：`risk.py` / `entry.py` / `exit.py` + `__init__.decide()` 整合
 - `app/services/{normalize,analysis}.py`：正規化工具、FeatureDaily→分析結果
 - `app/api/`：`stocks.py`（`GET /api/stocks/{symbol}/analysis`）、`scanner.py`（`GET /api/scanner`）、`schemas.py`
+- `app/backtest/`：`costs.py`（成本模型，禁 0 成本）、`forward_returns.py`（1/3/5/10/20D + MFE/MAE）、`metrics.py`（win/PF/expectancy/DD/Sharpe/Sortino）、`engine.py`（look-ahead 安全進場 + score bucket/threshold 聚合）、`runner.py`（DB-backed）
 - `app/connectors/{twse,tdcc,shioaji_stream}.py`：starter connector（**尚未整合進 importer/DB，待補**）
 - `app/models/signal.py`：領域 dataclasses（features / Action / SignalResult）
-- `scripts/seed_dev.py`：開發環境示範資料
-- `tests/`：48 passed（DB roundtrip、order flow、scoring、decision、API 整合）
+- `scripts/`：`seed_dev.py`（API 示範資料）、`backtest_demo.py`（合成行情跑回測，輸出 bucket 表）
+- `tests/`：59 passed（DB roundtrip、order flow、scoring、decision、API 整合、backtest）
 - 完整建議目錄結構見 `docs/01-overview-architecture.md §5`。
 
 ## 環境與指令
@@ -55,6 +56,7 @@
 - 測試：`python -m pytest`
 - 啟動：`APP_ENV=dev uvicorn app.main:app --reload`；Swagger 於 `/docs`
 - Seed 開發資料：`APP_ENV=dev python -m scripts.seed_dev`
+- Backtest 示範：`APP_ENV=dev python -m scripts.backtest_demo`（輸出各 score bucket × 5D 績效）
 
 ## 文件導覽（`docs/`）
 

@@ -92,6 +92,10 @@ class Thresholds:
     def weights(self) -> dict[str, Any]:
         return self._data.get("weights", {})
 
+    @property
+    def backtest(self) -> dict[str, Any]:
+        return self._data.get("backtest", {})
+
 
 @lru_cache
 def get_settings() -> Settings:
