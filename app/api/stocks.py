@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import datetime as dt
+
 from app.api.schemas import AnalysisResponse
 from app.connectors import yahoo
 from app.core.logging import get_logger
@@ -13,6 +15,7 @@ from app.db.session import get_session
 from app.repositories.features import FeatureDailyRepository
 from app.repositories.market import load_market_context
 from app.services.analysis import AnalysisService
+from app.services.ticks import get_ticks
 
 logger = get_logger("api.stocks")
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
@@ -33,6 +36,23 @@ class ChartResponse(BaseModel):
     prev_close: float | None = None
     daily: list[Bar]
     intraday: list[Bar]
+
+
+class Tick(BaseModel):
+    t: int  # epoch 秒（台北時間以 UTC 表示）
+    time: str  # HH:MM:SS
+    price: float
+    volume: int
+    side: int  # 1=買/外盤, -1=賣/內盤, 0=無法判定
+    bid: float | None = None
+    ask: float | None = None
+
+
+class TicksResponse(BaseModel):
+    symbol: str
+    date: str | None
+    count: int
+    ticks: list[Tick]
 
 
 @router.get("/{symbol}/analysis", response_model=AnalysisResponse)
@@ -68,4 +88,32 @@ async def get_chart(
     return ChartResponse(
         symbol=symbol, name=name, prev_close=prev_close,
         daily=[Bar(**b) for b in daily], intraday=[Bar(**b) for b in intraday],
+    )
+
+
+@router.get("/{symbol}/ticks", response_model=TicksResponse)
+async def get_stock_ticks(
+    symbol: str,
+    date: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> TicksResponse:
+    if date:
+        target = dt.date.fromisoformat(date)
+    else:
+        # 預設最新交易日（以 daily_price 為準）
+        from app.db.models.market import DailyPrice
+        from sqlalchemy import select as _select
+
+        target = (
+            await session.execute(
+                _select(DailyPrice.data_date).order_by(DailyPrice.data_date.desc()).limit(1)
+            )
+        ).scalar_one_or_none() or dt.date.today()
+
+    ticks = await get_ticks(session, symbol, target)
+    return TicksResponse(
+        symbol=symbol,
+        date=str(target),
+        count=len(ticks),
+        ticks=[Tick(**t) for t in ticks],
     )

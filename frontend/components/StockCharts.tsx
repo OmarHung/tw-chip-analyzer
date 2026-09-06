@@ -8,13 +8,12 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { useEffect, useRef, useState } from "react";
-import { api, type Bar, type ChartResponse } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, type Bar, type ChartResponse, type Tick } from "@/lib/api";
 import { SectionTitle } from "@/components/Card";
-import { dirColor } from "@/lib/format";
 
-const UP = "#f0555c"; // 漲/紅
-const DOWN = "#24b981"; // 跌/綠
+const UP = "#f0555c"; // 漲/買/外盤 → 紅
+const DOWN = "#24b981"; // 跌/賣/內盤 → 綠
 
 const BASE_OPTS = {
   layout: {
@@ -32,28 +31,37 @@ const BASE_OPTS = {
   autoSize: true,
 };
 
-/** 把 UTCTimestamp(已含 gmtoffset) 格式化為台北 時:分:秒。 */
 function hms(t: number): string {
   return new Date(t * 1000).toISOString().slice(11, 19);
 }
-function hm(t: number): string {
-  return new Date(t * 1000).toISOString().slice(11, 16);
+
+/** 二分找最接近 time 的 tick index（ticks 依 t 升冪）。 */
+function nearestTickIdx(ticks: Tick[], t: number): number {
+  if (ticks.length === 0) return -1;
+  let lo = 0,
+    hi = ticks.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ticks[mid].t < t) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo > 0 && Math.abs(ticks[lo - 1].t - t) <= Math.abs(ticks[lo].t - t)) return lo - 1;
+  return lo;
 }
 
 type Tab = "daily" | "intraday";
 
 export function StockCharts({ symbol }: { symbol: string }) {
   const [data, setData] = useState<ChartResponse | null>(null);
+  const [ticks, setTicks] = useState<Tick[]>([]);
   const [tab, setTab] = useState<Tab>("daily");
-  const [selected, setSelected] = useState<number | null>(null);
+  const [tickIdx, setTickIdx] = useState<number | null>(null);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .chart(symbol)
-      .then((d) => !cancelled && setData(d))
-      .catch(() => !cancelled && setErr(true));
+    api.chart(symbol).then((d) => !cancelled && setData(d)).catch(() => !cancelled && setErr(true));
+    api.ticks(symbol).then((r) => !cancelled && setTicks(r.ticks)).catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -63,10 +71,15 @@ export function StockCharts({ symbol }: { symbol: string }) {
   if (!data) return <Empty msg="載入圖表中…" />;
 
   const hasIntraday = data.intraday.length > 0;
+  const selectedTime = tickIdx != null && ticks[tickIdx] ? ticks[tickIdx].t : null;
 
-  const selectRow = (t: number) => {
+  const onChartSelect = (t: number) => {
+    const idx = nearestTickIdx(ticks, t);
+    if (idx >= 0) setTickIdx(idx);
+  };
+  const onRowSelect = (idx: number) => {
     setTab("intraday");
-    setSelected(t);
+    setTickIdx(idx);
   };
 
   return (
@@ -93,17 +106,17 @@ export function StockCharts({ symbol }: { symbol: string }) {
           <AreaChart
             bars={data.intraday}
             prevClose={data.prev_close}
-            selected={selected}
-            onSelect={setSelected}
+            selectedTime={selectedTime}
+            onSelect={onChartSelect}
           />
         )}
       </div>
 
-      <TradeTable
-        bars={data.intraday}
+      <TickTable
+        ticks={ticks}
         prevClose={data.prev_close}
-        selected={selected}
-        onSelect={selectRow}
+        selectedIdx={tickIdx}
+        onSelect={onRowSelect}
       />
     </div>
   );
@@ -127,13 +140,7 @@ function CandleChart({ bars }: { bars: Bar[] }) {
       wickDownColor: DOWN,
     });
     s.setData(
-      bars.map((b) => ({
-        time: b.t as string,
-        open: b.o,
-        high: b.h,
-        low: b.l,
-        close: b.c,
-      })),
+      bars.map((b) => ({ time: b.t as string, open: b.o, high: b.h, low: b.l, close: b.c })),
     );
     chart.timeScale().fitContent();
     const ro = new ResizeObserver(() => chart.timeScale().fitContent());
@@ -149,24 +156,25 @@ function CandleChart({ bars }: { bars: Bar[] }) {
 function AreaChart({
   bars,
   prevClose,
-  selected,
+  selectedTime,
   onSelect,
 }: {
   bars: Bar[];
   prevClose: number | null;
-  selected: number | null;
+  selectedTime: number | null;
   onSelect: (t: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
-  const priceMap = useRef<Map<number, number>>(new Map());
+  const lastRef = useRef<number>(0);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
 
   useEffect(() => {
     if (!ref.current || bars.length === 0) return;
     const last = bars[bars.length - 1].c;
+    lastRef.current = last;
     const up = prevClose == null || last >= prevClose;
     const color = up ? UP : DOWN;
     const chart = createChart(ref.current, {
@@ -187,13 +195,7 @@ function AreaChart({
       bottomColor: "rgba(0,0,0,0)",
       lineWidth: 2,
     });
-    priceMap.current = new Map();
-    s.setData(
-      bars.map((b) => {
-        priceMap.current.set(b.t as number, b.c);
-        return { time: b.t as UTCTimestamp, value: b.c };
-      }),
-    );
+    s.setData(bars.map((b) => ({ time: b.t as UTCTimestamp, value: b.c })));
     if (prevClose != null) {
       s.createPriceLine({
         price: prevClose,
@@ -207,7 +209,6 @@ function AreaChart({
     chart.timeScale().fitContent();
     chartRef.current = chart;
     seriesRef.current = s;
-    // 反向連動：點分時圖 → 選到對應明細
     chart.subscribeClick((param) => {
       if (param.time != null) onSelectRef.current(Number(param.time));
     });
@@ -221,106 +222,107 @@ function AreaChart({
     };
   }, [bars, prevClose]);
 
-  // 點選交易明細 → 於分時圖畫垂直定位線（crosshair）
   useEffect(() => {
     const chart = chartRef.current;
     const s = seriesRef.current;
     if (!chart || !s) return;
-    if (selected == null) {
+    if (selectedTime == null) {
       chart.clearCrosshairPosition();
       return;
     }
-    const price = priceMap.current.get(selected);
-    if (price != null) {
-      chart.setCrosshairPosition(price, selected as UTCTimestamp, s);
-    }
-  }, [selected]);
+    chart.setCrosshairPosition(lastRef.current, selectedTime as UTCTimestamp, s);
+  }, [selectedTime]);
 
   return <div ref={ref} className="h-[340px] w-full" />;
 }
 
-function TradeTable({
-  bars,
+function TickTable({
+  ticks,
   prevClose,
-  selected,
+  selectedIdx,
   onSelect,
 }: {
-  bars: Bar[];
+  ticks: Tick[];
   prevClose: number | null;
-  selected: number | null;
-  onSelect: (t: number) => void;
+  selectedIdx: number | null;
+  onSelect: (idx: number) => void;
 }) {
-  if (bars.length === 0) {
-    return (
-      <div>
-        <SectionTitle>當日交易明細</SectionTitle>
-        <Empty msg="無當日分時資料。" />
-      </div>
-    );
-  }
-  const rows = [...bars].reverse(); // 最新在上
   const activeRef = useRef<HTMLTableRowElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (selected == null) return;
+    if (selectedIdx == null) return;
     const c = scrollRef.current;
     const row = activeRef.current;
     if (!c || !row) return;
-    // 捲到選取列，並讓它落在 sticky 表頭下方（顯示為第一列，不被擋住）
     const thead = c.querySelector("thead") as HTMLElement | null;
     c.scrollTop = row.offsetTop - (thead?.offsetHeight ?? 0);
-  }, [selected]);
+  }, [selectedIdx]);
+
+  // 最新在上：以原索引配對，方便與圖表連動
+  const ordered = useMemo(
+    () => ticks.map((t, i) => ({ t, i })).reverse(),
+    [ticks],
+  );
+
+  if (ticks.length === 0) {
+    return (
+      <div>
+        <SectionTitle>當日逐筆明細</SectionTitle>
+        <Empty msg="無當日逐筆資料（非交易日或來源暫無）。" />
+      </div>
+    );
+  }
 
   return (
     <div>
-      <SectionTitle>當日交易明細（每分鐘 · 與分時圖雙向連動）</SectionTitle>
+      <SectionTitle>當日逐筆明細（{ticks.length} 筆 · 與分時圖雙向連動）</SectionTitle>
       <div
         ref={scrollRef}
-        className="max-h-80 overflow-auto rounded-xl border border-line-soft"
+        className="max-h-96 overflow-auto rounded-xl border border-line-soft"
       >
-        <table className="w-full min-w-[420px]">
+        <table className="w-full min-w-[520px]">
           <thead className="sticky top-0 z-10 bg-panel">
             <tr className="border-b border-line-soft font-mono text-[10px] tracking-wider text-ink-faint uppercase">
               <th className="px-4 py-2 text-left">時間</th>
               <th className="px-4 py-2 text-right">成交</th>
               <th className="px-4 py-2 text-right">漲跌</th>
-              <th className="px-4 py-2 text-right">最高</th>
-              <th className="px-4 py-2 text-right">最低</th>
+              <th className="px-4 py-2 text-center">內外盤</th>
               <th className="px-4 py-2 text-right">量</th>
+              <th className="px-4 py-2 text-right">買價</th>
+              <th className="px-4 py-2 text-right">賣價</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((b) => {
-              const t = b.t as number;
-              const chg = prevClose ? (b.c - prevClose) / prevClose : null;
-              const active = selected === t;
+            {ordered.map(({ t, i }) => {
+              const chg = prevClose ? (t.price - prevClose) / prevClose : null;
+              const active = selectedIdx === i;
+              const buy = t.side > 0;
+              const sell = t.side < 0;
+              const sideColor = buy ? "text-up" : sell ? "text-down" : "text-ink-faint";
+              const chgColor =
+                chg == null || chg === 0 ? "text-ink-dim" : chg > 0 ? "text-up" : "text-down";
               return (
                 <tr
-                  key={t}
+                  key={i}
                   ref={active ? activeRef : undefined}
-                  onClick={() => onSelect(t)}
-                  className={`cursor-pointer border-b border-line-soft/50 font-mono text-sm tnum transition-colors last:border-0 ${
+                  onClick={() => onSelect(i)}
+                  className={`cursor-pointer border-b border-line-soft/40 font-mono text-sm tnum transition-colors last:border-0 ${
                     active ? "bg-gold/10" : "hover:bg-white/[0.03]"
                   }`}
                 >
-                  <td className="px-4 py-1.5 text-left">
-                    <span className={active ? "text-gold" : "text-ink-dim"}>
-                      {hm(t)}
-                    </span>
+                  <td className={`px-4 py-1 text-left ${active ? "text-gold" : "text-ink-dim"}`}>
+                    {t.time}
                   </td>
-                  <td className={`px-4 py-1.5 text-right ${dirColor(chg)}`}>
-                    {b.c.toFixed(2)}
+                  <td className={`px-4 py-1 text-right ${chgColor}`}>{t.price.toFixed(2)}</td>
+                  <td className={`px-4 py-1 text-right ${chgColor}`}>
+                    {chg != null ? `${chg > 0 ? "+" : ""}${(chg * 100).toFixed(2)}%` : "—"}
                   </td>
-                  <td className={`px-4 py-1.5 text-right ${dirColor(chg)}`}>
-                    {chg != null
-                      ? `${chg > 0 ? "+" : ""}${(chg * 100).toFixed(2)}%`
-                      : "—"}
+                  <td className={`px-4 py-1 text-center ${sideColor}`}>
+                    {buy ? "外盤" : sell ? "內盤" : "—"}
                   </td>
-                  <td className="px-4 py-1.5 text-right text-ink-dim">{b.h.toFixed(2)}</td>
-                  <td className="px-4 py-1.5 text-right text-ink-dim">{b.l.toFixed(2)}</td>
-                  <td className="px-4 py-1.5 text-right text-ink-dim">
-                    {b.v.toLocaleString("zh-TW")}
-                  </td>
+                  <td className="px-4 py-1 text-right text-ink">{t.volume.toLocaleString("zh-TW")}</td>
+                  <td className="px-4 py-1 text-right text-down">{t.bid?.toFixed(2) ?? "—"}</td>
+                  <td className="px-4 py-1 text-right text-up">{t.ask?.toFixed(2) ?? "—"}</td>
                 </tr>
               );
             })}

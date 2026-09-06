@@ -100,6 +100,23 @@ export interface ChartResponse {
   intraday: Bar[];
 }
 
+export interface Tick {
+  t: number; // epoch 秒（台北時間以 UTC 表示）
+  time: string; // HH:MM:SS
+  price: number;
+  volume: number;
+  side: number; // 1=買/外盤, -1=賣/內盤, 0=無法判定
+  bid: number | null;
+  ask: number | null;
+}
+
+export interface TicksResponse {
+  symbol: string;
+  date: string | null;
+  count: number;
+  ticks: Tick[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -121,4 +138,5 @@ export const api = {
   analysis: (symbol: string) =>
     get<AnalysisResponse>(`/api/stocks/${symbol}/analysis`),
   chart: (symbol: string) => get<ChartResponse>(`/api/stocks/${symbol}/chart`),
+  ticks: (symbol: string) => get<TicksResponse>(`/api/stocks/${symbol}/ticks`),
 };
