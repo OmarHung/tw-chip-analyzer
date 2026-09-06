@@ -1,3 +1,0 @@
-[pid:3169] 2026-09-06T03:03:42.648463Z  INFO shioaji::api::api_v1::auth::token_login: No cached token available, performing new login
-[pid:3169] 2026-09-06T03:03:42.960682Z  INFO shioaji::api: P2P receiver closed: Closed
-[pid:3169] 2026-09-06T03:03:42.960588Z  INFO shioaji::api: msg receiver error: Closed

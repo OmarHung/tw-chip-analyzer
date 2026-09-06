@@ -22,3 +22,6 @@ tw_chip_analyzer_mvp.zip
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Runtime logs
+*.log
