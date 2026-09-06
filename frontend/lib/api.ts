@@ -117,6 +117,24 @@ export interface TicksResponse {
   ticks: Tick[];
 }
 
+export interface OrderFlowResponse {
+  symbol: string;
+  date: string | null;
+  intraday_score: number;
+  net_aggressor: number;
+  large_net: number;
+  buy_ratio: number;
+  buy_volume: number;
+  sell_volume: number;
+  large_buy: number;
+  large_sell: number;
+  large_delta: number;
+  cvd_final: number;
+  trade_count: number;
+  total_volume: number;
+  cvd_series: { t: number; cvd: number }[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -139,4 +157,6 @@ export const api = {
     get<AnalysisResponse>(`/api/stocks/${symbol}/analysis`),
   chart: (symbol: string) => get<ChartResponse>(`/api/stocks/${symbol}/chart`),
   ticks: (symbol: string) => get<TicksResponse>(`/api/stocks/${symbol}/ticks`),
+  orderflow: (symbol: string) =>
+    get<OrderFlowResponse>(`/api/stocks/${symbol}/orderflow`),
 };

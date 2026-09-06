@@ -55,6 +55,7 @@
 - `app/backtest/`：`costs.py`（成本模型，禁 0 成本）、`forward_returns.py`（1/3/5/10/20D + MFE/MAE）、`metrics.py`（win/PF/expectancy/DD/Sharpe/Sortino）、`engine.py`（look-ahead 安全進場 + score bucket/threshold 聚合）、`runner.py`（DB-backed）
 - `app/connectors/`：`twse.py`（MI_INDEX/T86/MI_MARGN/FMTQIK）、`tdcc.py`（openapi 1-5）、`yahoo.py`（日K 1y/1分鐘分時，圖表用）、`shioaji_market.py`（**逐筆 ticks**，`simulation=True` 單例登入；此金鑰無 production 權限但模擬模式可取真實行情）；`shioaji_stream.py` 仍為 starter
 - 逐筆：`app/db/models/intraday.py`（`RawTick`）、`app/services/ticks.py`（DB 快取優先，未命中向 Shioaji 抓並存）、endpoint `GET /api/stocks/{symbol}/ticks`。Shioaji tick ts 為 ns（以 UTC 解讀即台北牆鐘，用 `utcfromtimestamp`）
+- 盤中 order flow：`app/services/orderflow_intraday.py`（由該股當日逐筆算 CVD/大單/內外盤比 → intraday 分項，單股有界訊號、免橫斷面）、endpoint `GET /api/stocks/{symbol}/orderflow`。**僅個股頁即時計算**；scanner/composite 仍不含 intraday（全市場逐筆過重）
 - `app/importers/`：`base.py`（TWSE 數字/日期解析、`is_stock_symbol`、`availability_for`）、`twse.py`（parser，欄位以標題名定位；MI_MARGN 用固定位置）、`tdcc.py`（代號需 strip 尾隨空白；級距→retail/medium/large/super_large 依 config 門檻）、`service.py`（冪等 upsert，FK stub 保護；`import_tdcc`）
 - `app/repositories/upsert.py`：PostgreSQL `on_conflict` 冪等 upsert（do_update / do_nothing）
 - `app/services/feature_builder.py`：原始表 → `feature_daily`。兩段正規化（個股 5 日淨額/20 日均量 → 市場橫斷面 Z-score），look-ahead 只用 `data_date<=target`

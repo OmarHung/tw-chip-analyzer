@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ActionBadge } from "@/components/ActionBadge";
 import { Card, SectionTitle } from "@/components/Card";
 import { Change } from "@/components/Change";
+import { OrderFlowPanel } from "@/components/OrderFlowPanel";
 import { ScoreBar, ScoreRing } from "@/components/ScoreBar";
 import { StockCharts } from "@/components/StockCharts";
 import { api } from "@/lib/api";
@@ -69,7 +70,7 @@ export default async function StockDetailPage({
         <Card className="reveal" >
           <SectionTitle>分數拆解</SectionTitle>
           <div className="space-y-5">
-            <ScoreBar label="盤中 Intraday" score={scores.intraday} delay={0} hint="Phase 1 中性（已排除加權）" />
+            <ScoreBar label="盤中 Intraday" score={scores.intraday} delay={0} hint="綜合分數未計入；實際盤中資金流見下方面板" />
             <ScoreBar label="法人 Institutional" score={scores.institutional} delay={80} />
             <ScoreBar label="集保 TDCC" score={scores.holder} delay={160} />
             <ScoreBar label="大盤 Market" score={scores.market} delay={240} />
@@ -117,7 +118,12 @@ export default async function StockDetailPage({
         )}
       </Card>
 
-      {/* 走勢圖 + 當日交易明細 */}
+      {/* 盤中資金流（逐筆計算的 order flow） */}
+      <div className="reveal">
+        <OrderFlowPanel symbol={data.symbol} />
+      </div>
+
+      {/* 走勢圖 + 當日逐筆明細 */}
       <Card className="reveal">
         <StockCharts symbol={data.symbol} />
       </Card>

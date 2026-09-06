@@ -15,6 +15,7 @@ from app.db.session import get_session
 from app.repositories.features import FeatureDailyRepository
 from app.repositories.market import load_market_context
 from app.services.analysis import AnalysisService
+from app.services.orderflow_intraday import compute_orderflow
 from app.services.ticks import get_ticks
 
 logger = get_logger("api.stocks")
@@ -55,6 +56,29 @@ class TicksResponse(BaseModel):
     ticks: list[Tick]
 
 
+class CvdPoint(BaseModel):
+    t: int
+    cvd: float
+
+
+class OrderFlowResponse(BaseModel):
+    symbol: str
+    date: str | None
+    intraday_score: float
+    net_aggressor: float
+    large_net: float
+    buy_ratio: float
+    buy_volume: int
+    sell_volume: int
+    large_buy: float
+    large_sell: float
+    large_delta: float
+    cvd_final: float
+    trade_count: int
+    total_volume: int
+    cvd_series: list[CvdPoint]
+
+
 @router.get("/{symbol}/analysis", response_model=AnalysisResponse)
 async def get_analysis(
     symbol: str,
@@ -91,29 +115,59 @@ async def get_chart(
     )
 
 
+async def _resolve_date(session: AsyncSession, date: str | None) -> dt.date:
+    if date:
+        return dt.date.fromisoformat(date)
+    from sqlalchemy import select as _select
+
+    from app.db.models.market import DailyPrice
+
+    return (
+        await session.execute(
+            _select(DailyPrice.data_date).order_by(DailyPrice.data_date.desc()).limit(1)
+        )
+    ).scalar_one_or_none() or dt.date.today()
+
+
 @router.get("/{symbol}/ticks", response_model=TicksResponse)
 async def get_stock_ticks(
     symbol: str,
     date: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> TicksResponse:
-    if date:
-        target = dt.date.fromisoformat(date)
-    else:
-        # 預設最新交易日（以 daily_price 為準）
-        from app.db.models.market import DailyPrice
-        from sqlalchemy import select as _select
-
-        target = (
-            await session.execute(
-                _select(DailyPrice.data_date).order_by(DailyPrice.data_date.desc()).limit(1)
-            )
-        ).scalar_one_or_none() or dt.date.today()
-
+    target = await _resolve_date(session, date)
     ticks = await get_ticks(session, symbol, target)
     return TicksResponse(
         symbol=symbol,
         date=str(target),
         count=len(ticks),
         ticks=[Tick(**t) for t in ticks],
+    )
+
+
+@router.get("/{symbol}/orderflow", response_model=OrderFlowResponse)
+async def get_stock_orderflow(
+    symbol: str,
+    date: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> OrderFlowResponse:
+    target = await _resolve_date(session, date)
+    ticks = await get_ticks(session, symbol, target)
+    r = compute_orderflow(ticks)
+    return OrderFlowResponse(
+        symbol=symbol,
+        date=str(target),
+        intraday_score=r.intraday_score,
+        net_aggressor=r.net_aggressor,
+        large_net=r.large_net,
+        buy_ratio=r.buy_ratio,
+        buy_volume=r.buy_volume,
+        sell_volume=r.sell_volume,
+        large_buy=r.large_buy,
+        large_sell=r.large_sell,
+        large_delta=r.large_delta,
+        cvd_final=r.cvd_final,
+        trade_count=r.trade_count,
+        total_volume=r.total_volume,
+        cvd_series=[CvdPoint(**p) for p in r.cvd_series],
     )
