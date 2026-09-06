@@ -26,7 +26,54 @@ FastAPI 同網域（免 CORS），PostgreSQL 儲存，systemd 管理服務與每
 
 ---
 
-## 1. 系統套件
+---
+
+## 用 Docker 部署（另一種方式，推薦快速上手）
+
+`docker-compose.yml`（repo 根）起三個服務：`db`（PostgreSQL）、`api`（FastAPI，含
+內建 EOD 排程）、`web`（Next.js）。相關檔：根目錄 `Dockerfile`、`docker-entrypoint.sh`
+（啟動前自動 `alembic upgrade head`）、`frontend/Dockerfile`、`deploy/docker/env.example`。
+
+```bash
+# 1) 裝 Docker Engine + compose plugin
+sudo apt update && sudo apt install -y docker.io docker-compose-v2
+sudo usermod -aG docker $USER && newgrp docker
+
+# 2) 環境變數（compose 讀根目錄 .env）
+git clone <你的 repo> tw_chip_analyzer && cd tw_chip_analyzer
+cp deploy/docker/env.example .env
+#   編輯 .env：POSTGRES_PASSWORD、NEXT_PUBLIC_API_BASE=https://你的網域
+
+# 3) build + 起（Apple Silicon 上 build 請加 DOCKER_DEFAULT_PLATFORM=linux/amd64，shioaji 僅 amd64 wheel）
+docker compose up -d --build          # entrypoint 會自動跑 migration
+
+# 4) 灌初始歷史（5/20/60 日視窗與背離需要）
+for d in $(python3 - <<'PY'
+import datetime as dt
+d=dt.date(2026,6,1)
+while d<=dt.date.today():
+    if d.weekday()<5: print(d)
+    d+=dt.timedelta(days=1)
+PY
+); do docker compose run --rm api ./scripts/eod.sh "$d"; done
+```
+
+- **EOD 排程**：`api` 容器內建 APScheduler，每交易日 14:30（Asia/Taipei）自動跑，
+  單容器＝單實例，無重複跑問題。手動補跑：`docker compose run --rm api ./scripts/eod.sh 2026-09-04`。
+- **對外**：`api`/`web` 只綁 `127.0.0.1:8000/3000`。用**主機 nginx**
+  （`deploy/nginx/twchip.conf`）+ `certbot` 做同源代理與 TLS（步驟 8）。`NEXT_PUBLIC_API_BASE`
+  設公開網域即可同源免 CORS。
+- **常用**：`docker compose logs -f api` 看日誌；`docker compose down` 停；
+  資料在 named volume `pgdata`（`docker compose down -v` 才會刪）。
+- **備份**：`docker compose exec db pg_dump -U twchip twchip > backup.sql`。
+
+> Docker 與下方「裸機 systemd」二選一。以下為 systemd 版本。
+
+---
+
+## 裸機 systemd 部署
+
+### 1. 系統套件
 
 ```bash
 sudo apt update
