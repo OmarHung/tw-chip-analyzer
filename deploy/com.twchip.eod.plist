@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent:每交易日盤後自動跑 EOD(scripts/eod.sh)。
+
+  這是「每日資料累積」關鍵路徑的觸發器,獨立於 API server —— uvicorn 不必常駐,
+  每週一~週五 14:30(Asia/Taipei)由 launchd 直接觸發 eod.sh:抓當週 TDCC(冪等累積)、
+  行情/法人/融資、逐筆 tick、重建四維特徵並落地 signal_snapshot。國定假日 daily.py
+  偵測無 OHLCV 自動空跑。
+
+  安裝:
+    cp deploy/com.twchip.eod.plist ~/Library/LaunchAgents/
+    launchctl load  ~/Library/LaunchAgents/com.twchip.eod.plist
+  查狀態 / 立即測試一次:
+    launchctl list | grep twchip
+    launchctl start com.twchip.eod          # 手動觸發一次(target=today)
+  停用:
+    launchctl unload ~/Library/LaunchAgents/com.twchip.eod.plist
+
+  局限:機器在 14:30 休眠 → 該日不補跑(launchd StartCalendarInterval 不補觸發)。
+  補救:醒來後手動 `APP_ENV=dev ./scripts/eod.sh YYYY-MM-DD`,或改用 APScheduler
+  常駐(uvicorn 內建,misfire_grace_time 會補跑,見 app/jobs/scheduler.py)。
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.twchip.eod</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/omar/tw_chip_analyzer/scripts/eod.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/omar/tw_chip_analyzer</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>APP_ENV</key>
+        <string>dev</string>
+    </dict>
+
+    <!-- 週一(1)~週五(5)14:30 Asia/Taipei;launchd 用本機時區 -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/twchip-eod.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/twchip-eod.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
