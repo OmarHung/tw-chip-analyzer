@@ -3,8 +3,10 @@
 台股籌碼分析與進出場建議系統。整合盤中 order flow、盤後法人/信用/借券、週度 TDCC 集中度，輸出 Chip Score（0~100）與 BUY / WATCH / HOLD / REDUCE / EXIT / AVOID 建議，含進場區間、停損、TP1/TP2、RR 與原因說明。
 
 - 語言 Python 3.12+ · FastAPI · Pydantic v2 · SQLAlchemy 2 · Alembic · asyncio · pandas/numpy/scipy
-- DB：PostgreSQL 16（可選 TimescaleDB）· 前端：Next.js 15 + TypeScript
-- **目前階段：Phase 1（Daily Chip Scanner），rule-based，尚未接 realtime / UI / ML。**
+- DB：PostgreSQL 16（可選 TimescaleDB）· 前端：Next.js 16 + TypeScript
+- **目前階段：Phase 1（Daily Chip Scanner），rule-based，尚未接 realtime / ML。**
+
+> 這份檔案只放「從程式碼讀不出來的意圖與約束」。目錄／函式層級的細節請用 CodeGraph（`codegraph explore "..."`）或直接讀碼，別依賴此處的描述——它不保證與現況同步。
 
 ## 專案不變量（鐵則，任何實作都不得違反）
 
@@ -24,82 +26,54 @@
 
 不是功能數量，而是：**Chip Score 越高，未來報酬有統計上單調改善，且 MAE 不惡化。** 若無此現象，優先調整 feature / normalization / weight，不要加新功能。
 
-## Milestone 交付格式
+Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下一步 / look-ahead 檢查 / 資料缺漏 / backtest…）見 `docs/08-roadmap-delivery.md §30`。
 
-每個 milestone 須輸出：已完成 / DB migration / API 文件 / 測試結果 / 未完成 / 技術債 / 下一步 / look-ahead 檢查 / 資料缺漏 / Backtest 結果。詳見 `docs/08-roadmap-delivery.md §30`。
+## 現況
 
-## 現況與目錄
+已完成 docs/01–06 全部（骨架、演算法、評分、決策、API、Backtest）、docs/05 §16 Next.js UI，可吃真實台股盤後資料端到端運作。真實資料涵蓋 OHLCV + institutional + margin（TWSE）+ TDCC 股權分散 + TAIEX 大盤 regime；四大分項中 institutional / holder / market 為真實資料。已對 2026-09-04 全市場（~1080 檔）驗證分層正常。intraday 分項已可併入全市場 composite（有逐筆的標的走四維，無者三維排除）。
 
-已完成 docs/01–06 全部（骨架、演算法、評分、決策、API、Backtest）、docs/05 §16 Next.js UI，以及 TWSE 真實資料 importer + feature 計算 job（rule-based，含測試）。系統可吃真實台股盤後資料端到端運作。
+**已知限制 / 待辦（會影響決策，讀不出來的部分）**：
+- **BUY(75) 仍偏難達**：intraday 6 個內部成分目前只餵 3 個（large_trade_delta / cvd / obi），另 3 個（absorption / trade_speed / price_efficiency）中性 0，intraday 子分數頂部受限；2026-09-04 全市場最高 73.7。要更易出 BUY 需補齊 intraday 成分或於 config 調降 `signal.buy_score`——屬校準取捨，勿擅自更動。
+- **TDCC holder 為橫斷面 level proxy**：openapi 僅當週快照，無法算 week-over-week change，暫以當週集中度橫斷面 Z-score 代替；累積 ≥2 週後改真實 change。`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
+- **industry_trend 仍中性**：OHLCV importer 未帶產業別。
+- 尚未做：SBL importer、TPEx connector、真實 TDCC change、產業別/趨勢、Shioaji realtime、走勢圖時序 API、intraday 補齊三成分、intraday 併入 backtest 驗證單調性。
 
-真實資料涵蓋：OHLCV + institutional + margin（TWSE）+ TDCC 股權分散（holder）+ TAIEX 大盤 regime（market）。四大分項中 institutional / holder / market 皆為真實資料；已對 2026-09-04 全市場（~1080 檔）驗證，分數分層正常（avg 53.4、WATCH 62、AVOID 43），Dashboard 顯示真實 TAIEX/regime/漲跌家數。
+## 頂層地圖
 
-**已知限制（重要）**：
-- **BUY(75) 在 Phase 1 幾乎不可達**：排除 intraday（35% 權重）後只剩 3 成分，頂部約落在 74（2026-09-04 最高 3045=73.7）。要產生 BUY 需 intraday（Phase 3）或於 config 調降 `signal.buy_score`。屬校準取捨，未擅自更動。
-- **TDCC holder 為橫斷面 level proxy**：openapi 僅當週快照，無法算 week-over-week change，暫以「當週大戶/散戶集中度的橫斷面 Z-score」代替；待累積 ≥2 週後改真實 change。available_at 目前設快照日盤後（demo 對齊），生產應 lag 至揭露日。
-- **產業趨勢（industry_trend）仍中性**：OHLCV importer 未帶產業別。
+細節用 CodeGraph 或讀碼；完整建議結構見 `docs/01-overview-architecture.md §5`。
 
-尚未做：SBL importer、TPEx connector、真實 TDCC change（需累積多週）、產業別/產業趨勢、Shioaji realtime、走勢圖時序 API。
-
-實際結構：
 - `app/core/`：`config.py`（env 用 pydantic-settings；門檻用 `config/thresholds.yaml`）、`logging.py`
-- `app/db/`：`base.py`、`session.py`（async engine）、`models/`（10 張表，`mixins.py` 含 look-ahead `data_date`/`available_at`）
-- `alembic/`：migration（初始 schema 已套用）
+- `app/db/`：`models/`（10 張表，`mixins.py` 含 look-ahead `data_date`/`available_at`）；`intraday.py` 有 `RawTick`
 - `app/services/orderflow/`：aggressor / cvd / large_trade / obi / absorption / trade_speed（純函式）
-- `app/services/chip/`：intraday / institutional / holder / market 分項 + `composite.py`（config 驅動權重 + 缺成分權重重分配）
-- `app/services/decision/`：`risk.py` / `entry.py` / `exit.py` + `__init__.decide()` 整合
-- `app/services/{normalize,analysis}.py`：正規化工具、FeatureDaily→分析結果
-- `app/api/`：`stocks.py`（`GET /api/stocks/{symbol}/analysis`、`/chart` 日K+分時）、`scanner.py`（`GET /api/scanner`）、`dashboard.py`（`GET /api/dashboard`）、`schemas.py`；CORS 允許任意 localhost 埠（regex，見 `main.py`）
-- `app/services/market_scan.py`：scanner 與 dashboard 共用的全市場掃描
-- `frontend/`：Next.js 16 + TS + Tailwind v4（App Router）。「Terminal Luxe」設計：字體 Fraunces(display)/JetBrains Mono(數字)/Noto Sans TC(中文)，招牌琥珀金，深炭黑底 + 噪點；**台股語意紅漲綠跌**（`lib/format.ts` 的 `dirColor`/`Change`）。頁面：`app/page.tsx`(總覽)、`app/scanner/page.tsx`(client)、`app/stocks/[symbol]/page.tsx`(詳情，ScoreRing + `StockCharts`：日K蠟燭(1y)/分時區域/**當日逐筆明細**(Shioaji 真實 tick,含內外盤/買賣價),lightweight-charts v5，日K+分時 `/chart`(Yahoo)、逐筆 `/ticks`(Shioaji);逐筆表與分時圖**雙向連動**、選取列置頂)；components：Nav/Card/ActionBadge/ScoreBar+ScoreRing/Change/StockCharts。**無斜體**。`lib/api.ts` 型別化 client（`NEXT_PUBLIC_API_BASE`；.env.local 目前 :8000）。
-- `app/backtest/`：`costs.py`（成本模型，禁 0 成本）、`forward_returns.py`（1/3/5/10/20D + MFE/MAE）、`metrics.py`（win/PF/expectancy/DD/Sharpe/Sortino）、`engine.py`（look-ahead 安全進場 + score bucket/threshold 聚合）、`runner.py`（DB-backed）
-- `app/connectors/`：`twse.py`（MI_INDEX/T86/MI_MARGN/FMTQIK）、`tdcc.py`（openapi 1-5）、`yahoo.py`（日K 1y/1分鐘分時，圖表用）、`shioaji_market.py`（**逐筆 ticks**，`simulation=True` 單例登入；此金鑰無 production 權限但模擬模式可取真實行情）；`shioaji_stream.py` 仍為 starter
-- 逐筆：`app/db/models/intraday.py`（`RawTick`）、`app/services/ticks.py`（DB 快取優先，未命中向 Shioaji 抓並存）、endpoint `GET /api/stocks/{symbol}/ticks`。Shioaji tick ts 為 ns（以 UTC 解讀即台北牆鐘，用 `utcfromtimestamp`）
-- 盤中 order flow：`app/services/orderflow_intraday.py`（由該股當日逐筆算 CVD/大單/內外盤比 → intraday 分項，單股有界訊號、免橫斷面）、endpoint `GET /api/stocks/{symbol}/orderflow`。**僅個股頁即時計算**；scanner/composite 仍不含 intraday（全市場逐筆過重）
-- `app/importers/`：`base.py`（TWSE 數字/日期解析、`is_stock_symbol`、`availability_for`）、`twse.py`（parser，欄位以標題名定位；MI_MARGN 用固定位置）、`tdcc.py`（代號需 strip 尾隨空白；級距→retail/medium/large/super_large 依 config 門檻）、`service.py`（冪等 upsert，FK stub 保護；`import_tdcc`）
-- `app/repositories/upsert.py`：PostgreSQL `on_conflict` 冪等 upsert（do_update / do_nothing）
-- `app/services/feature_builder.py`：原始表 → `feature_daily`。兩段正規化（個股 5 日淨額/20 日均量 → 市場橫斷面 Z-score），look-ahead 只用 `data_date<=target`
-- `app/services/market_score.py`：TAIEX（MA20/MA60/斜率/波動）+ 全市場漲跌家數 → `market_daily.market_trend_score`（config `market_regime`）
-- `app/repositories/market.py`：`load_market_context`（→ MarketContext）、`load_market_daily`
-- `app/jobs/daily.py`：CLI「抓取→匯入→建特徵→大盤脈絡」，`APP_ENV=dev python -m app.jobs.daily YYYY-MM-DD [--tdcc] [--index]`
-- `tests/fixtures/`：TWSE 真實回應切片（T86/MI_INDEX/MI_MARGN），供 parser 測試不打網路
-- `app/models/signal.py`：領域 dataclasses（features / Action / SignalResult）
-- `scripts/`：`seed_dev.py`（API 示範資料）、`backtest_demo.py`（合成行情跑回測，輸出 bucket 表）
-- `tests/`：80 passed（DB roundtrip、order flow、scoring、decision、API 整合、backtest、importer、TDCC、feature builder、market score）
-- 完整建議目錄結構見 `docs/01-overview-architecture.md §5`。
+- `app/services/chip/`：intraday / institutional / holder / market 分項 + `composite.py`（config 驅動權重 + 缺成分重分配）
+- `app/services/decision/`：`risk` / `entry` / `exit` + `decide()`
+- `app/services/`：`feature_builder.py`（原始表→`feature_daily`，兩段正規化，look-ahead 只用 `data_date<=target`）、`market_score.py`、`normalize.py`、`analysis.py`、`market_scan.py`、`orderflow_intraday.py`、`ticks.py`
+- `app/api/`：`stocks`（`/analysis`、`/chart`、`/ticks`、`/orderflow`）、`scanner`、`dashboard`；CORS 允許任意 localhost 埠（見 `main.py`）
+- `app/backtest/`：`costs`（禁 0 成本）、`forward_returns`、`metrics`、`engine`（look-ahead 安全）、`runner`
+- `app/connectors/`：`twse` / `tdcc` / `yahoo`（圖表用）/ `shioaji_market`（逐筆 ticks，`simulation=True` 單例；金鑰無 production 權限但模擬可取真實行情）
+- `app/importers/`：TWSE/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
+- `app/jobs/`：`daily.py`（抓取→匯入→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）
+- `frontend/`：Next.js 16 + TS + Tailwind v4。設計約束見下節。UI 規格見 `docs/05-api-ui.md §16`。
+- `tests/`：88 passed。`tests/fixtures/` 有 TWSE 真實回應切片供 parser 測試不打網路。
+
+**逐筆特別注意**：Shioaji tick ts 為 ns，以 UTC 解讀即台北牆鐘（用 `utcfromtimestamp`）。批次逐筆要先跑 `import_ticks` 再跑 `daily --skip-import`，intraday z 才會進 `feature_daily`。
+
+**前端設計約束（改前端必守）**：**台股語意紅漲綠跌**（與美股相反，見 `lib/format.ts` 的 `dirColor`/`Change`）、**無斜體**。「Terminal Luxe」風格：Fraunces(display)/JetBrains Mono(數字)/Noto Sans TC(中文)、招牌琥珀金、深炭黑底。`lib/api.ts` 為型別化 client（`NEXT_PUBLIC_API_BASE`）。
 
 ## 環境與指令
 
-- DB：本機 PostgreSQL，開發庫 `twchip`、測試庫 `twchip_test`（角色 `omar`，見 `.env`）。測試以 `APP_ENV=test` 走測試庫，`conftest.py` 每個 test 重建 schema。
+- DB：本機 PostgreSQL，開發庫 `twchip`、測試庫 `twchip_test`（角色 `omar`，見 `.env`）。測試以 `APP_ENV=test` 走測試庫，`conftest.py` 每 test 重建 schema。
 - 安裝：`pip install -r requirements.txt`
 - Migration：`alembic upgrade head`（新增 model 後 `alembic revision --autogenerate -m "..."`）
 - 測試：`python -m pytest`
 - 啟動：`APP_ENV=dev uvicorn app.main:app --reload`；Swagger 於 `/docs`
-- Seed 開發資料：`APP_ENV=dev python -m scripts.seed_dev`
-- Backtest 示範：`APP_ENV=dev python -m scripts.backtest_demo`（輸出各 score bucket × 5D 績效）
-- 前端：`cd frontend && pnpm install && pnpm dev`（:3000）。注意 dev 模式 HMR websocket 在本沙箱會失敗而卡住 client hydration；驗證請用 `pnpm build && pnpm start`。
-- 每日盤後匯入 + 建特徵：`APP_ENV=dev python -m app.jobs.daily 2026-09-04`（需先匯入約 10 個交易日歷史，feature 的 5 日/20 日視窗才有意義）；`--tdcc` 抓當週 TDCC 股權分散；`--index` 抓近 4 個月 TAIEX 並建大盤脈絡（MA60 需足夠歷史）。
+- Seed / Backtest 示範：`python -m scripts.seed_dev`、`python -m scripts.backtest_demo`（前綴 `APP_ENV=dev`）
+- 每日盤後匯入 + 建特徵：`APP_ENV=dev python -m app.jobs.daily 2026-09-04`（需先匯入約 10 個交易日歷史，5/20 日視窗才有意義）；`--tdcc` 抓當週 TDCC；`--index` 抓近 4 個月 TAIEX 建大盤脈絡。批次逐筆：`APP_ENV=dev python -m app.jobs.import_ticks YYYY-MM-DD [--max-symbols N]`。
+- 前端：`cd frontend && pnpm install && pnpm dev`（:3000）。dev 模式 HMR websocket 在本沙箱會卡住 hydration；驗證用 `pnpm build && pnpm start`。
 
-## 文件導覽（`docs/`）
+## 文件導覽（`docs/`，索引 `docs/README.md`）
 
-規格已依主題拆分，實作前先讀對應章節（索引：`docs/README.md`）：
-
-- 目標 / 架構 / 目錄 → `docs/01-overview-architecture.md`
-- 資料來源 / 資料表 / Retention → `docs/02-data-and-schema.md`
-- Order Flow 演算法 / Normalization / Score / Signal 分級 → `docs/03-algorithms-scoring.md`
-- Entry / Risk / Exit → `docs/04-decision-risk.md`
-- API / UI → `docs/05-api-ui.md`
-- Backtest / Look-ahead / Testing / Paper Trading → `docs/06-backtest-validation.md`
-- 排程 / Config → `docs/07-ops-config.md`
-- Roadmap / 開發順序 / MVP DoD / 第一任務 → `docs/08-roadmap-delivery.md`
+- 架構/目錄 → `01` · 資料源/表/Retention → `02` · Order Flow/Normalization/Score/Signal → `03`
+- Entry/Risk/Exit → `04` · API/UI → `05` · Backtest/Look-ahead/Testing → `06` · 排程/Config → `07` · Roadmap/DoD → `08`
 
 原始完整交接文件：`tw_stock_chip_analysis_coding_agent_handoff.md`（單一來源存檔）。
-
-## 執行
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python -m app.main
-```
