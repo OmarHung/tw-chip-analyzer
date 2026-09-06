@@ -97,6 +97,10 @@ class Thresholds:
         return self._data.get("divergence", {})
 
     @property
+    def cost_basis(self) -> dict[str, Any]:
+        return self._data.get("cost_basis", {})
+
+    @property
     def schedule(self) -> dict[str, Any]:
         return self._data.get("schedule", {})
 

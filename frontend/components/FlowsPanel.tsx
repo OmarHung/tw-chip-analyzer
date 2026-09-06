@@ -10,6 +10,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
+  type CostBasis,
+  type CostBasisPoint,
+  type CostState,
   type DivergenceItem,
   type DivergenceStatus,
   type FlowPoint,
@@ -20,6 +23,7 @@ import {
 const UP = "#f0555c"; // 買超 → 紅（台股語意）
 const DOWN = "#24b981"; // 賣超 → 綠
 const PRICE = "#9a968c"; // 價格線（中性）
+const COST_COLOR = "#e0873a"; // 主力估算成本線（琥珀，虛線）
 
 const BASE_OPTS = {
   layout: {
@@ -101,7 +105,7 @@ export function FlowsPanel({ symbol }: { symbol: string }) {
     return <div className="text-sm text-ink-faint">主力進出資料暫時無法取得。</div>;
   if (!data) return <div className="text-sm text-ink-faint">載入主力進出資料中…</div>;
 
-  const { points, summary, tdcc, divergence } = data;
+  const { points, summary, tdcc, divergence, cost_basis } = data;
   const empty = points.length === 0;
 
   return (
@@ -138,14 +142,22 @@ export function FlowsPanel({ symbol }: { symbol: string }) {
 
           {summary && <SummaryCards s={summary} />}
 
-          {/* 累積買賣超疊價格（趨勢主軸） */}
+          {/* 累積買賣超疊價格（趨勢主軸），疊主力估算成本線 */}
           <section>
             <ChartTitle
               title="累積買賣超 vs 股價"
               hint="累積線持續上揚＝主力持續進場；與股價背離為關鍵訊號"
             />
-            <CumulativeChart points={points} />
-            <Legend items={SERIES} extra={{ label: "股價", color: PRICE }} />
+            {cost_basis && <CostBasisNote cb={cost_basis} />}
+            <CumulativeChart points={points} cost={cost_basis?.points ?? null} />
+            <Legend
+              items={SERIES}
+              raw={[
+                ...SERIES,
+                { label: "股價", color: PRICE },
+                { label: "主力估算成本", color: COST_COLOR },
+              ]}
+            />
           </section>
 
           {/* 每日買賣超柱狀 */}
@@ -329,6 +341,48 @@ function SumCard({
   );
 }
 
+/* ---------- 主力估算成本說明 ---------- */
+
+const COST_STATE_STYLE: Record<CostState, { tone: string; ring: string }> = {
+  profit: { tone: "text-up", ring: "ring-up/40 bg-up/10" },
+  loss: { tone: "text-down", ring: "ring-down/40 bg-down/10" },
+  flat: { tone: "text-ink-dim", ring: "ring-white/10 bg-white/5" },
+  unknown: { tone: "text-ink-faint", ring: "ring-white/10 bg-white/5" },
+};
+
+function CostBasisNote({ cb }: { cb: CostBasis }) {
+  const st = COST_STATE_STYLE[cb.state];
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs tnum">
+      <span
+        className={`rounded-full px-2.5 py-0.5 text-[11px] ring-1 ${st.ring} ${st.tone}`}
+      >
+        {cb.label}
+      </span>
+      <span className="text-ink-faint">
+        估算成本
+        <span className="ml-1 text-ink">
+          {cb.latest_cost != null ? cb.latest_cost.toFixed(2) : "—"}
+        </span>
+      </span>
+      <span className="text-ink-faint">
+        現價
+        <span className="ml-1 text-ink">
+          {cb.latest_price != null ? cb.latest_price.toFixed(2) : "—"}
+        </span>
+      </span>
+      {cb.premium_pct != null && (
+        <span className="text-ink-faint">
+          溢價/折價
+          <span className={`ml-1 ${toneClass(cb.premium_pct)}`}>
+            {fmtPct(cb.premium_pct)}
+          </span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 /* ---------- 累積買賣超 vs 價格 ---------- */
 
 type CumInfo = {
@@ -336,7 +390,13 @@ type CumInfo = {
   price: number | null;
 } & Record<SeriesKey, number>;
 
-function CumulativeChart({ points }: { points: FlowPoint[] }) {
+function CumulativeChart({
+  points,
+  cost,
+}: {
+  points: FlowPoint[];
+  cost: CostBasisPoint[] | null;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [info, setInfo] = useState<CumInfo | null>(null);
 
@@ -376,6 +436,23 @@ function CumulativeChart({ points }: { points: FlowPoint[] }) {
         points
           .filter((p) => p.close != null)
           .map((p) => ({ time: p.t, value: p.close as number })),
+      );
+    }
+
+    // 主力估算成本線（pane 0，與股價同軸，虛線）
+    if (cost && cost.some((c) => c.cost != null)) {
+      const cs = chart.addSeries(LineSeries, {
+        color: COST_COLOR,
+        lineWidth: 2,
+        lineStyle: 2, // dashed
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: false,
+      });
+      cs.setData(
+        cost
+          .filter((c) => c.cost != null)
+          .map((c) => ({ time: c.t, value: c.cost as number })),
       );
     }
 
@@ -428,7 +505,7 @@ function CumulativeChart({ points }: { points: FlowPoint[] }) {
       ro.disconnect();
       chart.remove();
     };
-  }, [cum, points]);
+  }, [cum, points, cost]);
 
   return (
     <div className="relative">

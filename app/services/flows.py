@@ -58,6 +58,78 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
     return sxy / (sxx**0.5 * syy**0.5)
 
 
+@dataclass
+class CostBasisResult:
+    costs: list[float | None]  # 對齊輸入的每日估算主力成本(元;未建倉為 None)
+    latest_cost: float | None
+    latest_price: float | None
+    premium_pct: float | None  # 現價/成本 - 1(正=主力浮盈,負=套牢)
+    state: str  # profit / loss / flat / unknown
+    label: str
+
+
+_COST_LABELS = {
+    "profit": "主力浮盈",
+    "loss": "主力套牢",
+    "flat": "接近打平",
+    "unknown": "無法估算",
+}
+
+
+def compute_cost_basis(
+    prices: list[float | None],
+    inst_nets: list[float | None],
+    *,
+    state_eps: float,
+) -> CostBasisResult:
+    """移動加權平均成本法估算主力持倉均價。
+
+    prices:每日成交均價(元,建議用 VWAP=成交金額/成交量);inst_nets:當日三大法人
+    淨買超(張,買超為正)。淨買日以當日價加權更新均價;淨賣日減倉、均價不變,減至 0
+    重置。持倉自窗首 0 起算,故僅反映窗內觀察到的累積(標示為估算)。
+    """
+    if len(prices) != len(inst_nets):
+        raise ValueError("prices / inst_nets 長度必須一致")
+
+    pos = 0.0
+    cost: float | None = None
+    costs: list[float | None] = []
+    for p, net in zip(prices, inst_nets):
+        if p is not None and p > 0 and net is not None:
+            if net > 0:
+                new_pos = pos + net
+                cost = p if (cost is None or pos <= 0) else (pos * cost + net * p) / new_pos
+                pos = new_pos
+            elif net < 0:
+                pos += net
+                if pos <= 0:
+                    pos = 0.0
+                    cost = None
+        costs.append(cost)
+
+    latest_price = next((p for p in reversed(prices) if p is not None and p > 0), None)
+    latest_cost = cost
+    premium_pct: float | None = None
+    state = "unknown"
+    if latest_cost is not None and latest_cost > 0 and latest_price is not None:
+        premium_pct = latest_price / latest_cost - 1.0
+        if premium_pct > state_eps:
+            state = "profit"
+        elif premium_pct < -state_eps:
+            state = "loss"
+        else:
+            state = "flat"
+
+    return CostBasisResult(
+        costs=costs,
+        latest_cost=latest_cost,
+        latest_price=latest_price,
+        premium_pct=premium_pct,
+        state=state,
+        label=_COST_LABELS[state],
+    )
+
+
 def compute_divergence(
     closes: list[float | None],
     inst_nets: list[float | None],

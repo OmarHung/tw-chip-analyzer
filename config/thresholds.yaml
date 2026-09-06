@@ -54,6 +54,11 @@ divergence:
   flow_eps: 0.02           # 主力淨買超佔區間成交比重達 ±2% 才算主力「明顯」進/出
   min_points: 10           # 窗內有效樣本不足此數則不判定(回 null)
 
+# 主力估算成本(移動加權平均成本法):淨買日用當日 VWAP 加權更新持倉均價,
+# 淨賣日減倉、均價不變(減至 0 則重置)。純估算,僅反映窗內觀察到的累積。
+cost_basis:
+  state_eps: 0.01          # 現價相對估算成本 ±1% 內視為打平(避免雜訊誤判浮盈/套牢)
+
 # 每日盤後 EOD 排程(app.jobs.scheduler;鐵則 4:排程時間 config 化,禁硬編碼)
 schedule:
   enabled: true            # 隨 API server(FastAPI lifespan)自動起停;test env 一律不啟動

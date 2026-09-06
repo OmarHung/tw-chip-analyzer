@@ -224,6 +224,20 @@ class DivergenceItem(BaseModel):
     note: str
 
 
+class CostBasisPoint(BaseModel):
+    t: str
+    cost: float | None = None  # 估算主力平均成本（元）
+
+
+class CostBasis(BaseModel):
+    points: list[CostBasisPoint]
+    latest_cost: float | None = None
+    latest_price: float | None = None
+    premium_pct: float | None = None  # 現價/成本-1（正=浮盈）
+    state: str  # profit / loss / flat / unknown
+    label: str
+
+
 class FlowsResponse(BaseModel):
     symbol: str
     name: str
@@ -233,6 +247,7 @@ class FlowsResponse(BaseModel):
     tdcc: TdccSnapshot | None = None
     summary: FlowSummary | None = None
     divergence: list[DivergenceItem] = []
+    cost_basis: CostBasis | None = None
 
 
 def _to_lots(shares: int | None) -> float | None:
@@ -278,6 +293,15 @@ async def get_flows(
     vol_by_date = {
         r.data_date: (r.volume / 1000 if r.volume else None) for r in price_rows
     }
+    # 每日成交均價（VWAP=成交金額/成交量；缺則退回收盤）供主力成本估算
+    def _vwap(r: object) -> float | None:
+        turnover = getattr(r, "turnover", None)
+        volume = getattr(r, "volume", None)
+        if turnover and volume:
+            return float(turnover) / volume
+        return float(r.close) if r.close is not None else None  # type: ignore[attr-defined]
+
+    vwap_by_date = {r.data_date: _vwap(r) for r in price_rows}
     margin_by_date = {r.data_date: r for r in margin_rows}
 
     # 以三大法人資料日為主軸（主力進出的核心來源）
@@ -287,6 +311,7 @@ async def get_flows(
     margin_bals: list[int | None] = []
     closes_arr: list[float | None] = []
     vols_arr: list[float | None] = []
+    vwaps_arr: list[float | None] = []
     for r in inst_rows:
         foreign = _to_lots(r.foreign_net)
         trust = _to_lots(r.trust_net)
@@ -316,6 +341,7 @@ async def get_flows(
         margin_bals.append(mb)
         closes_arr.append(close_by_date.get(r.data_date))
         vols_arr.append(vol_by_date.get(r.data_date))
+        vwaps_arr.append(vwap_by_date.get(r.data_date))
 
     stock = await session.get(Stock, symbol)
     name = stock.name if stock else symbol
@@ -365,9 +391,10 @@ async def get_flows(
 
     # 量價背離偵測（config 驅動門檻，見 config/thresholds.yaml 的 divergence 段）
     from app.core.config import get_thresholds
-    from app.services.flows import compute_divergence
+    from app.services.flows import compute_cost_basis, compute_divergence
 
-    dcfg = get_thresholds().divergence
+    th = get_thresholds()
+    dcfg = th.divergence
     windows = dcfg.get("windows", [20, 60])
     price_eps = float(dcfg.get("price_eps", 0.03))
     flow_eps = float(dcfg.get("flow_eps", 0.02))
@@ -388,6 +415,22 @@ async def get_flows(
         if r is not None:
             divergence.append(DivergenceItem(**r.__dict__))
 
+    # 主力估算成本線（移動加權平均成本法）
+    cost_basis = None
+    if points:
+        state_eps = float(th.cost_basis.get("state_eps", 0.01))
+        cb = compute_cost_basis(vwaps_arr, inst_totals, state_eps=state_eps)
+        cost_basis = CostBasis(
+            points=[
+                CostBasisPoint(t=p.t, cost=c) for p, c in zip(points, cb.costs)
+            ],
+            latest_cost=cb.latest_cost,
+            latest_price=cb.latest_price,
+            premium_pct=cb.premium_pct,
+            state=cb.state,
+            label=cb.label,
+        )
+
     return FlowsResponse(
         symbol=symbol,
         name=name,
@@ -397,6 +440,7 @@ async def get_flows(
         tdcc=tdcc,
         summary=summary,
         divergence=divergence,
+        cost_basis=cost_basis,
     )
 
 

@@ -201,6 +201,22 @@ export interface DivergenceItem {
   note: string;
 }
 
+export interface CostBasisPoint {
+  t: string;
+  cost: number | null; // 估算主力平均成本（元）
+}
+
+export type CostState = "profit" | "loss" | "flat" | "unknown";
+
+export interface CostBasis {
+  points: CostBasisPoint[];
+  latest_cost: number | null;
+  latest_price: number | null;
+  premium_pct: number | null; // 現價/成本-1（正=浮盈）
+  state: CostState;
+  label: string;
+}
+
 export interface FlowsResponse {
   symbol: string;
   name: string;
@@ -210,6 +226,7 @@ export interface FlowsResponse {
   tdcc: TdccSnapshot | null;
   summary: FlowSummary | null;
   divergence: DivergenceItem[];
+  cost_basis: CostBasis | null;
 }
 
 async function get<T>(path: string): Promise<T> {

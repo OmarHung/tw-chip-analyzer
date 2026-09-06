@@ -1,7 +1,7 @@
 """主力進出量價背離偵測單元測試（app.services.flows.compute_divergence）。"""
 from __future__ import annotations
 
-from app.services.flows import compute_divergence
+from app.services.flows import compute_cost_basis, compute_divergence
 
 # 20 個交易日,成交量固定 1000 張/日;門檻沿用 config 預設語意。
 _KW = dict(window=20, price_eps=0.03, flow_eps=0.02, min_points=10)
@@ -66,3 +66,48 @@ class TestDivergence:
 
         with pytest.raises(ValueError):
             compute_divergence([100.0], [1.0, 2.0], [1000.0], **_KW)
+
+
+class TestCostBasis:
+    def test_weighted_average_accumulation(self):
+        # 買 100張@10、再買 100張@20 → 均價 15;現價 20 → 浮盈
+        r = compute_cost_basis([10.0, 20.0], [100.0, 100.0], state_eps=0.01)
+        assert r.latest_cost == 15.0
+        assert r.latest_price == 20.0
+        assert abs(r.premium_pct - (20 / 15 - 1)) < 1e-9
+        assert r.state == "profit"
+
+    def test_sell_to_zero_resets(self):
+        # 買 100張後全數賣出 → 部位歸零、成本重置 → 無法估算
+        r = compute_cost_basis([10.0, 11.0], [100.0, -100.0], state_eps=0.01)
+        assert r.latest_cost is None
+        assert r.state == "unknown"
+
+    def test_partial_sell_keeps_cost(self):
+        # 買 100張@10、賣 50張 → 均價仍 10;現價 12 → 浮盈
+        r = compute_cost_basis([10.0, 12.0], [100.0, -50.0], state_eps=0.01)
+        assert r.latest_cost == 10.0
+        assert r.state == "profit"
+
+    def test_loss_state(self):
+        r = compute_cost_basis([20.0, 10.0], [100.0, 0.0], state_eps=0.01)
+        assert r.latest_cost == 20.0
+        assert r.state == "loss"
+
+    def test_flat_within_eps(self):
+        r = compute_cost_basis([100.0, 100.5], [100.0, 0.0], state_eps=0.01)
+        assert r.state == "flat"
+
+    def test_costs_aligned_length(self):
+        prices = [10.0, None, 12.0]
+        nets = [100.0, 50.0, 50.0]
+        r = compute_cost_basis(prices, nets, state_eps=0.01)
+        assert len(r.costs) == 3
+        assert r.costs[0] == 10.0  # 首買
+        assert r.costs[1] == 10.0  # price 缺,沿用前值
+
+    def test_length_mismatch_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            compute_cost_basis([10.0], [1.0, 2.0], state_eps=0.01)
