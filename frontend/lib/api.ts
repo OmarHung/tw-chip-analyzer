@@ -229,6 +229,29 @@ export interface FlowsResponse {
   cost_basis: CostBasis | null;
 }
 
+export interface DivergenceScanRow {
+  symbol: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  turnover: number;
+  status: DivergenceStatus;
+  label: string;
+  window: number;
+  price_return: number | null;
+  flow_ratio: number | null; // 淨買超佔區間成交比重
+  inst_net: number; // 區間三大法人淨買超（張）
+  cost_state: CostState;
+  premium_pct: number | null;
+}
+
+export interface DivergenceScanResponse {
+  as_of: string | null;
+  window: number;
+  count: number;
+  rows: DivergenceScanRow[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
@@ -257,4 +280,16 @@ export const api = {
     get<OrderFlowResponse>(`/api/stocks/${symbol}/orderflow`),
   flows: (symbol: string, days = 90) =>
     get<FlowsResponse>(`/api/stocks/${symbol}/flows?days=${days}`),
+  divergenceScan: (
+    params: { status?: string; min_turnover?: number; limit?: number } = {},
+  ) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== "") q.set(k, String(v));
+    }
+    const qs = q.toString();
+    return get<DivergenceScanResponse>(
+      `/api/scanner/divergence${qs ? `?${qs}` : ""}`,
+    );
+  },
 };

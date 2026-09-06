@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const NAV = [
   { href: "/", label: "總覽" },
   { href: "/scanner", label: "選股" },
+  { href: "/divergence", label: "主力背離" },
 ];
 
 export function Nav() {
