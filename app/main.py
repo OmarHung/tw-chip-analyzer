@@ -56,11 +56,13 @@ def create_app() -> FastAPI:
     from app.api.ops import router as ops_router
     from app.api.scanner import router as scanner_router
     from app.api.stocks import router as stocks_router
+    from app.api.validation import router as validation_router
 
     app.include_router(stocks_router)
     app.include_router(scanner_router)
     app.include_router(dashboard_router)
     app.include_router(ops_router)
+    app.include_router(validation_router)
 
     return app
 

@@ -313,6 +313,29 @@ export interface OpsStatusResponse {
   job: OpsJob;
 }
 
+export interface ForwardBucket {
+  label: string;
+  n: number;
+  win_rate: number | null;
+  avg_net: number | null;
+}
+
+export interface ForwardHorizon {
+  horizon: number;
+  n: number;
+  buckets: ForwardBucket[];
+  ic: number | null;
+  ic_t: number | null;
+  ic_days: number;
+}
+
+export interface ForwardReport {
+  as_of: string | null;
+  total_signals: number;
+  evaluated_latest_pending?: number;
+  horizons: ForwardHorizon[];
+}
+
 export interface BackfillRequest {
   kind: "single" | "range";
   date?: string;
@@ -383,6 +406,7 @@ export const api = {
     );
   },
   opsStatus: () => get<OpsStatusResponse>("/api/ops/status"),
+  forwardReport: () => get<ForwardReport>("/api/validation/forward"),
   backfill: (body: BackfillRequest) =>
     post<OpsStatusResponse>("/api/ops/backfill", body),
 };
