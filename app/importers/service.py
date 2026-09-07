@@ -13,7 +13,7 @@ from app.db.models.chips import (
     TdccWeekly,
 )
 from app.db.models.market import DailyPrice, MarketIndex, Stock
-from app.importers import tdcc, twse
+from app.importers import tdcc, tpex, twse
 from app.repositories.upsert import upsert_ignore, upsert_many
 
 
@@ -44,6 +44,33 @@ async def import_institutional(
 
 async def import_margin(session: AsyncSession, raw: dict, data_date: dt.date) -> int:
     rows = twse.parse_margin(raw, data_date)
+    await _ensure_stocks(session, {r["symbol"] for r in rows})
+    n = await upsert_many(session, MarginDaily, rows, ["symbol", "data_date"])
+    await session.commit()
+    return n
+
+
+async def import_tpex_ohlcv(session: AsyncSession, raw: dict, data_date: dt.date) -> int:
+    stocks, prices = tpex.parse_ohlcv(raw, data_date)
+    if stocks:
+        await upsert_many(session, Stock, stocks, ["symbol"], update_columns=["name", "market"])
+    n = await upsert_many(session, DailyPrice, prices, ["symbol", "data_date"])
+    await session.commit()
+    return n
+
+
+async def import_tpex_institutional(
+    session: AsyncSession, raw: dict, data_date: dt.date
+) -> int:
+    rows = tpex.parse_institutional(raw, data_date)
+    await _ensure_stocks(session, {r["symbol"] for r in rows})
+    n = await upsert_many(session, InstitutionalDaily, rows, ["symbol", "data_date"])
+    await session.commit()
+    return n
+
+
+async def import_tpex_margin(session: AsyncSession, raw: dict, data_date: dt.date) -> int:
+    rows = tpex.parse_margin(raw, data_date)
     await _ensure_stocks(session, {r["symbol"] for r in rows})
     n = await upsert_many(session, MarginDaily, rows, ["symbol", "data_date"])
     await session.commit()

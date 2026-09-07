@@ -11,6 +11,7 @@ import asyncio
 import datetime as dt
 
 from app.connectors import tdcc as tdcc_conn
+from app.connectors import tpex as tpex_conn
 from app.connectors import twse as twse_conn
 from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
@@ -21,6 +22,9 @@ from app.importers.service import (
     import_ohlcv,
     import_sbl,
     import_tdcc,
+    import_tpex_institutional,
+    import_tpex_margin,
+    import_tpex_ohlcv,
 )
 from app.services.feature_builder import build_features
 from app.services.market_score import build_market_daily
@@ -85,11 +89,24 @@ async def run(
                 n_sbl = await import_sbl(s, sbl, target)
         except Exception as e:  # noqa: BLE001 — SBL 非必要，缺則後續中性
             logger.warning("SBL 匯入失敗（TWT93U）：%s", e)
+        # TPEx 上櫃（行情/法人/融資券）：失敗不影響 TWSE 核心匯入。
+        n_tpx = n_tpx_inst = n_tpx_margin = 0
+        try:
+            tpx_ohlcv = await tpex_conn.fetch_ohlcv(target)
+            tpx_inst = await tpex_conn.fetch_institutional(target)
+            tpx_margin = await tpex_conn.fetch_margin(target)
+            async with sm() as s:
+                n_tpx = await import_tpex_ohlcv(s, tpx_ohlcv, target)
+                n_tpx_inst = await import_tpex_institutional(s, tpx_inst, target)
+                n_tpx_margin = await import_tpex_margin(s, tpx_margin, target)
+        except Exception as e:  # noqa: BLE001 — TPEx 缺則僅上市參與當日橫斷面
+            logger.warning("TPEx 匯入失敗：%s", e)
         logger.info(
-            "匯入完成：price=%d institutional=%d margin=%d sbl=%d",
-            n_price, n_inst, n_margin, n_sbl,
+            "匯入完成：price=%d institutional=%d margin=%d sbl=%d "
+            "tpex=%d/%d/%d",
+            n_price, n_inst, n_margin, n_sbl, n_tpx, n_tpx_inst, n_tpx_margin,
         )
-        if n_price == 0:
+        if n_price + n_tpx == 0:
             logger.warning("當日無 OHLCV（可能非交易日），略過建特徵。")
             return
 

@@ -104,3 +104,49 @@ class TestImportToDB:
         await import_ohlcv(db_session, _load("twse_mi_index.json"), D)  # 重跑
         second = (await db_session.execute(select(func.count()).select_from(DailyPrice))).scalar()
         assert first == second  # 不重複
+
+
+class TestTpexParsers:
+    """TPEx 上櫃 parser(fixtures 為 2026-09-04 實際回應切片,8069 元太實值)。"""
+
+    def test_ohlcv(self):
+        from app.importers import tpex
+
+        stocks, prices = tpex.parse_ohlcv(_load("tpex_quotes.json"), D)
+        assert all(s["market"] == "TPEx" for s in stocks)
+        assert not any(p["symbol"] == "00411A" for p in prices)  # 非個股被過濾
+        p = next(p for p in prices if p["symbol"] == "8069")
+        assert p["close"] == 148.50 and p["open"] == 151.00
+        assert p["volume"] == 5_360_833 and p["turnover"] == 802_799_712
+
+    def test_institutional_grouping(self):
+        from app.importers import tpex
+
+        rows = tpex.parse_institutional(_load("tpex_inst.json"), D)
+        r = next(r for r in rows if r["symbol"] == "8069")
+        # 固定位置分組(經加總驗證):外資合計/投信/自營自行/避險
+        assert r["foreign_net"] == -503_485
+        assert r["trust_net"] == 121_000
+        assert r["dealer_self_net"] == 32_929
+        assert r["dealer_hedge_net"] == 22_897
+
+    def test_margin(self):
+        from app.importers import tpex
+
+        rows = tpex.parse_margin(_load("tpex_margin.json"), D)
+        r = next(r for r in rows if r["symbol"] == "8069")
+        assert r["margin_balance"] == 11_015 and r["short_balance"] == 308
+
+    async def test_import_to_db(self, db_session):
+        from app.importers.service import (
+            import_tpex_institutional,
+            import_tpex_margin,
+            import_tpex_ohlcv,
+        )
+
+        n = await import_tpex_ohlcv(db_session, _load("tpex_quotes.json"), D)
+        ni = await import_tpex_institutional(db_session, _load("tpex_inst.json"), D)
+        nm = await import_tpex_margin(db_session, _load("tpex_margin.json"), D)
+        assert n == 3 and ni == 3 and nm == 3
+        s = await db_session.get(Stock, "8069")
+        assert s is not None and s.market == "TPEx"
