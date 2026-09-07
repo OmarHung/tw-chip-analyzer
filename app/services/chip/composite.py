@@ -33,6 +33,8 @@ class ChipScoreResult:
     holder: float
     market: float
     reasons: list[str] = field(default_factory=list)
+    # 加權合成原始值(-1..1),供橫斷面百分位映射(scoring.mapping=percentile)使用
+    composite_raw: float = 0.0
 
 
 class ChipScorer:
@@ -79,6 +81,7 @@ class ChipScorer:
             holder=to_0_100(s_hold),
             market=to_0_100(s_mkt),
             reasons=self._reasons(intraday, daily, weekly),
+            composite_raw=composite,
         )
 
     @staticmethod

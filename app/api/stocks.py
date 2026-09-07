@@ -91,7 +91,23 @@ async def get_analysis(
     market = await load_market_context(session, fd.data_date)
     stock = await session.get(Stock, symbol)
     name = stock.name if stock else symbol
-    result = AnalysisService().analyze(fd, market=market, name=name)
+    # percentile mapping 需同日全市場橫斷面(與 scanner/snapshot 同一真相);
+    # 載入當日全部 feature 一起算,再挑出本檔。
+    from sqlalchemy import select as _select
+
+    from app.db.models.features import FeatureDaily
+    from app.services.analysis import analyze_market
+
+    day_rows = (
+        await session.execute(
+            _select(FeatureDaily).where(FeatureDaily.data_date == fd.data_date)
+        )
+    ).scalars().all()
+    items: list[tuple[FeatureDaily, str | None]] = [
+        (x, name if x.symbol == symbol else None) for x in day_rows
+    ]
+    results = analyze_market(AnalysisService(), items, market)
+    result = next(r for r in results if r.symbol == symbol)
     return AnalysisResponse.from_result(result)
 
 

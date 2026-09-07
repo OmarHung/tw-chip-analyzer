@@ -101,3 +101,38 @@ class TestChipScorer:
             DailyFeatures(trust_5d_z=2.5), WeeklyFeatures(), MarketContext(),
         )
         assert strong.chip_score > weak.chip_score
+
+
+class TestPercentileMapping:
+    """散度修復:橫斷面百分位映射(cross_sectional_percentile)。"""
+
+    def test_preserves_order_and_spreads(self):
+        from app.services.normalize import cross_sectional_percentile
+
+        raws = [0.02, -0.05, 0.30, 0.0, 0.11]
+        pcts = cross_sectional_percentile(raws)
+        # 保序(rank-preserving)
+        import numpy as np
+        assert np.argsort(raws).tolist() == np.argsort(pcts).tolist()
+        # 分布展開:最強者應落在高分區(>=75),最弱者低分區(<=25)
+        assert max(pcts) >= 75 and min(pcts) <= 25
+
+    def test_ties_get_average_rank(self):
+        from app.services.normalize import cross_sectional_percentile
+
+        pcts = cross_sectional_percentile([0.0, 0.0, 0.0, 0.0])
+        assert all(p == 50.0 for p in pcts)  # 全中性 → 全 50
+
+    def test_analyze_market_percentile_spreads_scores(self):
+        """analyze_market(percentile)對強弱不同的標的應給出展開的 0~100 分。"""
+        from app.db.models.features import FeatureDaily
+        from app.services.analysis import AnalysisService, analyze_market
+
+        def fd(sym: str, z: float) -> FeatureDaily:
+            return FeatureDaily(symbol=sym, foreign_5d_z=z, trust_5d_z=z, close=100)
+
+        items = [(fd(f"S{i}", z), None) for i, z in enumerate([-2.0, -0.5, 0.0, 0.8, 2.5])]
+        results = analyze_market(AnalysisService(), items)
+        scores = [r.chip.chip_score for r in results]
+        assert scores == sorted(scores)  # 保序
+        assert scores[-1] >= 75 and scores[0] <= 25  # 高低分 bucket 有人

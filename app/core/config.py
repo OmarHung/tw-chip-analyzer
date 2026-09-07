@@ -116,6 +116,10 @@ class Thresholds:
     def market_regime(self) -> dict[str, Any]:
         return self._data.get("market_regime", {})
 
+    @property
+    def scoring(self) -> dict[str, Any]:
+        return self._data.get("scoring", {})
+
 
 @lru_cache
 def get_settings() -> Settings:

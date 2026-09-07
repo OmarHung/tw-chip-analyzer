@@ -15,7 +15,12 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.chips import InstitutionalDaily, MarginDaily, TdccSummaryWeekly
+from app.db.models.chips import (
+    InstitutionalDaily,
+    MarginDaily,
+    SblDaily,
+    TdccSummaryWeekly,
+)
 from app.db.models.features import FeatureDaily
 from app.db.models.intraday import RawTick
 from app.db.models.market import DailyPrice
@@ -188,10 +193,15 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
         ["symbol", "data_date", "margin_balance", "short_balance"],
         start, target,
     )
-    # TDCC 週資料：取 data_date<=target 的最新一筆/每檔
+    sbl = await _load_df(
+        session, SblDaily,
+        ["symbol", "data_date", "sbl_balance"],
+        start, target,
+    )
+    # TDCC 週資料：取 data_date<=target 的近期快照(供 level proxy 或真實 change)
     tdcc = await _load_df(
         session, TdccSummaryWeekly,
-        ["symbol", "data_date", "retail_ratio", "large_ratio", "super_large_ratio"],
+        ["symbol", "data_date", "retail_ratio", "large_ratio", "super_large_ratio", "holder_count"],
         target - dt.timedelta(days=30), target,
     )
 
@@ -233,20 +243,45 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
             if sc is not None:
                 short_chg[sym] = sc * LOTS_TO_SHARES / av
 
-    # TDCC 大戶/散戶集中度（Phase 1：以橫斷面 level 為 proxy；
-    # 待累積 >=2 週快照後改為真實 week-over-week change，見 docs/03 §10）。
-    large_conc, retail_conc = {}, {}
+    # 借券 SBL 餘額 5 日變化(單位已是股數,直接除以 20 日均量)
+    sbl_chg: dict[str, float] = {}
+    if not sbl.empty:
+        for sym, g in sbl.groupby("symbol"):
+            av = pf.get(sym, {}).get("_avg_vol20")
+            if not av:
+                continue
+            bc = _balance_change_5d(g, "sbl_balance")
+            if bc is not None:
+                sbl_chg[sym] = bc / av
+
+    # TDCC 大戶/散戶:視窗內有 >=2 個快照日 → 真實 week-over-week change;
+    # 只有 1 週 → 橫斷面 level proxy(資料累積到位自動切換,見 docs/03 §10)。
+    large_conc, retail_conc, holder_cnt_chg = {}, {}, {}
     if not tdcc.empty:
-        latest = (
-            tdcc.sort_values("data_date").groupby("symbol").tail(1).set_index("symbol")
-        )
-        for sym in symbols_today:
-            if sym in latest.index:
-                row = latest.loc[sym]
-                large_conc[sym] = float(row["large_ratio"] or 0) + float(
-                    row["super_large_ratio"] or 0
-                )
-                retail_conc[sym] = float(row["retail_ratio"] or 0)
+        tdcc_dates = sorted(tdcc["data_date"].unique())
+        use_change = len(tdcc_dates) >= 2
+        srt = tdcc.sort_values("data_date")
+        if use_change:
+            for sym, g in srt.groupby("symbol"):
+                if len(g) < 2:
+                    continue  # 該檔僅一週 → 維持中性
+                cur, prev = g.iloc[-1], g.iloc[-2]
+                cur_large = float(cur["large_ratio"] or 0) + float(cur["super_large_ratio"] or 0)
+                prev_large = float(prev["large_ratio"] or 0) + float(prev["super_large_ratio"] or 0)
+                large_conc[sym] = cur_large - prev_large
+                retail_conc[sym] = float(cur["retail_ratio"] or 0) - float(prev["retail_ratio"] or 0)
+                pc, cc = prev["holder_count"], cur["holder_count"]
+                if pc and cc and float(pc) > 0:
+                    holder_cnt_chg[sym] = (float(cc) - float(pc)) / float(pc)
+        else:
+            latest = srt.groupby("symbol").tail(1).set_index("symbol")
+            for sym in symbols_today:
+                if sym in latest.index:
+                    row = latest.loc[sym]
+                    large_conc[sym] = float(row["large_ratio"] or 0) + float(
+                        row["super_large_ratio"] or 0
+                    )
+                    retail_conc[sym] = float(row["retail_ratio"] or 0)
 
     # 市場層橫斷面 Z-score
     z_foreign = _zscore_map(foreign_str)
@@ -254,8 +289,10 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     z_dealer = _zscore_map(dealer_str)
     z_margin = _zscore_map(margin_chg)
     z_short = _zscore_map(short_chg)
+    z_sbl = _zscore_map(sbl_chg)
     z_large_holder = _zscore_map(large_conc)
     z_retail_holder = _zscore_map(retail_conc)
+    z_holder_cnt = _zscore_map(holder_cnt_chg)
 
     # 盤中 order flow 橫斷面 z（僅當日有逐筆的標的；其餘維持 NULL）
     intraday = await _intraday_signals(session, target)
@@ -276,11 +313,11 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
                 "dealer_5d_z": z_dealer.get(sym, 0.0),
                 "margin_balance_change_z": z_margin.get(sym, 0.0),
                 "short_balance_change_z": z_short.get(sym, 0.0),
-                "sbl_change_z": 0.0,  # 待 SBL importer
-                # TDCC：large/retail 為橫斷面集中度 proxy；count 待真實 change
+                "sbl_change_z": z_sbl.get(sym, 0.0),
+                # TDCC:>=2 週快照時為真實 week-over-week change,否則 level proxy
                 "large_holder_ratio_change_z": z_large_holder.get(sym, 0.0),
                 "retail_holder_ratio_change_z": z_retail_holder.get(sym, 0.0),
-                "holder_count_change_z": 0.0,
+                "holder_count_change_z": z_holder_cnt.get(sym, 0.0),
                 # intraday：有逐筆才填，否則 NULL（composite 動態排除）
                 "cvd_z": intra["cvd_z"] if intra else None,
                 "large_trade_delta_z": intra["large_trade_delta_z"] if intra else None,

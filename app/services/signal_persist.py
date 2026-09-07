@@ -18,7 +18,7 @@ from app.db.models.market import Stock
 from app.importers.base import availability_for
 from app.repositories.market import load_market_context
 from app.repositories.upsert import upsert_many
-from app.services.analysis import AnalysisService
+from app.services.analysis import AnalysisService, analyze_market
 
 # feature 快照排除的欄位(識別/時間戳,非特徵)
 _PAYLOAD_SKIP = {"id", "symbol", "data_date", "available_at", "created_at", "updated_at"}
@@ -77,12 +77,11 @@ async def persist_signals(session: AsyncSession, target: dt.date) -> int:
     market = await load_market_context(session, target)
     service = AnalysisService()
     av_at = availability_for(target)
+    # 橫斷面分析(percentile mapping 需整日一起算,見 analyze_market)
+    results = analyze_market(service, [(fd, name) for fd, name in pairs], market)
     rows = [
-        _snapshot_row(
-            service.analyze(fd, market=market, name=name), target, av_at,
-            _feature_payload(fd),
-        )
-        for fd, name in pairs
+        _snapshot_row(r, target, av_at, _feature_payload(fd))
+        for (fd, _), r in zip(pairs, results)
     ]
     n = await upsert_many(session, SignalSnapshot, rows, ["symbol", "data_date"])
     await session.commit()

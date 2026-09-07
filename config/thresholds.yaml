@@ -1,6 +1,13 @@
 # 交易/籌碼門檻設定 — 對應 docs/07-ops-config.md §21
 # 所有 threshold 一律 config 化，程式禁止硬編碼 magic number。
 
+# chip_score 映射方式(散度修復,見 docs/03 §10 補充):
+# percentile = 當日全市場橫斷面百分位(0~100,分布均勻,高分 bucket 可回測;
+#              rank-preserving,不改變 IC)。linear = 50+50*composite(舊制,
+#              z 合成回歸中性、天花板 ~64,高分區永遠無樣本)。
+scoring:
+  mapping: percentile
+
 signal:
   buy_score: 75
   watch_score: 65
@@ -109,7 +116,9 @@ weights:
     foreign: 0.25
     dealer: 0.10
     margin_change: -0.15
-    sbl_change: -0.10
+    # SBL 特徵已接線(feature_builder),但依紀律「未經 OOS 驗證不進分數」先取 0;
+    # 原設計 -0.10,待借券累積 >=2 個月跑 sbl_factor_oos 驗證後再啟用。
+    sbl_change: 0.0
     short_change: -0.10
   holder:
     large_holder_change: 0.60

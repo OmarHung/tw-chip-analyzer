@@ -43,3 +43,31 @@ def percentile_rank(history: Sequence[float], value: float) -> float:
 
 def ratio(numerator: float, denominator: float, eps: float = 1e-9) -> float:
     return numerator / (denominator + eps)
+
+
+def cross_sectional_percentile(values: Sequence[float]) -> list[float]:
+    """整組值 → 各自的橫斷面百分位(0..100),同值取平均 rank。
+
+    用於 chip_score 散度修復(scoring.mapping=percentile):z-score 加權合成
+    必然回歸中性(50)、實測天花板 ~64,高分 bucket 永遠無樣本可回測。
+    改以「當日全市場排名」映射:分布均勻、rank-preserving(不改變 Spearman
+    IC、不製造假 alpha),讓 §28 成功標準變得可測量。
+    """
+    arr = np.asarray(values, dtype=float)
+    n = arr.size
+    if n == 0:
+        return []
+    if n == 1:
+        return [50.0]
+    order = np.argsort(arr, kind="stable")
+    ranks = np.empty(n, dtype=float)
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and arr[order[j + 1]] == arr[order[i]]:
+            j += 1
+        avg = (i + j) / 2.0 + 1.0  # 1-based 平均 rank
+        ranks[order[i : j + 1]] = avg
+        i = j + 1
+    # (rank-0.5)/n 映射,避免端點恰為 0/100
+    return [round(float((r - 0.5) / n * 100), 1) for r in ranks]

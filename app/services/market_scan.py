@@ -11,7 +11,7 @@ from app.db.models.features import FeatureDaily
 from app.db.models.market import Stock
 from app.repositories.features import FeatureDailyRepository
 from app.repositories.market import load_market_context
-from app.services.analysis import AnalysisService
+from app.services.analysis import AnalysisService, analyze_market
 
 
 @dataclass
@@ -45,9 +45,11 @@ async def scan_all(session: AsyncSession) -> tuple[dt.date | None, list[ScanRow]
     )
     service = AnalysisService()
     market = await load_market_context(session, as_of)
+    pairs = (await session.execute(stmt)).all()
+    # 橫斷面分析(percentile mapping 需整日一起算)
+    results = analyze_market(service, [(fd, name) for fd, name, _ in pairs], market)
     rows: list[ScanRow] = []
-    for fd, name, industry in (await session.execute(stmt)).all():
-        r = service.analyze(fd, market=market, name=name)
+    for (fd, name, industry), r in zip(pairs, results):
         rows.append(
             ScanRow(
                 symbol=r.symbol,
