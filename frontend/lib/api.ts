@@ -1,7 +1,13 @@
 // 型別化 API client，對應 FastAPI 後端（見 docs/05）。
-
+//
+// 瀏覽器一律用 NEXT_PUBLIC_API_BASE（build 時烤入，需為可從瀏覽器連到的位址）。
+// SSR（server component，如總覽/個股頁）若設了 API_BASE_INTERNAL 則優先用它——
+// 讓前端程序在後端直連 API（Docker 內走 http://api:8000），免繞公開網域/ts.net，
+// 也避開容器解析不到 MagicDNS 的問題。非 NEXT_PUBLIC 變數不會外洩到 client bundle。
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8099";
+  (typeof window === "undefined" && process.env.API_BASE_INTERNAL) ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://127.0.0.1:8099";
 
 export type Action =
   | "BUY"

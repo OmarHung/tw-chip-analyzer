@@ -56,6 +56,9 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE}
+      # SSR(server component)在容器內直連 api 服務,免繞公開網域/ts.net。
+      # 瀏覽器仍用上面的 NEXT_PUBLIC_API_BASE。
+      API_BASE_INTERNAL: http://api:8000
     ports:
       - "127.0.0.1:3000:3000"
     restart: unless-stopped

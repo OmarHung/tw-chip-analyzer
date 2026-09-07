@@ -102,19 +102,12 @@ curl -s https://<主機>.<tailnet>.ts.net/api/dashboard | head -c 200
 
 1. **同源免 CORS 照舊**：瀏覽器與 SSR 都走同一個 `https://<主機>.ts.net`，nginx 同源
    路由 `/api`，後端 CORS（只放行 localhost）不受影響。
-2. **SSR（個股頁）**：`/stocks/[symbol]` 是 server-side 抓取，需能從執行前端的程序
-   連到 `NEXT_PUBLIC_API_BASE`：
-   - **systemd**：前端跑在主機上，主機有 MagicDNS 解析與 tailnet 路由 → 直接可用。
-   - **Docker**：web 容器預設在 bridge 網路，**解析不到 ts.net 名稱**。給 `web` 服務
-     加 `extra_hosts` 把 MagicDNS 名稱指到本機 Tailscale IP（`tailscale ip -4` 取得）：
-     ```yaml
-     # docker-compose.yml 的 web 服務底下
-     web:
-       extra_hosts:
-         - "<主機>.<tailnet>.ts.net:100.x.x.x"   # 換成 tailscale ip -4
-     ```
-     （容器送往本機 100.x 的封包經 host 送達其上的 tailscale serve:443，憑證亦相符。）
-     只有個股 SSR 頁需要此項；總覽/選股/背離頁為前端抓取，無此需求。
+2. **SSR（總覽 / 個股頁）**：這些是 server-side 抓取，由執行前端的程序連後端：
+   - **Docker**：`docker-compose.yml` 的 web 服務已設 `API_BASE_INTERNAL: http://api:8000`，
+     SSR 走容器內網直連 `api`，**不需**繞 ts.net、也不需 `extra_hosts`。瀏覽器仍用
+     `NEXT_PUBLIC_API_BASE`（ts.net 名稱）。兩者由 `lib/api.ts` 自動分流。
+   - **systemd**：前端跑在主機上，SSR 直接連 `NEXT_PUBLIC_API_BASE`（主機有 MagicDNS
+     與 tailnet 路由）即可；如要更穩，也可設 `API_BASE_INTERNAL=http://127.0.0.1:8000`。
 3. **不想要 HTTPS 也行**：略過 tailscale serve，nginx 改聽 Tailscale 介面，直接連
    `http://<主機>.<tailnet>.ts.net`（WireGuard 已加密傳輸），`NEXT_PUBLIC_API_BASE`
    用 `http://...`。差別只是瀏覽器不顯示鎖頭。
@@ -131,5 +124,5 @@ curl -s https://<主機>.<tailnet>.ts.net/api/dashboard | head -c 200
 | `ERR_TIMED_OUT` | 開網頁那台**裝置沒連上 tailnet**。該裝置 `tailscale status` 要 online 且列有目標主機；或主機 `tailscale status` 顯示對方 `offline`。 |
 | `502 Bad Gateway` | `tailscale serve` 指向的 `127.0.0.1:8080` **沒人聽**（nginx 未起）。回步驟 3，`curl 127.0.0.1:8080/api/dashboard` 要 200；`sudo ss -tlnp \| grep 8080` 確認在聽。 |
 | 憑證錯誤 | admin console 的 **HTTPS Certificates** 未開，或 MagicDNS 未開。 |
-| 頁面出來但資料空/抓不到 | 前端 `NEXT_PUBLIC_API_BASE` 未設成 ts.net 名稱（步驟 5，需重 build web）。 |
-| 個股頁 500（Docker） | web 容器 SSR 解析不到 ts.net → 加 `extra_hosts`（見上重點 2）。 |
+| 頁面出來但資料空/抓不到（client 頁：選股/背離） | 瀏覽器用的 `NEXT_PUBLIC_API_BASE` 未設成 ts.net 名稱（步驟 5，需重 build web）。 |
+| 總覽/個股頁「無法連線後端 API」（SSR，Docker） | web 容器連不到後端。確認 compose web 有 `API_BASE_INTERNAL: http://api:8000` 後 `docker compose up -d --build web`。 |
