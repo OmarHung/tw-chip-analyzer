@@ -67,7 +67,10 @@ PY
 TDCC openapi 只給當週快照、無法回補，會隨排程逐週累積（≥2 週後才有 week-over-week
 變化）。逐筆 tick 同理，每交易日累積。
 
-## 5. 主機 nginx 同源代理 + TLS
+## 5. 對外存取：主機 nginx 同源代理 + TLS
+
+> **不用公開網域、改用 Tailscale 跳板？** 直接看 [tailscale.md](tailscale.md)（`tailscale serve`
+> 自動 HTTPS、免網域免 certbot），略過本節；`NEXT_PUBLIC_API_BASE` 改用 ts.net 名稱。
 
 `api`/`web` 只綁 `127.0.0.1:8000/3000`，對外靠主機 nginx：
 

@@ -17,13 +17,19 @@ tw_chip_analyzer 正式部署。架構為 nginx 同源反向代理，前端 Next
 | **Docker Compose** | [docker.md](docker.md) | 快速上手、環境隔離、少碰主機依賴（推薦） |
 | **裸機 systemd** | [systemd.md](systemd.md) | 不想用容器、貼近主機、無容器負擔 |
 
-兩者的對外 nginx 同源代理 + TLS（certbot）做法相同，各文件內都有對應步驟。
+兩者的對外 nginx 同源代理做法相同，各文件內都有對應步驟。
+
+**存取層**（如何連到服務）：
+- **公開網域 + TLS**：nginx + certbot（見 docker.md / systemd.md）。
+- **Tailscale 跳板（不需網域）**：[tailscale.md](tailscale.md)——`tailscale serve` 自動
+  配 `*.ts.net` HTTPS，免網域免 certbot，只有 tailnet 成員能連。
 
 ## 檔案清單
 
 | 檔案 | 用途 |
 |---|---|
 | `docker.md` / `systemd.md` | 兩種部署方式的完整步驟 |
+| `tailscale.md` | 用 Tailscale 存取（免網域，`tailscale serve` 自動 HTTPS） |
 | `env.example` | systemd 版 `.env` 範本（`DATABASE_URL` + Shioaji 金鑰） |
 | `docker/env.example` | Docker 版 `.env` 範本（`POSTGRES_PASSWORD` + 網域） |
 | `nginx/twchip.conf` | nginx 反向代理設定（兩種方式共用） |

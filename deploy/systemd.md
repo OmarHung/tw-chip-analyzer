@@ -111,6 +111,10 @@ sudo DOMAIN=chip.example.com APP_DIR=/home/twchip/tw_chip_analyzer SCHED=timer \
 
 ## 8. TLS 憑證
 
+> **不用公開網域、改用 Tailscale 跳板？** 看 [tailscale.md](tailscale.md)（`tailscale serve`
+> 自動 HTTPS、免網域免 certbot），略過本節與步驟 7 的 nginx 網域設定；`install.sh` 的
+> `DOMAIN` 可隨意填，之後照 tailscale.md 把 nginx 改綁 `127.0.0.1:8080`。
+
 ```bash
 sudo certbot --nginx -d 你的網域         # 自動加 443 區塊與轉址
 ```
