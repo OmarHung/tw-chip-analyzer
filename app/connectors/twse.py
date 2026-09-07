@@ -4,6 +4,7 @@
 - OHLCV：MI_INDEX（type=ALLBUT0999）
 - 三大法人：T86
 - 融資融券：MI_MARGN（selectType=STOCK）
+- 借券 SBL：TWT93U（信用額度總量管制餘額表，含融券段 + 借券段）
 """
 from __future__ import annotations
 
@@ -47,6 +48,16 @@ async def fetch_margin(date: dt.date) -> dict:
             client,
             f"{BASE}/rwd/zh/marginTrading/MI_MARGN",
             {"date": twse_date(date), "selectType": "STOCK", "response": "json"},
+        )
+
+
+async def fetch_sbl(date: dt.date) -> dict:
+    """TWT93U 信用額度總量管制餘額表（借券 SBL 每檔餘額/賣出/還券）。"""
+    async with httpx.AsyncClient(timeout=30) as client:
+        return await _get(
+            client,
+            f"{BASE}/rwd/zh/marginTrading/TWT93U",
+            {"date": twse_date(date), "response": "json"},
         )
 
 

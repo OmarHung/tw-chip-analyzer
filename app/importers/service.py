@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.chips import (
     InstitutionalDaily,
     MarginDaily,
+    SblDaily,
     TdccSummaryWeekly,
     TdccWeekly,
 )
@@ -45,6 +46,14 @@ async def import_margin(session: AsyncSession, raw: dict, data_date: dt.date) ->
     rows = twse.parse_margin(raw, data_date)
     await _ensure_stocks(session, {r["symbol"] for r in rows})
     n = await upsert_many(session, MarginDaily, rows, ["symbol", "data_date"])
+    await session.commit()
+    return n
+
+
+async def import_sbl(session: AsyncSession, raw: dict, data_date: dt.date) -> int:
+    rows = twse.parse_sbl(raw, data_date)
+    await _ensure_stocks(session, {r["symbol"] for r in rows})
+    n = await upsert_many(session, SblDaily, rows, ["symbol", "data_date"])
     await session.commit()
     return n
 

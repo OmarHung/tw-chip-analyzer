@@ -7,7 +7,7 @@ from pathlib import Path
 
 from sqlalchemy import func, select
 
-from app.db.models.chips import InstitutionalDaily, MarginDaily
+from app.db.models.chips import InstitutionalDaily, MarginDaily, SblDaily
 from app.db.models.market import DailyPrice, Stock
 from app.importers import twse
 from app.importers.base import is_stock_symbol, parse_float, parse_int
@@ -15,6 +15,7 @@ from app.importers.service import (
     import_institutional,
     import_margin,
     import_ohlcv,
+    import_sbl,
 )
 
 FIX = Path(__file__).parent / "fixtures"
@@ -67,6 +68,18 @@ class TestParsers:
         r = rows[0]
         assert set(r) >= {"margin_balance", "short_balance", "margin_buy", "short_sell"}
 
+    def test_sbl_positions_and_filter(self):
+        rows = twse.parse_sbl(_load("twse_twt93u.json"), D)
+        assert rows
+        # ETF/00 開頭代碼被過濾（fixture 含 00400A）
+        assert all(is_stock_symbol(r["symbol"]) for r in rows)
+        assert not any(r["symbol"] == "00400A" for r in rows)
+        # 借券段固定位置正確：2330 賣出 2,000 / 還券 38,000 / 餘額 15,994,514
+        r2330 = next(r for r in rows if r["symbol"] == "2330")
+        assert r2330["sbl_short_sell"] == 2_000
+        assert r2330["sbl_return"] == 38_000
+        assert r2330["sbl_balance"] == 15_994_514
+
 
 class TestImportToDB:
     async def test_import_ohlcv_and_children(self, db_session):
@@ -79,9 +92,11 @@ class TestImportToDB:
         # 法人與融資：即使主檔缺也會補 stub（FK 安全）
         ni = await import_institutional(db_session, _load("twse_t86.json"), D)
         nm = await import_margin(db_session, _load("twse_mi_margn.json"), D)
-        assert ni >= 1 and nm >= 1
+        ns = await import_sbl(db_session, _load("twse_twt93u.json"), D)
+        assert ni >= 1 and nm >= 1 and ns >= 1
         assert (await db_session.execute(select(func.count()).select_from(InstitutionalDaily))).scalar() == ni
         assert (await db_session.execute(select(func.count()).select_from(MarginDaily))).scalar() == nm
+        assert (await db_session.execute(select(func.count()).select_from(SblDaily))).scalar() == ns
 
     async def test_import_is_idempotent(self, db_session):
         await import_ohlcv(db_session, _load("twse_mi_index.json"), D)

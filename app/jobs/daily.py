@@ -19,6 +19,7 @@ from app.importers.service import (
     import_institutional,
     import_margin,
     import_ohlcv,
+    import_sbl,
     import_tdcc,
 )
 from app.services.feature_builder import build_features
@@ -76,9 +77,17 @@ async def run(
             n_price = await import_ohlcv(s, ohlcv, target)
             n_inst = await import_institutional(s, inst, target)
             n_margin = await import_margin(s, margin, target)
+        # 借券 SBL（TWT93U）：新資料源，失敗不影響核心匯入。
+        n_sbl = 0
+        try:
+            sbl = await twse_conn.fetch_sbl(target)
+            async with sm() as s:
+                n_sbl = await import_sbl(s, sbl, target)
+        except Exception as e:  # noqa: BLE001 — SBL 非必要，缺則後續中性
+            logger.warning("SBL 匯入失敗（TWT93U）：%s", e)
         logger.info(
-            "匯入完成：price=%d institutional=%d margin=%d",
-            n_price, n_inst, n_margin,
+            "匯入完成：price=%d institutional=%d margin=%d sbl=%d",
+            n_price, n_inst, n_margin, n_sbl,
         )
         if n_price == 0:
             logger.warning("當日無 OHLCV（可能非交易日），略過建特徵。")

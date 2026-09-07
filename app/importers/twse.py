@@ -3,8 +3,9 @@
 - OHLCV：MI_INDEX（type=ALLBUT0999）
 - 三大法人：T86
 - 融資融券：MI_MARGN（selectType=STOCK）
+- 借券 SBL：TWT93U（信用額度總量管制餘額表）
 
-欄位以標題名稱定位（避免順序變動）；MI_MARGN 因欄名重複改用固定位置。
+欄位以標題名稱定位（避免順序變動）；MI_MARGN / TWT93U 因欄名重複改用固定位置。
 """
 from __future__ import annotations
 
@@ -167,6 +168,34 @@ def parse_margin(raw: dict, data_date: dt.date) -> list[dict]:
                 "short_sell": parse_int(row[_M["short_sell"]]),
                 "short_cover": parse_int(row[_M["short_cover"]]),
                 "short_balance": parse_int(row[_M["short_balance"]]),
+            }
+        )
+    return out
+
+
+# TWT93U 信用額度總量管制餘額表：融券段(2-7) + 借券段(8-14)，欄名重複用固定位置。
+# 借券段：[9]當日賣出 [10]當日還券 [12]當日餘額。單位股數。
+_SBL = {"sym": 0, "sbl_short_sell": 9, "sbl_return": 10, "sbl_balance": 12}
+
+
+def parse_sbl(raw: dict, data_date: dt.date) -> list[dict]:
+    """TWT93U → 借券（SBL）每檔賣出/還券/餘額。資料為 flat（raw['data']）。"""
+    av = availability_for(data_date)
+    out: list[dict] = []
+    for row in raw.get("data", []):
+        if len(row) <= _SBL["sbl_balance"]:
+            continue
+        sym = str(row[_SBL["sym"]]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        out.append(
+            {
+                "symbol": sym,
+                "data_date": data_date,
+                "available_at": av,
+                "sbl_short_sell": parse_int(row[_SBL["sbl_short_sell"]]),
+                "sbl_return": parse_int(row[_SBL["sbl_return"]]),
+                "sbl_balance": parse_int(row[_SBL["sbl_balance"]]),
             }
         )
     return out
