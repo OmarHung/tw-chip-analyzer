@@ -122,3 +122,12 @@ docker compose run --rm api ./scripts/eod.sh 2026-09-04   # 手動觸發一次 E
 4. **資料持久化**：Postgres 在 named volume `pgdata`；`docker compose down` 保留、
    `down -v` 才會刪。務必定期 `pg_dump` 備份。
 5. **shioaji 平台**：僅 amd64 wheel，跨平台 build 記得 `DOCKER_DEFAULT_PLATFORM=linux/amd64`。
+
+## 疑難排解
+
+| 症狀 | 原因 / 解法 |
+|---|---|
+| `failed to resolve host 'xxx@db'` | `POSTGRES_PASSWORD` 含 URL 保留字元被塞進 URL。已改用 `PGPASSWORD`，`git pull` 後 `docker compose up -d` 即可。 |
+| `password authentication failed for user "twchip"` | **`pgdata` volume 是舊密碼**。`POSTGRES_PASSWORD` 只在 volume 首次初始化時生效；改密碼後舊 volume 不會更新。DB 尚無資料時：`docker compose down -v && docker compose up -d`（重建 volume）。**已有資料**則改用 `ALTER ROLE twchip PASSWORD '...'` 對齊，勿 `-v`。 |
+| api 一直 restart | 多半是上述 DB 連線問題。`docker compose logs api` 看 entrypoint 的 alembic 錯誤。 |
+| 改了 `.env` 密碼沒生效 | 同上，postgres 密碼綁在 volume；需 `down -v` 重建或 `ALTER ROLE`。 |
