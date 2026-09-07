@@ -55,6 +55,7 @@ const SOURCE_ZH: Record<string, string> = {
   institutional_daily: "法人 institutional",
   margin_daily: "融資券 margin",
   tdcc_summary_weekly: "集保 TDCC",
+  sbl_daily: "借券 SBL",
   market_daily: "大盤 market_daily",
   raw_tick: "逐筆 raw_tick",
 };

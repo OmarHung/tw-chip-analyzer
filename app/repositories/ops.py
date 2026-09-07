@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.chips import (
     InstitutionalDaily,
     MarginDaily,
+    SblDaily,
     TdccSummaryWeekly,
 )
 from app.db.models.features import FeatureDaily
@@ -48,6 +49,7 @@ async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
     inst = await _date_span(session, InstitutionalDaily.data_date)
     margin = await _date_span(session, MarginDaily.data_date)
     tdcc = await _date_span(session, TdccSummaryWeekly.data_date)
+    sbl = await _date_span(session, SblDaily.data_date)
     market = await _date_span(session, MarketDaily.data_date)
     tick = await _date_span(session, RawTick.data_date)
 
@@ -74,6 +76,7 @@ async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
             "institutional_daily": inst,
             "margin_daily": margin,
             "tdcc_summary_weekly": tdcc,
+            "sbl_daily": sbl,
             "market_daily": market,
             "raw_tick": tick,
         },
