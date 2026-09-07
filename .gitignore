@@ -1,5 +1,15 @@
-# Secrets
+# Secrets — 只保留 *.example 範本進版控
 .env
+.env.*
+!.env.example
+!deploy/**/*.example
+# 憑證/金鑰(如 Shioaji CA)一律不進版控
+*.pfx
+*.p12
+*.pem
+*.key
+*.crt
+*.cer
 
 # Python
 .venv/
