@@ -31,6 +31,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # 用固定公用 DNS 解析外部主機(TWSE/TDCC/Yahoo)。避免主機 resolv.conf 被
+    # Tailscale MagicDNS 接管後只答 *.ts.net、導致容器抓不到市場資料。
+    # (service 名如 db/api 仍由 Docker 內建解析器處理,不受影響。)
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       APP_ENV: prod
       # 密碼不塞進 URL(避免含 @ : / 等 URL 保留字元被誤解析);
