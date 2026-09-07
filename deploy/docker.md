@@ -75,6 +75,7 @@ TDCC openapi 只給當週快照、無法回補，會隨排程逐週累積（≥2
 `api`/`web` 只綁 `127.0.0.1:8000/3000`，對外靠主機 nginx：
 
 ```bash
+sudo apt update && sudo apt install -y nginx        # 若尚未安裝
 sudo cp deploy/nginx/twchip.conf /etc/nginx/sites-available/twchip
 sudo sed -i 's/__DOMAIN__/你的網域/g' /etc/nginx/sites-available/twchip
 sudo ln -sf /etc/nginx/sites-available/twchip /etc/nginx/sites-enabled/twchip

@@ -37,6 +37,7 @@ Tailscale admin console → **DNS** →
 沿用 `deploy/nginx/twchip.conf`，但改成聽 `127.0.0.1:8080`、`server_name _`：
 
 ```bash
+sudo apt update && sudo apt install -y nginx        # 若尚未安裝
 sudo sed -e 's/listen 80;/listen 127.0.0.1:8080;/' \
          -e 's/server_name __DOMAIN__;/server_name _;/' \
          deploy/nginx/twchip.conf | sudo tee /etc/nginx/sites-available/twchip
