@@ -63,16 +63,8 @@ chmod 600 .env
 ```bash
 APP_ENV=prod .venv/bin/alembic upgrade head
 
-# 5/20/60 日視窗與背離需歷史。補約 60+ 個交易日（依需要調整起訖）：
-for d in $(python - <<'PY'
-import datetime as dt
-d = dt.date(2026, 6, 1)
-while d <= dt.date.today():
-    if d.weekday() < 5:
-        print(d)
-    d += dt.timedelta(days=1)
-PY
-); do APP_ENV=prod ./scripts/eod.sh "$d"; done
+# 5/20/60 日視窗與背離需歷史。用 backfill.sh 補過去 N 天(約 64 交易日),冪等:
+PY=.venv/bin/python APP_ENV=prod ./scripts/backfill.sh 90
 ```
 
 TDCC openapi 只提供當週快照、無法回補，會隨排程逐週累積（≥2 週後才有 week-over-week

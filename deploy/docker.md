@@ -50,19 +50,17 @@ docker compose logs -f api            # 看啟動與 EOD 日誌
 
 ## 4. 灌初始歷史
 
-5/20/60 日視窗與背離需要歷史，補約 60+ 個交易日：
+5/20/60 日視窗與背離需要歷史，補約 60+ 個交易日。用 `scripts/backfill.sh`（對過去 N
+天內的每個平日跑一次 EOD，冪等）：
 
 ```bash
-for d in $(python3 - <<'PY'
-import datetime as dt
-d = dt.date(2026, 6, 1)
-while d <= dt.date.today():
-    if d.weekday() < 5:
-        print(d)
-    d += dt.timedelta(days=1)
-PY
-); do docker compose run --rm api ./scripts/eod.sh "$d"; done
+# 建議在 tmux 內跑(會跑一陣子;斷線也不中斷)
+tmux new -s backfill
+docker compose exec api ./scripts/backfill.sh 90     # 往前 90 天(約 64 交易日)
+# Ctrl-b 再按 d 離開;tmux attach -t backfill 回來看進度
 ```
+
+> 用 `exec`（進已在跑的 api 容器）比 `run --rm`（每天開新容器、還重跑一次 alembic）快很多。
 
 TDCC openapi 只給當週快照、無法回補，會隨排程逐週累積（≥2 週後才有 week-over-week
 變化）。逐筆 tick 同理，每交易日累積。
