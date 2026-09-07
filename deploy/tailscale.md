@@ -34,24 +34,49 @@ Tailscale admin console → **DNS** →
 
 ## 3. nginx 只綁 localhost（給 tailscale serve 接）
 
-沿用 `deploy/nginx/twchip.conf`，但改成聽 `127.0.0.1:8080`、`server_name _`：
+nginx 聽 `127.0.0.1:8080`、同源路由 `/`→web、`/api/`→api。以下設定自足（不依賴
+repo 內的 `nginx/twchip.conf`，可直接貼）：
 
 ```bash
-sudo apt update && sudo apt install -y nginx        # 若尚未安裝
-sudo sed -e 's/listen 80;/listen 127.0.0.1:8080;/' \
-         -e 's/server_name __DOMAIN__;/server_name _;/' \
-         deploy/nginx/twchip.conf | sudo tee /etc/nginx/sites-available/twchip
+sudo apt update && sudo apt install -y nginx
+sudo tee /etc/nginx/sites-available/twchip >/dev/null <<'NGINX'
+server {
+    listen 127.0.0.1:8080;
+    server_name _;
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_read_timeout 120s;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+NGINX
 sudo ln -sf /etc/nginx/sites-available/twchip /etc/nginx/sites-enabled/twchip
+sudo rm -f /etc/nginx/sites-enabled/default          # 移除預設站,避免佔用
 sudo nginx -t && sudo systemctl reload nginx
+
+# ★ 驗證 8080 已在聽、能打到 api（tailscale serve 之前必過這關）：
+curl -s -o /dev/null -w 'nginx %{http_code}\n' http://127.0.0.1:8080/api/dashboard
 ```
 
 （api/web 一樣綁 `127.0.0.1:8000/3000`；Docker 與 systemd 版皆同。）
 
+> ⚠️ 上面 `curl` 沒回 200／連不上，就**先別做步驟 4**——`tailscale serve` 指向沒人聽的
+> 8080 會讓瀏覽器拿到 502。先確認這關通過。
+
 ## 4. tailscale serve 前置 HTTPS
+
+前提：步驟 3 的 `curl http://127.0.0.1:8080/...` 已回 200（nginx 在聽）。
 
 ```bash
 sudo tailscale serve --bg 8080        # https://<主機>.<tailnet>.ts.net → 127.0.0.1:8080
-tailscale serve status                # 確認對應關係
+tailscale serve status                # 確認對應關係(/ → http://127.0.0.1:8080)
 ```
 
 ## 5. 設定 NEXT_PUBLIC_API_BASE = MagicDNS 名稱，重建前端
@@ -95,3 +120,16 @@ curl -s https://<主機>.<tailnet>.ts.net/api/dashboard | head -c 200
    用 `http://...`。差別只是瀏覽器不顯示鎖頭。
 4. **對外**：本方案完全不對公網開埠；只有 tailnet 成員能連。若哪天要對公網，才需
    網域 + certbot（見 docker.md / systemd.md 的 nginx+TLS 步驟）或 `tailscale funnel`。
+5. **不需開防火牆 inbound**：流量走 WireGuard 隧道，不經公網 TCP 443/80。只需
+   Tailscale 對外連得出去（UDP 41641，退回 DERP 走 outbound 443）。有 ufw 可
+   `sudo ufw allow in on tailscale0` 保險，勿對公網開 443。
+
+## 疑難排解
+
+| 症狀（開 `https://<主機>.ts.net`） | 原因 / 解法 |
+|---|---|
+| `ERR_TIMED_OUT` | 開網頁那台**裝置沒連上 tailnet**。該裝置 `tailscale status` 要 online 且列有目標主機；或主機 `tailscale status` 顯示對方 `offline`。 |
+| `502 Bad Gateway` | `tailscale serve` 指向的 `127.0.0.1:8080` **沒人聽**（nginx 未起）。回步驟 3，`curl 127.0.0.1:8080/api/dashboard` 要 200；`sudo ss -tlnp \| grep 8080` 確認在聽。 |
+| 憑證錯誤 | admin console 的 **HTTPS Certificates** 未開，或 MagicDNS 未開。 |
+| 頁面出來但資料空/抓不到 | 前端 `NEXT_PUBLIC_API_BASE` 未設成 ts.net 名稱（步驟 5，需重 build web）。 |
+| 個股頁 500（Docker） | web 容器 SSR 解析不到 ts.net → 加 `extra_hosts`（見上重點 2）。 |
