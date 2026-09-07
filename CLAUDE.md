@@ -30,13 +30,16 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 
 ## 現況
 
-已完成 docs/01–06 全部（骨架、演算法、評分、決策、API、Backtest）、docs/05 §16 Next.js UI，可吃真實台股盤後資料端到端運作。真實資料涵蓋 OHLCV + institutional + margin（TWSE）+ TDCC 股權分散 + TAIEX 大盤 regime；四大分項中 institutional / holder / market 為真實資料。已對 2026-09-04 全市場（~1080 檔）驗證分層正常。intraday 分項已可併入全市場 composite（有逐筆的標的走四維，無者三維排除）。
+已完成 docs/01–06 全部（骨架、演算法、評分、決策、API、Backtest）、docs/05 §16 Next.js UI，可吃真實台股盤後資料端到端運作。真實資料涵蓋 OHLCV + institutional + margin（**TWSE + TPEx 上櫃**）+ **SBL 借券（TWT93U）** + TDCC 股權分散 + TAIEX 大盤 regime。intraday 分項可併入 composite（有逐筆走四維，無者三維排除）。UI 有 總覽/選股/主力背離/驗證(/validation 前瞻報告)/系統(/system 配額·涵蓋·回補) 五頁。
+
+**chip_score 已改橫斷面百分位映射（2026-09-08，重大行為變更）**：`scoring.mapping: percentile`（config 可切回 linear）。分數 = 當日全市場 composite_raw 排名百分位（0~100 均勻分布），修復「z 合成回歸 50、天花板 ~64、高分 bucket 永無樣本」的結構缺陷；rank-preserving 不改 IC。**語意**：75 分 = 當日前 25%，BUY 門檻從「幾乎不可達」變「常態可達」（Entry Filter 其餘關卡仍在）。四呼叫點（scanner/dashboard/persist/單股 analysis）共用 `analysis.analyze_market` 兩段式；單股 `/analysis` 會載入當日全市場一起算。
 
 **已知限制 / 待辦（會影響決策，讀不出來的部分）**：
-- **BUY(75) 仍偏難達，且補齊 intraday 未使其更易達**：intraday 6 個成分已全數接線（absorption / trade_speed / price_efficiency 於 2026-09-06 由當日 tick 算出橫斷面 z，見 `orderflow_intraday._bar_absorption/_bar_trade_speed` 與 `orderflow/price_efficiency.py`）。**經驗發現**：補齊後 2026-09-04 全市場最高 chip_score 由 73.7 **降至 71.0**——新三成分對當時頂部標的偏中性/偏弱，反而稀釋，故「補齊 intraday 能更易出 BUY」的原假設不成立。要更易出 BUY 只剩於 config 調降 `signal.buy_score`——屬校準取捨，勿擅自更動。intraday 是否真有 alpha 仍待累積多日 tick 後回測驗證。
-- **TDCC holder 為橫斷面 level proxy**：openapi 僅當週快照，無法算 week-over-week change，暫以當週集中度橫斷面 Z-score 代替；累積 ≥2 週後改真實 change。`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
-- **industry_trend 仍中性**：OHLCV importer 未帶產業別。
-- 尚未做：SBL importer、TPEx connector、真實 TDCC change、產業別/趨勢、Shioaji realtime、走勢圖時序 API、intraday 併入 backtest 驗證單調性（需先累積多日 tick）。
+- **§28 成功標準仍未達成**：乾淨重算後各 horizon IC 全 ≈0（bucket 平坦）。歷次因子挖掘結論=病根是「單一 5 個月 regime 樣本」，非程式；勿再於現有資料挖因子（詳見 memory chip-score-backtest-finding）。累積跨 regime 資料後用 `/validation` 頁與 `scripts/score_monotonicity.py` 重驗。
+- **SBL 特徵已接線但權重刻意為 0**：`sbl_change_z` 已入 feature_daily，config `weights.institutional.sbl_change: 0.0`（原設計 -0.10）——紀律：未經 OOS 驗證不進分數；待借券累積 ≥2 個月跑 `scripts/sbl_factor_oos.py` 驗證後再啟用。融券 short_change 同理維持原 config，勿依 in-sample 調整。
+- **TDCC holder：視窗內 ≥2 週快照自動切真實 change**（feature_builder），1 週時 level proxy；`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
+- **industry_trend 仍中性**：importer 未帶產業別。
+- 尚未做：TPEx 的 SBL、產業別/趨勢、Shioaji realtime、intraday 併入 backtest 驗證單調性（需累積多日 tick；Shioaji simulation 配額僅 500MB，backfill 逐筆會燒穿，逐筆只靠每日 EOD 累積）。
 
 ## 頂層地圖
 
@@ -47,14 +50,14 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 - `app/services/orderflow/`：aggressor / cvd / large_trade / obi / absorption / trade_speed（純函式）
 - `app/services/chip/`：intraday / institutional / holder / market 分項 + `composite.py`（config 驅動權重 + 缺成分重分配）
 - `app/services/decision/`：`risk` / `entry` / `exit` + `decide()`
-- `app/services/`：`feature_builder.py`（原始表→`feature_daily`，兩段正規化，look-ahead 只用 `data_date<=target`）、`market_score.py`、`normalize.py`、`analysis.py`、`market_scan.py`、`orderflow_intraday.py`、`ticks.py`
-- `app/api/`：`stocks`（`/analysis`、`/chart`、`/ticks`、`/orderflow`）、`scanner`、`dashboard`；CORS 允許任意 localhost 埠（見 `main.py`）
+- `app/services/`：`feature_builder.py`（原始表→`feature_daily`，兩段正規化，look-ahead 只用 `data_date<=target`）、`market_score.py`、`normalize.py`（含 `cross_sectional_percentile`）、`analysis.py`（含 `analyze_market` 橫斷面兩段式）、`market_scan.py`、`flow_scan.py`、`forward_report.py`（前瞻驗證）、`orderflow_intraday.py`、`ticks.py`、`signal_persist.py`
+- `app/api/`：`stocks`（`/analysis`、`/chart`、`/ticks`、`/orderflow`、`/flows`）、`scanner`（含 `/divergence`）、`dashboard`、`ops`（`/status`、`/backfill`）、`validation`（`/forward`）；CORS 允許任意 localhost 埠（見 `main.py`）
 - `app/backtest/`：`costs`（禁 0 成本）、`forward_returns`、`metrics`、`engine`（look-ahead 安全）、`runner`
-- `app/connectors/`：`twse` / `tdcc` / `yahoo`（圖表用）/ `shioaji_market`（逐筆 ticks，`simulation=True` 單例；金鑰無 production 權限但模擬可取真實行情）
-- `app/importers/`：TWSE/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
-- `app/jobs/`：`daily.py`（抓取→匯入→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）
+- `app/connectors/`：`twse`（含 SBL TWT93U）/ `tpex`（上櫃；憑證缺 SKI，關 strict X509）/ `tdcc` / `yahoo`（圖表用）/ `shioaji_market`（逐筆 ticks，`simulation=True` 單例；金鑰無 production 權限但模擬可取真實行情）
+- `app/importers/`：TWSE/TPEx/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
+- `app/jobs/`：`daily.py`（抓取→匯入 TWSE+TPEx+SBL→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）、`scheduler.py`（APScheduler EOD）、`runner.py`（手動回補，與 EOD 共用單飛鎖）
 - `frontend/`：Next.js 16 + TS + Tailwind v4。設計約束見下節。UI 規格見 `docs/05-api-ui.md §16`。
-- `tests/`：88 passed。`tests/fixtures/` 有 TWSE 真實回應切片供 parser 測試不打網路。
+- `tests/`：126 passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
 
 **逐筆特別注意**：Shioaji tick ts 為 ns，以 UTC 解讀即台北牆鐘（用 `utcfromtimestamp`）。批次逐筆要先跑 `import_ticks` 再跑 `daily --skip-import`，intraday z 才會進 `feature_daily`。
 
