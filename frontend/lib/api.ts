@@ -249,6 +249,7 @@ export interface DivergenceScanRow {
   inst_net: number; // 區間三大法人淨買超（張）
   cost_state: CostState;
   premium_pct: number | null;
+  mom_pct: number | null; // 60 日動能橫斷面百分位（研究訊號，未計入分數）
 }
 
 export interface DivergenceScanResponse {

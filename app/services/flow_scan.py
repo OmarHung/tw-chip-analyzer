@@ -33,6 +33,7 @@ class DivergenceScanRow:
     inst_net: float  # 區間三大法人淨買超（張）
     cost_state: str
     premium_pct: float | None  # 現價 vs 主力估算成本
+    mom_pct: float | None = None  # 60 日動能橫斷面百分位(0~100);研究訊號(60 日反轉),不計入分數
 
 
 _LABELS = {
@@ -151,5 +152,16 @@ async def scan_divergence(
                 premium_pct=cb.premium_pct,
             )
         )
+    # 60 日動能(= price_return)橫斷面百分位:低=跌深(反彈候選)、高=漲多(回落候選)。
+    # 研究訊號,對應 mom_60d 的 OOS 檢驗(單一 regime,未計入 Chip Score)。
+    import bisect
+
+    prs = sorted(r.price_return for r in rows if r.price_return is not None)
+    if prs:
+        for r in rows:
+            if r.price_return is not None:
+                k = bisect.bisect_right(prs, r.price_return)
+                r.mom_pct = round(k / len(prs) * 100, 1)
+
     _cache[latest] = rows
     return latest, rows

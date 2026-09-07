@@ -67,6 +67,7 @@ class DivergenceRow(BaseModel):
     inst_net: float
     cost_state: str
     premium_pct: float | None
+    mom_pct: float | None = None
 
 
 class DivergenceScanResponse(BaseModel):

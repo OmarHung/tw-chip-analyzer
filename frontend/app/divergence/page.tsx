@@ -46,6 +46,13 @@ function fmtLots(v: number): string {
   return `${s}${Math.round(v).toLocaleString("zh-TW")} 張`;
 }
 
+/* 60 日動能百分位 → 反轉標籤（跌深偏反彈 / 漲多偏回落）；研究訊號，中間段不標。 */
+function momTag(pct: number): string {
+  if (pct <= 25) return "跌深";
+  if (pct >= 75) return "漲多";
+  return "";
+}
+
 export default function DivergencePage() {
   const [side, setSide] = useState<Side>("bullish_div");
   const [rows, setRows] = useState<DivergenceScanRow[]>([]);
@@ -91,6 +98,10 @@ export default function DivergencePage() {
         量價背離＝股價與主力（三大法人）方向分歧。回測顯示 60 日正/負背離對未來報酬
         有方向正確的區辨力（正背離偏強、負背離偏弱），但樣本僅約半年、非單調，
         <span className="text-ink">尚未達可單獨交易門檻——請作為多訊號交叉驗證之一。</span>
+        <br />
+        「60日動能」為同族研究訊號（60 日反轉：跌深者偏反彈、漲多者偏回落，OOS 檢驗
+        方向不翻但屬單一 regime）。<span className="text-ink">兩者皆未計入 Chip Score，僅供人工交叉判讀。</span>
+        最強 setup：正背離（主力吸貨）× 跌深（低動能百分位）。
       </div>
 
       {/* 切換 */}
@@ -125,6 +136,7 @@ export default function DivergencePage() {
                 <Th right>漲跌</Th>
                 <Th right>佔量比</Th>
                 <Th right hideSm>{win}日區間</Th>
+                <Th right hideSm>60日動能</Th>
                 <Th right hideSm>主力淨買超</Th>
                 <Th right>主力成本</Th>
                 <Th right hideSm>成交額</Th>
@@ -170,6 +182,20 @@ export default function DivergencePage() {
                       {fmtPct(r.price_return)}
                     </span>
                   </Td>
+                  <Td right mono hideSm>
+                    {r.mom_pct == null ? (
+                      <span className="text-ink-faint">—</span>
+                    ) : (
+                      <span className="text-ink-dim">
+                        {r.mom_pct.toFixed(0)}
+                        {momTag(r.mom_pct) && (
+                          <span className="ml-1 text-[10px] text-gold">
+                            {momTag(r.mom_pct)}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </Td>
                   <Td right mono dim hideSm>
                     {fmtLots(r.inst_net)}
                   </Td>
@@ -192,7 +218,7 @@ export default function DivergencePage() {
               ))}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-ink-faint">
+                  <td colSpan={9} className="py-12 text-center text-ink-faint">
                     目前無{active.label}標的
                   </td>
                 </tr>
