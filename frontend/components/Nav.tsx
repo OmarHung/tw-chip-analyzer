@@ -7,6 +7,7 @@ const NAV = [
   { href: "/", label: "總覽" },
   { href: "/scanner", label: "選股" },
   { href: "/divergence", label: "主力背離" },
+  { href: "/system", label: "系統" },
 ];
 
 export function Nav() {

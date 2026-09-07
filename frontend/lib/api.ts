@@ -258,10 +258,93 @@ export interface DivergenceScanResponse {
   rows: DivergenceScanRow[];
 }
 
+export interface OpsQuota {
+  available: boolean;
+  bytes: number | null;
+  limit_bytes: number | null;
+  used_pct: number | null;
+  cached_age_sec: number | null;
+}
+
+export interface OpsDateSpan {
+  days: number;
+  min: string | null;
+  max: string | null;
+}
+
+export interface OpsTickDay {
+  date: string;
+  symbols: number;
+  ticks: number;
+}
+
+export interface OpsCoverage {
+  sources: Record<string, OpsDateSpan>;
+  row_counts: Record<string, number>;
+  tick_by_date: OpsTickDay[];
+}
+
+export interface OpsSchedule {
+  enabled: boolean;
+  running: boolean;
+  timezone: string;
+  eod: { day_of_week: string; hour: number; minute: number };
+  next_run: string | null;
+}
+
+export interface OpsJob {
+  state: "idle" | "running" | "done" | "error";
+  kind: string | null;
+  mode: string | null;
+  target: string | null;
+  step: string | null;
+  progress: { done: number; total: number; [k: string]: number } | null;
+  started_at: string | null;
+  finished_at: string | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export interface OpsStatusResponse {
+  quota: OpsQuota;
+  coverage: OpsCoverage;
+  schedule: OpsSchedule;
+  job: OpsJob;
+}
+
+export interface BackfillRequest {
+  kind: "single" | "range";
+  date?: string;
+  mode?: "eod" | "ticks";
+  start?: string;
+  end?: string;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`API ${path} 失敗：${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    // 後端以 {detail} 回錯誤訊息(FastAPI HTTPException)
+    let detail = `${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.detail) detail = j.detail;
+    } catch {
+      /* 忽略非 JSON 錯誤體 */
+    }
+    throw new Error(detail);
   }
   return res.json() as Promise<T>;
 }
@@ -298,4 +381,7 @@ export const api = {
       `/api/scanner/divergence${qs ? `?${qs}` : ""}`,
     );
   },
+  opsStatus: () => get<OpsStatusResponse>("/api/ops/status"),
+  backfill: (body: BackfillRequest) =>
+    post<OpsStatusResponse>("/api/ops/backfill", body),
 };

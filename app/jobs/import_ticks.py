@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
+from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +43,16 @@ async def _target_symbols(
     return [sym for sym, _ in (await session.execute(stmt)).all()]
 
 
-async def run(target: dt.date, max_symbols: int | None = None) -> None:
+async def run(
+    target: dt.date,
+    max_symbols: int | None = None,
+    on_progress: "Callable[[dict], None] | None" = None,
+) -> dict:
+    """批次逐筆匯入;回傳摘要 dict(供 UI 顯示)。
+
+    on_progress:每 25 檔回呼一次進度 {done,total,fetched,failed,usage_pct},供背景
+    任務即時更新狀態(選用,不傳則僅寫 log)。
+    """
     cfg = get_thresholds().intraday_batch
     min_turnover = float(cfg.get("min_turnover", 0))
     max_symbols = max_symbols or int(cfg.get("max_symbols", 200))
@@ -54,7 +64,8 @@ async def run(target: dt.date, max_symbols: int | None = None) -> None:
         symbols = await _target_symbols(session, target, min_turnover, max_symbols)
     if not symbols:
         logger.warning("當日無符合條件標的（date=%s min_turnover=%s）", target, min_turnover)
-        return
+        return {"target": 0, "done": 0, "fetched": 0, "failed": 0,
+                "skipped": 0, "stopped": False, "usage_pct": None}
     logger.info(
         "批次逐筆匯入 %s：目標 %d 檔（turnover>=%s，上限 %d）",
         target, len(symbols), min_turnover, max_symbols,
@@ -66,6 +77,7 @@ async def run(target: dt.date, max_symbols: int | None = None) -> None:
 
     done = fetched = failed = 0
     stopped = False
+    last_pct: float | None = None
     async with sm() as session:
         for i, sym in enumerate(symbols):
             try:
@@ -80,11 +92,17 @@ async def run(target: dt.date, max_symbols: int | None = None) -> None:
             if (i + 1) % 25 == 0:
                 u = usage_sync()
                 pct = u["used_pct"] if u else None
+                last_pct = pct if pct is not None else last_pct
                 logger.info(
                     "進度 %d/%d（fetched=%d failed=%d）用量=%s",
                     i + 1, len(symbols), fetched, failed,
                     f"{pct:.1f}%" if pct is not None else "n/a",
                 )
+                if on_progress is not None:
+                    on_progress({
+                        "done": i + 1, "total": len(symbols),
+                        "fetched": fetched, "failed": failed, "usage_pct": pct,
+                    })
                 if pct is not None and pct >= stop_pct:
                     logger.warning("Shioaji 用量達 %.1f%% >= %s%%，停止批次。", pct, stop_pct)
                     stopped = True
@@ -98,6 +116,9 @@ async def run(target: dt.date, max_symbols: int | None = None) -> None:
         "批次完成%s：處理=%d 有逐筆=%d 失敗=%d 略過=%d（目標 %d）",
         "（提前停止）" if stopped else "", done, fetched, failed, skipped, len(symbols),
     )
+    return {"target": len(symbols), "done": done, "fetched": fetched,
+            "failed": failed, "skipped": skipped, "stopped": stopped,
+            "usage_pct": last_pct}
 
 
 def main() -> None:

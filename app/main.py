@@ -53,12 +53,14 @@ def create_app() -> FastAPI:
         return {"status": "ok", "env": get_settings().app_env}
 
     from app.api.dashboard import router as dashboard_router
+    from app.api.ops import router as ops_router
     from app.api.scanner import router as scanner_router
     from app.api.stocks import router as stocks_router
 
     app.include_router(stocks_router)
     app.include_router(scanner_router)
     app.include_router(dashboard_router)
+    app.include_router(ops_router)
 
     return app
 

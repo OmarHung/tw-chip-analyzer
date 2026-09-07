@@ -30,22 +30,42 @@ logger = get_logger("jobs.scheduler")
 
 
 async def run_eod(target: dt.date | None = None) -> None:
-    """單次 EOD 流程;非交易日 daily 偵測無 OHLCV 會自動空跑。"""
+    """單次 EOD 流程;非交易日 daily 偵測無 OHLCV 會自動空跑。
+
+    與手動回補共用忙碌旗標(runner):若回補進行中則跳過本次 EOD,避免打架。
+    """
+    from app.jobs import runner
+
     target = target or dt.date.today()
+    if not runner.try_mark("scheduled_eod", "eod", str(target)):
+        logger.warning("已有回補/工作進行中,跳過本次 EOD %s", target)
+        return
     logger.info("EOD 開始 %s", target)
-    # 1) 行情 + 法人 + 融資 + 當週 TDCC + TAIEX + 特徵(暫不落地,待步驟 3 一次算四維)
-    await daily.run(
-        target, do_import=True, do_features=True, do_signals=False,
-        do_tdcc=True, do_index=True,
-    )
-    # 2) 逐筆(Shioaji simulation);失敗/無資料不中斷整體
     try:
-        await import_ticks.run(target)
-    except Exception as e:  # noqa: BLE001 — 逐筆非必要,intraday 缺則中性
-        logger.warning("import_ticks 失敗,intraday 將為中性:%s", e)
-    # 3) 重建特徵(有逐筆則含 intraday z)+ composite 分數落地
-    await daily.run(target, do_import=False, do_features=True, do_signals=True)
-    logger.info("EOD 完成 %s", target)
+        # 1) 行情 + 法人 + 融資 + 當週 TDCC + TAIEX + 特徵(暫不落地,待步驟 3 一次算四維)
+        runner._state["step"] = f"{target}:匯入 + 特徵"
+        await daily.run(
+            target, do_import=True, do_features=True, do_signals=False,
+            do_tdcc=True, do_index=True,
+        )
+        # 2) 逐筆(Shioaji simulation);失敗/無資料不中斷整體
+        runner._state["step"] = f"{target}:逐筆匯入"
+        try:
+            await import_ticks.run(
+                target, on_progress=lambda p: runner._state.update(progress=p)
+            )
+        except Exception as e:  # noqa: BLE001 — 逐筆非必要,intraday 缺則中性
+            logger.warning("import_ticks 失敗,intraday 將為中性:%s", e)
+        # 3) 重建特徵(有逐筆則含 intraday z)+ composite 分數落地
+        runner._state["step"] = f"{target}:重建特徵 + 落地"
+        runner._state["progress"] = None
+        await daily.run(target, do_import=False, do_features=True, do_signals=True)
+        runner._state["result"] = {"date": str(target), "mode": "scheduled_eod"}
+        runner.finish(ok=True)
+        logger.info("EOD 完成 %s", target)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("EOD 失敗 %s", target)
+        runner.finish(ok=False, error=str(e))
 
 
 def _build_scheduler() -> AsyncIOScheduler:
@@ -102,6 +122,32 @@ def shutdown_scheduler() -> None:
         _scheduler.shutdown(wait=False)
         logger.info("排程器已停止")
     _scheduler = None
+
+
+def scheduler_status() -> dict:
+    """回傳排程現況(供 /api/ops/status 顯示):enabled、時區、EOD 觸發、下次執行。
+
+    排程時間一律讀 config(鐵則 4);next_run 需排程器已 start 才算得出。
+    """
+    sch = get_thresholds().schedule
+    eod = sch.get("eod", {})
+    running = bool(_scheduler and _scheduler.running)
+    next_run = None
+    if running:
+        job = _scheduler.get_job("eod")
+        if job is not None and job.next_run_time is not None:
+            next_run = job.next_run_time.isoformat()
+    return {
+        "enabled": sch.get("enabled", True),
+        "running": running,
+        "timezone": sch.get("timezone", "Asia/Taipei"),
+        "eod": {
+            "day_of_week": eod.get("day_of_week", "mon-fri"),
+            "hour": eod.get("hour", 14),
+            "minute": eod.get("minute", 30),
+        },
+        "next_run": next_run,
+    }
 
 
 async def _serve() -> None:
