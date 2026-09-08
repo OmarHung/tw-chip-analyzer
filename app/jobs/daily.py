@@ -18,6 +18,7 @@ from app.db.session import get_sessionmaker
 from app.importers.service import (
     import_capital_reduction,
     import_capital_reduction_forecast,
+    import_company_profiles,
     import_ex_dividend,
     import_ex_rights_forecast,
     import_index,
@@ -28,6 +29,7 @@ from app.importers.service import (
     import_sbl,
     import_tdcc,
     import_tpex_capital_reduction,
+    import_tpex_company_profiles,
     import_tpex_ex_dividend,
     import_tpex_institutional,
     import_tpex_margin,
@@ -124,6 +126,21 @@ async def run(
                     n_ca += await imp(s, raw_ca)
             except Exception as e:  # noqa: BLE001 — 公司行動非必要，缺則該類無還原
                 logger.warning("公司行動匯入失敗（%s）：%s", label, e)
+        # 公司基本資料（產業別 → industry_trend 分組、已發行股數）：靜態資料，
+        # 每日刷新一次即可；失敗只代表產業別維持前值。
+        n_prof = 0
+        for label, fetch, imp in (
+            ("上市基本資料 t187ap03_L", twse_conn.fetch_company_profiles,
+             import_company_profiles),
+            ("上櫃基本資料 mopsfin_t187ap03_O", tpex_conn.fetch_company_profiles,
+             import_tpex_company_profiles),
+        ):
+            try:
+                raw_p = await fetch()
+                async with sm() as s:
+                    n_prof += await imp(s, raw_p)
+            except Exception as e:  # noqa: BLE001 — 缺則產業別維持前值
+                logger.warning("公司基本資料匯入失敗（%s）：%s", label, e)
         # TPEx 上櫃（行情/法人/融資券）：失敗不影響 TWSE 核心匯入。
         n_tpx = n_tpx_inst = n_tpx_margin = 0
         try:
@@ -138,8 +155,9 @@ async def run(
             logger.warning("TPEx 匯入失敗：%s", e)
         logger.info(
             "匯入完成：price=%d institutional=%d margin=%d sbl=%d ca=%d "
-            "tpex=%d/%d/%d",
-            n_price, n_inst, n_margin, n_sbl, n_ca, n_tpx, n_tpx_inst, n_tpx_margin,
+            "profile=%d tpex=%d/%d/%d",
+            n_price, n_inst, n_margin, n_sbl, n_ca, n_prof,
+            n_tpx, n_tpx_inst, n_tpx_margin,
         )
         if n_price + n_tpx == 0:
             logger.warning("當日無 OHLCV（可能非交易日），略過建特徵。")

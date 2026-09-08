@@ -73,6 +73,11 @@ class AnalysisService:
     ) -> ChipScoreResult:
         """只算 Chip Score(不做決策)。供橫斷面兩段式流程先收集 composite_raw。"""
         market = market or MarketContext()
+        # 產業趨勢是逐檔的（依所屬產業），大盤 regime 才是全市場共用；無值則維持中性。
+        if fd.industry_trend_score is not None:
+            market = replace(
+                market, industry_trend_score=float(fd.industry_trend_score)
+            )
         # 有當日逐筆的標的 → 四維（含 intraday）；無者維持排除、權重重分配給其餘
         # 成分（OECD 複合指標標準做法，見 docs/03 §10 補充）。
         has_intraday = fd.cvd_z is not None or fd.large_trade_delta_z is not None

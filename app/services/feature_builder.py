@@ -23,14 +23,16 @@ from app.db.models.chips import (
 )
 from app.db.models.features import FeatureDaily
 from app.db.models.intraday import RawTick
-from app.db.models.market import DailyPrice
+from app.db.models.market import DailyPrice, Stock
 from app.importers.base import availability_for
 from app.repositories.corporate_actions import load_factors
 from app.repositories.upsert import upsert_many
 from app.services.orderflow_intraday import compute_orderflow
+from app.services.normalize import squash_z
 from app.services.price_adjust import back_adjust
 
 LOTS_TO_SHARES = 1000  # 融資融券單位為張
+_MIN_INDUSTRY_MEMBERS = 5  # 產業成分股門檻：不足者不給趨勢分（樣本太少不成趨勢）
 
 
 def _tick_epoch(ts: dt.datetime) -> int:
@@ -170,6 +172,13 @@ def _price_features(
     vwap = (last_turn / last_vol) if last_vol and last_vol > 0 else last_close
     swing_low = low.tail(10).min()
     avg_vol20 = adj_vol.tail(20).mean()
+    # 近 5 日報酬（後復權價，故跨除權息連續）→ 產業趨勢用
+    base5 = close.iloc[-6] if len(close) >= 6 else close.iloc[0]
+    ret5 = (
+        float((last_close - base5) / base5)
+        if np.isfinite(base5) and base5 > 0 and len(close) >= 2
+        else None
+    )
     prev_close = close.iloc[-2] if len(close) >= 2 else None
     change_pct = (
         float((last_close - prev_close) / prev_close)
@@ -188,6 +197,7 @@ def _price_features(
         "close_vs_ma20_pct": float((last_close - ma20) / ma20) if ma20 else None,
         "close_vs_vwap_pct": float((last_close - vwap) / vwap) if vwap else None,
         "_avg_vol20": float(avg_vol20) if np.isfinite(avg_vol20) and avg_vol20 > 0 else None,
+        "_ret5": ret5,
     }
 
 
@@ -201,6 +211,46 @@ def _balance_change_5d(g: pd.DataFrame, col: str) -> float | None:
         return None
     lookback = s.iloc[-6] if len(s) >= 6 else s.iloc[0]
     return float(s.iloc[-1] - lookback)
+
+
+async def _industry_trend(
+    session: AsyncSession, pf: dict[str, dict]
+) -> dict[str, float]:
+    """各股所屬產業的趨勢分數（-1..1）。
+
+    產業分數 = 成分股近 5 日報酬的**中位數**（中位數避開單一大漲股拉抬整個產業），
+    再對「產業」做橫斷面 z + squash → -1..1，最後展開回個股。成分股不足
+    `_MIN_INDUSTRY_MEMBERS` 的產業不給分（樣本太少不成趨勢），該股維持 NULL 中性。
+
+    產業別取自 `stock.industry`（中文名稱，上市/上櫃同名同組）。importer 尚未帶
+    產業別的個股（或 ETF/下市 stub）自然落在 NULL，不參與。
+    """
+    rets = {s: f["_ret5"] for s, f in pf.items() if f.get("_ret5") is not None}
+    if not rets:
+        return {}
+    rows = (
+        await session.execute(
+            select(Stock.symbol, Stock.industry).where(
+                Stock.symbol.in_(list(rets)), Stock.industry.is_not(None)
+            )
+        )
+    ).all()
+    members: dict[str, list[str]] = {}
+    for sym, ind in rows:
+        members.setdefault(ind, []).append(sym)
+
+    ind_score = {
+        ind: float(np.median([rets[s] for s in syms]))
+        for ind, syms in members.items()
+        if len(syms) >= _MIN_INDUSTRY_MEMBERS
+    }
+    z = _zscore_map(ind_score)
+    return {
+        sym: squash_z(z[ind])
+        for ind, syms in members.items()
+        if ind in z
+        for sym in syms
+    }
 
 
 async def build_features(session: AsyncSession, target: dt.date) -> int:
@@ -330,6 +380,8 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     z_retail_holder = _zscore_map(retail_conc)
     z_holder_cnt = _zscore_map(holder_cnt_chg)
 
+    industry_trend = await _industry_trend(session, pf)
+
     # 盤中 order flow 橫斷面 z（僅當日有逐筆的標的；其餘維持 NULL）
     intraday = await _intraday_signals(session, target)
 
@@ -350,6 +402,8 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
                 "margin_balance_change_z": z_margin.get(sym, 0.0),
                 "short_balance_change_z": z_short.get(sym, 0.0),
                 "sbl_change_z": z_sbl.get(sym, 0.0),
+                # 產業趨勢：無產業別/成分股不足 → NULL（market_score 視為中性）
+                "industry_trend_score": industry_trend.get(sym),
                 # TDCC:>=2 週快照時為真實 week-over-week change,否則 level proxy
                 "large_holder_ratio_change_z": z_large_holder.get(sym, 0.0),
                 "retail_holder_ratio_change_z": z_retail_holder.get(sym, 0.0),

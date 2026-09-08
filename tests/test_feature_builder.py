@@ -94,3 +94,49 @@ async def test_lookahead_only_uses_past(db_session):
     # target 當日 close 不應等於未來的 999
     assert a.data_date == TARGET
     assert float(a.close) != 999
+
+
+async def _seed_industries(session):
+    """兩個產業各 6 檔：半導體整體走強、航運整體走弱（超過成分股門檻 5）。"""
+    groups = {"半導體": 0.008, "航運": -0.006}
+    for ind, drift in groups.items():
+        for k in range(6):
+            sym = f"{'S' if ind == '半導體' else 'M'}{k:02d}"
+            session.add(Stock(symbol=sym, name=sym, market="TWSE", industry=ind))
+    await session.flush()
+    for ind, drift in groups.items():
+        for k in range(6):
+            sym = f"{'S' if ind == '半導體' else 'M'}{k:02d}"
+            px = 100.0
+            for i in range(25):
+                d = TARGET - dt.timedelta(days=24 - i)
+                px *= 1 + drift
+                session.add(
+                    DailyPrice(
+                        symbol=sym, data_date=d, available_at=availability_for(d),
+                        open=px, high=px * 1.01, low=px * 0.99, close=px,
+                        volume=1_000_000, turnover=px * 1_000_000,
+                    )
+                )
+    await session.commit()
+
+
+async def test_industry_trend_ranks_strong_industry_higher(db_session):
+    await _seed_industries(db_session)
+    await build_features(db_session, TARGET)
+    repo = FeatureDailyRepository(db_session)
+    s = await repo.get_latest("S00")  # 半導體（走強）
+    m = await repo.get_latest("M00")  # 航運（走弱）
+    assert s.industry_trend_score is not None and m.industry_trend_score is not None
+    assert s.industry_trend_score > m.industry_trend_score
+    assert -1.0 <= m.industry_trend_score < 0 < s.industry_trend_score <= 1.0
+    # 同產業成分股共用同一分數
+    assert s.industry_trend_score == (await repo.get_latest("S01")).industry_trend_score
+
+
+async def test_industry_trend_null_when_too_few_members(db_session):
+    """成分股不足門檻（每產業各 1 檔）→ 不給分，維持中性 NULL。"""
+    await _seed_history(db_session)
+    await build_features(db_session, TARGET)
+    a = await FeatureDailyRepository(db_session).get_latest("AAA")
+    assert a.industry_trend_score is None

@@ -143,3 +143,17 @@ async def fetch_index_month(date: dt.date) -> dict:
             f"{BASE}/rwd/zh/afterTrading/FMTQIK",
             {"date": twse_date(date), "response": "json"},
         )
+
+
+async def fetch_company_profiles() -> list[dict]:
+    """上市公司基本資料（openapi t187ap03_L）：產業別代碼 + 已發行普通股數。
+
+    與盤後報表不同，這是 MOPS 的公司靜態資料（每日出表、無日期參數），回 JSON 陣列。
+    產業別為 MOPS 代碼（"24"=半導體…），與 TPEx 同一套編碼。
+    """
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.get(
+            "https://openapi.twse.com.tw/v1/opendata/t187ap03_L", headers=_HEADERS
+        )
+        r.raise_for_status()
+        return r.json()

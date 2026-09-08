@@ -101,3 +101,17 @@ async def fetch_margin(date: dt.date) -> dict:
         f"{BASE}/margin/balance",
         {"date": roc_date(date), "response": "json"},
     )
+
+
+async def fetch_company_profiles() -> list[dict]:
+    """上櫃公司基本資料（openapi mopsfin_t187ap03_O）：產業別代碼 + 已發行普通股數。
+
+    欄位名為英文（SecuritiesCompanyCode / SecuritiesIndustryCode / IssueShares），
+    產業別代碼與 TWSE 同一套 MOPS 編碼。
+    """
+    async with httpx.AsyncClient(timeout=60, verify=_ssl_ctx) as client:
+        r = await client.get(
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O", headers=_HEADERS
+        )
+        r.raise_for_status()
+        return r.json()

@@ -50,6 +50,10 @@ class FeatureDaily(Base, AvailabilityMixin, TimestampMixin):
     short_balance_change_z: Mapped[float | None] = mapped_column()
     sbl_change_z: Mapped[float | None] = mapped_column()
 
+    # 產業趨勢（-1..1）：所屬產業成分股近 5 日報酬中位數，跨產業橫斷面 z 後 squash。
+    # 產業別來自 stock.industry（MOPS 基本資料）；無產業別/樣本不足者為 NULL（中性）。
+    industry_trend_score: Mapped[float | None] = mapped_column()
+
     # TDCC（週資料，前向填補到日）
     large_holder_ratio_change_z: Mapped[float | None] = mapped_column()
     retail_holder_ratio_change_z: Mapped[float | None] = mapped_column()

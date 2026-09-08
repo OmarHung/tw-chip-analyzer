@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.chips import (
@@ -13,6 +14,7 @@ from app.db.models.chips import (
     TdccWeekly,
 )
 from app.db.models.market import CorporateAction, DailyPrice, MarketIndex, Stock
+from app.importers import industry as industry_parse
 from app.importers import tdcc, tpex, twse
 from app.repositories.upsert import upsert_ignore, upsert_many
 
@@ -21,6 +23,38 @@ async def _ensure_stocks(session: AsyncSession, symbols: set[str]) -> None:
     """為子表 FK 補上缺少的 Stock stub（name 暫用 symbol，不覆蓋既有）。"""
     stubs = [{"symbol": s, "name": s, "market": "TWSE"} for s in symbols]
     await upsert_ignore(session, Stock, stubs, ["symbol"])
+
+
+async def _import_profiles(session: AsyncSession, rows: list[dict]) -> int:
+    """把產業別/已發行股數寫回 stock 主檔。
+
+    只更新**既有**個股（主檔由行情建立，含 name/market），不因基本資料表多出的
+    未上市/已下市代號而新增列；`upsert_ignore` 先補 stub 反而會造出無行情的殼，故
+    這裡走 UPDATE。產業別以中文名稱存，跨市場同名即同組（供 industry_trend 分組）。
+    """
+    n = 0
+    for r in rows:
+        res = await session.execute(
+            update(Stock)
+            .where(Stock.symbol == r["symbol"])
+            .values(
+                industry=r["industry"],
+                shares_outstanding=r["shares_outstanding"],
+            )
+        )
+        n += res.rowcount or 0
+    await session.commit()
+    return n
+
+
+async def import_company_profiles(session: AsyncSession, raw: list[dict]) -> int:
+    """上市公司基本資料（t187ap03_L）→ stock.industry / shares_outstanding。"""
+    return await _import_profiles(session, industry_parse.parse_twse_profiles(raw))
+
+
+async def import_tpex_company_profiles(session: AsyncSession, raw: list[dict]) -> int:
+    """上櫃公司基本資料（mopsfin_t187ap03_O）→ stock.industry / shares_outstanding。"""
+    return await _import_profiles(session, industry_parse.parse_tpex_profiles(raw))
 
 
 async def import_ohlcv(session: AsyncSession, raw: dict, data_date: dt.date) -> int:
