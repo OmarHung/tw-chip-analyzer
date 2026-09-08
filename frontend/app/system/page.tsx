@@ -103,15 +103,20 @@ export default function SystemPage() {
   }, [data, bfDate]);
 
   const running = data?.job.state === "running";
+  // 涵蓋在後端背景計算中(首次快取未就緒);就緒前持續輪詢補上真實資料。
+  const coverageLoading = data?.coverage.loading === true;
 
-  // 執行中每 3s 輪詢(靜默,不觸發整頁 loading)
+  // 執行中 / 涵蓋計算中,每 2~3s 輪詢(靜默,不觸發整頁 loading)
   useEffect(() => {
-    if (!running) return;
-    const id = setInterval(() => {
-      api.opsStatus().then(setData).catch(() => {});
-    }, 3000);
+    if (!running && !coverageLoading) return;
+    const id = setInterval(
+      () => {
+        api.opsStatus().then(setData).catch(() => {});
+      },
+      running ? 3000 : 2000,
+    );
     return () => clearInterval(id);
-  }, [running]);
+  }, [running, coverageLoading]);
 
   const q = data?.quota;
   const tone = quotaTone(q?.used_pct ?? null);

@@ -9,13 +9,12 @@ import asyncio
 import datetime as dt
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_thresholds
 from app.core.logging import get_logger
-from app.db.session import get_session
+from app.db.session import get_sessionmaker
 from app.jobs import runner
 from app.jobs.scheduler import scheduler_status
 from app.repositories.ops import load_coverage
@@ -32,6 +31,24 @@ _QUOTA_TTL = 60.0
 _quota_cache: dict | None = None
 _quota_at: float = 0.0
 _QUOTA_TIMEOUT = 8.0  # 連線/登入逾時,避免拖垮頁面
+
+# 資料涵蓋 TTL 快取(秒)+ 背景單飛刷新。
+#
+# load_coverage 對已達千萬列的 raw_tick 做全表聚合(count/group by),單次可達數十秒,
+# 且整段佔用一條 DB 連線。若放在請求路徑上,前端每幾秒輪詢 /status 就會疊加多條慢查,
+# 把連線池(預設 5+10)吃光 → 連 EOD/回補都拿不到連線而 QueuePool timeout(實際事故)。
+# 對策:重查詢一律在背景用獨立 session 執行、同時只跑一個(單飛),結果快取;請求當下
+# 只回快取(首次未就緒回結構完整的空骨架),請求路徑不阻塞、不佔用連線。
+_COVERAGE_TTL = 120.0
+_coverage_cache: dict | None = None
+_coverage_at: float = 0.0
+_coverage_refreshing = False
+
+# raw_tick span 以外的資料源鍵(供空骨架維持與前端一致的結構)。
+_COVERAGE_SOURCE_KEYS = (
+    "feature_daily", "daily_price", "institutional_daily", "margin_daily",
+    "tdcc_summary_weekly", "sbl_daily", "market_daily", "raw_tick",
+)
 
 
 class Quota(BaseModel):
@@ -85,13 +102,48 @@ async def _get_quota() -> Quota:
     return Quota(**_quota_cache, cached_age_sec=0)
 
 
+def _empty_coverage() -> dict:
+    """結構完整的空涵蓋(首次快取未就緒時回傳,避免前端因缺欄位崩潰)。"""
+    span = {"days": 0, "min": None, "max": None}
+    return {
+        "sources": {k: dict(span) for k in _COVERAGE_SOURCE_KEYS},
+        "row_counts": {"raw_tick": 0, "feature_daily": 0, "daily_price": 0},
+        "tick_by_date": [],
+        "loading": True,
+    }
+
+
+async def _refresh_coverage() -> None:
+    """背景刷新涵蓋快取:獨立 session、跑完才更新;失敗只記 log 不影響請求。"""
+    global _coverage_cache, _coverage_at, _coverage_refreshing
+    try:
+        async with get_sessionmaker()() as session:
+            cov = await load_coverage(session)
+        cov["loading"] = False
+        _coverage_cache = cov
+        _coverage_at = time.monotonic()
+    except Exception as e:  # noqa: BLE001 — 涵蓋刷新失敗不應中斷狀態頁
+        logger.warning("資料涵蓋刷新失敗:%s", e)
+    finally:
+        _coverage_refreshing = False
+
+
+def _coverage_snapshot() -> dict:
+    """回傳快取涵蓋;過期或尚無則在背景單飛刷新,當下回傳現有快取或空骨架。"""
+    global _coverage_refreshing
+    now = time.monotonic()
+    stale = _coverage_cache is None or (now - _coverage_at) >= _COVERAGE_TTL
+    if stale and not _coverage_refreshing:
+        _coverage_refreshing = True
+        asyncio.create_task(_refresh_coverage())
+    return _coverage_cache or _empty_coverage()
+
+
 @router.get("/status", response_model=OpsStatus)
-async def status(session: AsyncSession = Depends(get_session)) -> OpsStatus:
-    quota = await _get_quota()
-    coverage = await load_coverage(session)
+async def status() -> OpsStatus:
     return OpsStatus(
-        quota=quota,
-        coverage=coverage,
+        quota=await _get_quota(),
+        coverage=_coverage_snapshot(),
         schedule=scheduler_status(),
         job=runner.job_state(),
     )
@@ -107,9 +159,7 @@ def _parse_date(s: str | None, label: str) -> dt.date:
 
 
 @router.post("/backfill", response_model=OpsStatus)
-async def backfill(
-    req: BackfillRequest, session: AsyncSession = Depends(get_session)
-) -> OpsStatus:
+async def backfill(req: BackfillRequest) -> OpsStatus:
     """觸發回補(背景執行)。單日可選完整 EOD / 只逐筆;區間只補日線/法人。"""
     if runner.is_busy():
         raise HTTPException(status_code=409, detail="已有回補/EOD 工作進行中,請稍候")
@@ -151,7 +201,7 @@ async def backfill(
 
     return OpsStatus(
         quota=await _get_quota(),
-        coverage=await load_coverage(session),
+        coverage=_coverage_snapshot(),
         schedule=scheduler_status(),
         job=runner.job_state(),
     )

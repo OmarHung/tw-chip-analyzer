@@ -283,6 +283,8 @@ export interface OpsCoverage {
   sources: Record<string, OpsDateSpan>;
   row_counts: Record<string, number>;
   tick_by_date: OpsTickDay[];
+  // 後端首次快取尚未就緒時為 true(涵蓋在背景計算中);就緒後為 false/undefined。
+  loading?: boolean;
 }
 
 export interface OpsSchedule {
