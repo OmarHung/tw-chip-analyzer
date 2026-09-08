@@ -59,6 +59,14 @@ def parse_roc_date(s: str) -> dt.date | None:
         return None
 
 
+def parse_roc_compact_date(s: str) -> dt.date | None:
+    """民國緊湊日期 '1150309' → date(2026, 3, 9)（TPEx bulletin 恢復買賣日期用）。"""
+    t = str(s).strip()
+    if len(t) != 7 or not t.isdigit():
+        return None
+    return parse_roc_date(f"{t[:3]}/{t[3:5]}/{t[5:]}")
+
+
 def parse_roc_cjk_date(s: str) -> dt.date | None:
     """民國日期（含年月日字元）'115年09月09日' → date(2026, 9, 9)。"""
     return parse_roc_date(

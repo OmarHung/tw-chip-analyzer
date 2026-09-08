@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from app.importers.base import (
     availability_for,
@@ -18,6 +19,8 @@ from app.importers.base import (
     is_stock_symbol,
     parse_float,
     parse_int,
+    parse_roc_compact_date,
+    parse_roc_date,
 )
 
 
@@ -137,6 +140,126 @@ def parse_margin(raw: dict, data_date: dt.date) -> list[dict]:
                 "short_sell": parse_int(row[i_ssell]),
                 "short_cover": parse_int(row[i_scover]),
                 "short_balance": parse_int(row[i_sbal]),
+            }
+        )
+    return out
+
+
+# --- 公司行動（bulletin/*）：與 TWSE 共用 CorporateAction，輸出形狀一致 ---
+
+# TPEx 的「權/息」用中文全稱，正規化成與 TWSE 一致的 權/息/權息。
+_EX_KIND = {"除權": "權", "除息": "息", "除權息": "權息"}
+
+# 詳細資料是 HTML 表格；換股率／換發股數只存在其中，比 1/adj_factor 精確
+# （現金減資有「每股退還股款」，1/adj_factor 會偏差，見 revivt 的璟德）。
+_PAR_RATIO_RE = re.compile(r"變更股票面額換股率[:：]\s*</th>\s*<td>\s*([0-9.]+)")
+_REDUCE_SHARES_RE = re.compile(r"每壹仟股換發新股票[:：]\s*</th>\s*<td>\s*([0-9.]+)")
+
+
+def parse_ex_dividend(raw: dict) -> list[dict]:
+    """exDailyQ 除權除息計算結果表 → CorporateAction。
+
+    adj_factor = 除權息參考價 / 除權息前收盤價；
+    share_factor = 1 + 每仟股無償配股/1000（同表即有，故 TPEx 的量因子歷史可回補，
+    不像 TWSE 需依賴只回未來的 TWT48U 預告表）。
+    """
+    table = _first_table(raw)
+    if table is None:
+        return []
+    f = table["fields"]
+    i_date = col_index(f, "除權息日期")
+    i_sym = col_index(f, "代號")
+    i_prev = col_index(f, "除權息前收盤價")
+    i_ref = col_index(f, "除權息參考價")
+    i_val = col_index(f, "權值+息值")
+    i_kind = col_index(f, "權/息")
+    i_stk = col_index(f, "每仟股無償配股")
+    if i_date is None or i_sym is None:
+        return []
+
+    out: list[dict] = []
+    for row in table.get("data", []):
+        sym = str(row[i_sym]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        d = parse_roc_date(row[i_date])
+        if d is None:
+            continue
+        prev = parse_float(row[i_prev]) if i_prev is not None else None
+        ref = parse_float(row[i_ref]) if i_ref is not None else None
+        adj = ref / prev if prev and prev > 0 and ref is not None else None
+        stk = parse_float(row[i_stk]) if i_stk is not None else None
+        share = 1 + stk / 1000 if stk is not None else None
+        out.append(
+            {
+                "symbol": sym,
+                "data_date": d,
+                "available_at": availability_for(d),
+                "kind": _EX_KIND.get(str(row[i_kind]).strip(), str(row[i_kind]).strip())
+                if i_kind is not None
+                else "",
+                "prev_close": prev,
+                "reference_price": ref,
+                "value": parse_float(row[i_val]) if i_val is not None else None,
+                "adj_factor": round(adj, 8) if adj is not None else None,
+                "share_factor": round(share, 8) if share is not None else None,
+            }
+        )
+    return out
+
+
+def parse_resume_reference(raw: dict, kind: str) -> list[dict]:
+    """pvChgRslt（面額變更）/ revivt（減資）→ CorporateAction。
+
+    兩表同構：恢復買賣日期（民國緊湊 1150309）、代號、最後交易日之收盤價格、參考價。
+    share_factor 取自「詳細資料」的換股率／每壹仟股換發新股票（精確）；取不到才退回
+    1/adj_factor（純股數變動時等價，現金減資會有偏差故僅作後備）。
+    """
+    table = _first_table(raw)
+    if table is None:
+        return []
+    f = table["fields"]
+    i_date = col_index(f, "恢復買賣日期")
+    i_sym = col_index(f, "證券代號", "股票代號")
+    i_prev = col_index(f, "最後交易日之收盤價格")
+    i_ref = col_index(f, "恢復買賣開始參考價", "減資恢復買賣開始日參考價格")
+    i_detail = col_index(f, "詳細資料")
+    if i_date is None or i_sym is None:
+        return []
+
+    out: list[dict] = []
+    for row in table.get("data", []):
+        sym = str(row[i_sym]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        d = parse_roc_compact_date(row[i_date])
+        if d is None:
+            continue
+        prev = parse_float(row[i_prev]) if i_prev is not None else None
+        ref = parse_float(row[i_ref]) if i_ref is not None else None
+        adj = ref / prev if prev and prev > 0 and ref is not None else None
+
+        share: float | None = None
+        detail = str(row[i_detail]) if i_detail is not None else ""
+        if m := _PAR_RATIO_RE.search(detail):          # 面額變更：1 舊股→N 新股
+            share = parse_float(m.group(1))
+        elif m := _REDUCE_SHARES_RE.search(detail):    # 減資：每仟股換發 N 股
+            v = parse_float(m.group(1))
+            share = v / 1000 if v is not None else None
+        if share is None and adj:                      # 後備：純股數變動時等價
+            share = 1 / adj
+
+        out.append(
+            {
+                "symbol": sym,
+                "data_date": d,
+                "available_at": availability_for(d),
+                "kind": kind,
+                "prev_close": prev,
+                "reference_price": ref,
+                "value": None,
+                "adj_factor": round(adj, 8) if adj is not None else None,
+                "share_factor": round(share, 8) if share is not None else None,
             }
         )
     return out

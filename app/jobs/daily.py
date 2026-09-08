@@ -26,9 +26,12 @@ from app.importers.service import (
     import_par_change,
     import_sbl,
     import_tdcc,
+    import_tpex_capital_reduction,
+    import_tpex_ex_dividend,
     import_tpex_institutional,
     import_tpex_margin,
     import_tpex_ohlcv,
+    import_tpex_par_change,
 )
 from app.services.feature_builder import build_features
 from app.services.market_score import build_market_daily
@@ -93,8 +96,9 @@ async def run(
                 n_sbl = await import_sbl(s, sbl, target)
         except Exception as e:  # noqa: BLE001 — SBL 非必要，缺則後續中性
             logger.warning("SBL 匯入失敗（TWT93U）：%s", e)
-        # 公司行動還原因子：除權息(TWT49U) + 面額變更/拆股(TWTB8U) + 減資(TWTAUU)，
-        # 外加預告表(TWT48U)補配股率→量還原因子（預告表只回未來，只能每日累積）。
+        # 公司行動還原因子：TWSE 除權息(TWT49U)+面額變更(TWTB8U)+減資(TWTAUU)+預告表
+        # (TWT48U 補配股率→量因子,只回未來)；TPEx 除權息(exDailyQ,同表即有配股率)
+        # +面額變更(pvChgRslt)+減資(revivt)。
         # 各自 fail-soft，缺則該日該類無還原。
         n_ca = 0
         for label, fetch, imp in (
@@ -103,6 +107,12 @@ async def run(
             ("減資 TWTAUU", twse_conn.fetch_capital_reduction, import_capital_reduction),
             ("除權息預告 TWT48U", twse_conn.fetch_ex_rights_forecast,
              import_ex_rights_forecast),
+            ("TPEx 除權息 exDailyQ", tpex_conn.fetch_ex_dividend,
+             import_tpex_ex_dividend),
+            ("TPEx 面額變更 pvChgRslt", tpex_conn.fetch_par_change,
+             import_tpex_par_change),
+            ("TPEx 減資 revivt", tpex_conn.fetch_capital_reduction,
+             import_tpex_capital_reduction),
         ):
             try:
                 raw_ca = await fetch(target)

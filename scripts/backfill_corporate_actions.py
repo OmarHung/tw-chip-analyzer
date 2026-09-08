@@ -20,6 +20,7 @@ import argparse
 import asyncio
 import datetime as dt
 
+from app.connectors import tpex as tpex_conn
 from app.connectors import twse as twse_conn
 from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
@@ -28,6 +29,9 @@ from app.importers.service import (
     import_ex_dividend,
     import_ex_rights_forecast,
     import_par_change,
+    import_tpex_capital_reduction,
+    import_tpex_ex_dividend,
+    import_tpex_par_change,
 )
 
 logger = get_logger("scripts.backfill_ca")
@@ -37,6 +41,9 @@ _SOURCES = (
     ("除權息", twse_conn.fetch_ex_dividend, import_ex_dividend),
     ("面額變更", twse_conn.fetch_par_change, import_par_change),
     ("減資", twse_conn.fetch_capital_reduction, import_capital_reduction),
+    ("TPEx 除權息", tpex_conn.fetch_ex_dividend, import_tpex_ex_dividend),
+    ("TPEx 面額變更", tpex_conn.fetch_par_change, import_tpex_par_change),
+    ("TPEx 減資", tpex_conn.fetch_capital_reduction, import_tpex_capital_reduction),
 )
 
 

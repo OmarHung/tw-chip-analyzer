@@ -126,6 +126,25 @@ async def import_capital_reduction(session: AsyncSession, raw: dict) -> int:
     )
 
 
+async def import_tpex_ex_dividend(session: AsyncSession, raw: dict) -> int:
+    """TPEx 除權除息（exDailyQ）→ CorporateAction（含 share_factor,歷史可回補）。"""
+    return await _import_corporate_actions(session, tpex.parse_ex_dividend(raw))
+
+
+async def import_tpex_par_change(session: AsyncSession, raw: dict) -> int:
+    """TPEx 面額變更（pvChgRslt）→ CorporateAction。"""
+    return await _import_corporate_actions(
+        session, tpex.parse_resume_reference(raw, "面額")
+    )
+
+
+async def import_tpex_capital_reduction(session: AsyncSession, raw: dict) -> int:
+    """TPEx 減資（revivt）→ CorporateAction。"""
+    return await _import_corporate_actions(
+        session, tpex.parse_resume_reference(raw, "減資")
+    )
+
+
 async def import_index(session: AsyncSession, raw: dict) -> int:
     """匯入一個月的 TAIEX 日線（FMTQIK）。"""
     rows = twse.parse_index(raw)

@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 
 from app.db.models.chips import InstitutionalDaily, MarginDaily, SblDaily
 from app.db.models.market import CorporateAction, DailyPrice, Stock
-from app.importers import twse
+from app.importers import tpex, twse
 from app.importers.base import (
     is_stock_symbol,
     parse_float,
@@ -264,3 +264,60 @@ class TestTpexParsers:
         assert n == 3 and ni == 3 and nm == 3
         s = await db_session.get(Stock, "8069")
         assert s is not None and s.market == "TPEx"
+
+
+class TestTpexCorporateActions:
+    """TPEx 公司行動 parser(fixtures 為真實回應切片)。"""
+
+    def test_ex_dividend_kind_and_factors(self):
+        rows = tpex.parse_ex_dividend(_load("tpex_exdailyq.json"))
+        assert all(is_stock_symbol(r["symbol"]) for r in rows)
+        by = {r["symbol"]: r for r in rows}
+        # 除權息 1815 富喬:前收 135.00 → 參考 128.10;每仟股無償配股 50.00171092
+        r = by["1815"]
+        assert r["kind"] == "權息" and r["data_date"] == dt.date(2026, 9, 9)
+        assert abs(r["adj_factor"] - 128.10 / 135.00) < 1e-8
+        assert abs(r["share_factor"] - 1.05000171) < 1e-8
+        # 中文全稱正規化成與 TWSE 一致的 權/息
+        assert by["4160"]["kind"] == "權" and by["6163"]["kind"] == "息"
+        # 純除息不改股數 → share_factor 恰為 1.0(load_factors 會略過,不調量)
+        assert by["6163"]["share_factor"] == 1.0
+
+    def test_par_change_uses_swap_ratio(self):
+        rows = tpex.parse_resume_reference(_load("tpex_pvchgrslt.json"), "面額")
+        by = {r["symbol"]: r for r in rows}
+        # 3086 華義:325.00 → 32.50,面額換股率 10 → 價 ×0.1、量 ×10
+        r = by["3086"]
+        assert r["kind"] == "面額" and r["data_date"] == dt.date(2026, 4, 20)
+        assert abs(r["adj_factor"] - 0.1) < 1e-8
+        assert abs(r["share_factor"] - 10.0) < 1e-8
+
+    def test_capital_reduction_cash_case_beats_inverse_adj(self):
+        """現金減資:share_factor 必須取自「每壹仟股換發新股票」,不能用 1/adj_factor。"""
+        rows = tpex.parse_resume_reference(_load("tpex_revivt.json"), "減資")
+        by = {r["symbol"]: r for r in rows}
+        # 8093 保銳(彌補虧損,無退還股款):換發 600/1000 → 兩者一致
+        assert abs(by["8093"]["share_factor"] - 0.6) < 1e-8
+        # 3152 璟德(現金減資,每股退還 4.3468 元):真實換發率 0.56531945,
+        # 1/adj_factor 會得到 0.5774 → 差 2%,證明必須讀詳細資料
+        r = by["3152"]
+        assert abs(r["share_factor"] - 0.56531945) < 1e-8
+        assert abs(1 / r["adj_factor"] - 0.56531945) > 0.01
+
+    async def test_import_tpex_actions_to_db(self, db_session):
+        from app.importers.service import (
+            import_tpex_capital_reduction,
+            import_tpex_ex_dividend,
+            import_tpex_par_change,
+        )
+
+        n1 = await import_tpex_ex_dividend(db_session, _load("tpex_exdailyq.json"))
+        n2 = await import_tpex_par_change(db_session, _load("tpex_pvchgrslt.json"))
+        n3 = await import_tpex_capital_reduction(db_session, _load("tpex_revivt.json"))
+        assert n1 == 3 and n2 == 5 and n3 == 2
+        kinds = {
+            r.symbol: r.kind
+            for r in (await db_session.execute(select(CorporateAction))).scalars().all()
+        }
+        assert kinds["1815"] == "權息" and kinds["3086"] == "面額"
+        assert kinds["3152"] == "減資"
