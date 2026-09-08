@@ -297,6 +297,9 @@ export interface OpsDateSpan {
   days: number;
   min: string | null;
   max: string | null;
+  // 相對交易日曆(daily_price)缺幾日;非日頻資料源(TDCC/公司行動/逐筆)為 undefined。
+  missing?: number;
+  missing_recent?: string[];
 }
 
 export interface OpsTickDay {
@@ -307,6 +310,8 @@ export interface OpsTickDay {
 
 export interface OpsCoverage {
   sources: Record<string, OpsDateSpan>;
+  // 缺口比對的基準交易日曆(= daily_price 有資料的日)。
+  calendar?: OpsDateSpan;
   row_counts: Record<string, number>;
   tick_by_date: OpsTickDay[];
   // 後端首次快取尚未就緒時為 true(涵蓋在背景計算中);就緒後為 false/undefined。

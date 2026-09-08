@@ -107,6 +107,7 @@ def _empty_coverage() -> dict:
     span = {"days": 0, "min": None, "max": None}
     return {
         "sources": {k: dict(span) for k in _COVERAGE_SOURCE_KEYS},
+        "calendar": dict(span),
         "row_counts": {"raw_tick": 0, "feature_daily": 0, "daily_price": 0},
         "tick_by_date": [],
         "loading": True,

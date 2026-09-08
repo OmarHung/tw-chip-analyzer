@@ -36,6 +36,35 @@ async def _date_span(session: AsyncSession, col) -> dict:
     }
 
 
+async def _dates(session: AsyncSession, col) -> list[dt.date]:
+    """某資料表出現過的 data_date 清單(升冪),供缺口比對。"""
+    rows = (await session.execute(select(col).distinct().order_by(col))).scalars().all()
+    return [d for d in rows if d is not None]
+
+
+def _span_of(dates: list[dt.date]) -> dict:
+    return {
+        "days": len(dates),
+        "min": str(dates[0]) if dates else None,
+        "max": str(dates[-1]) if dates else None,
+    }
+
+
+def _with_gaps(dates: list[dt.date], calendar: list[dt.date]) -> dict:
+    """相對交易日曆(以 daily_price 為準)算缺口:缺幾日 + 最近幾個缺漏日。
+
+    日曆本身也可能不完整(整條鏈都沒補的那天不會出現在任何表),故這裡答的是
+    「相對已知交易日還缺幾日」,不是「相對台股官方行事曆」。
+    """
+    have = set(dates)
+    missing = [d for d in calendar if d not in have]
+    return {
+        **_span_of(dates),
+        "missing": len(missing),
+        "missing_recent": [str(d) for d in missing[-8:]],
+    }
+
+
 async def _row_count(session: AsyncSession, model) -> int:
     return int(
         (await session.execute(select(func.count()).select_from(model))).scalar() or 0
@@ -44,13 +73,27 @@ async def _row_count(session: AsyncSession, model) -> int:
 
 async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
     """彙總各資料源涵蓋度 + 近 tick_days 天逐筆的每日檔數/筆數。"""
-    feature = await _date_span(session, FeatureDaily.data_date)
-    price = await _date_span(session, DailyPrice.data_date)
-    inst = await _date_span(session, InstitutionalDaily.data_date)
-    margin = await _date_span(session, MarginDaily.data_date)
+    # 日頻資料源:撈出實際有資料的日期,才能與交易日曆比對缺口。
+    price_d = await _dates(session, DailyPrice.data_date)
+    feature_d = await _dates(session, FeatureDaily.data_date)
+    inst_d = await _dates(session, InstitutionalDaily.data_date)
+    margin_d = await _dates(session, MarginDaily.data_date)
+    sbl_d = await _dates(session, SblDaily.data_date)
+    market_d = await _dates(session, MarketDaily.data_date)
+
+    # 交易日曆基準:日線有資料的日 = 已知交易日。日線為空則退回大盤。
+    calendar = price_d or market_d
+
+    price = _with_gaps(price_d, calendar)
+    feature = _with_gaps(feature_d, calendar)
+    inst = _with_gaps(inst_d, calendar)
+    margin = _with_gaps(margin_d, calendar)
+    sbl = _with_gaps(sbl_d, calendar)
+    market = _with_gaps(market_d, calendar)
+
+    # 非日頻/非全覆蓋:週度(TDCC)、事件表(公司行動)、受配額限制(逐筆),
+    # 對它們算「每個交易日都該有」沒有意義 → 不給 missing。
     tdcc = await _date_span(session, TdccSummaryWeekly.data_date)
-    sbl = await _date_span(session, SblDaily.data_date)
-    market = await _date_span(session, MarketDaily.data_date)
     ca = await _date_span(session, CorporateAction.data_date)
     tick = await _date_span(session, RawTick.data_date)
 
@@ -82,6 +125,8 @@ async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
             "corporate_action": ca,
             "raw_tick": tick,
         },
+        # 缺口比對的基準日曆(= daily_price 有資料的交易日)。
+        "calendar": _span_of(calendar),
         "row_counts": {
             "raw_tick": await _row_count(session, RawTick),
             "feature_daily": await _row_count(session, FeatureDaily),

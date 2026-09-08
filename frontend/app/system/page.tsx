@@ -342,6 +342,7 @@ export default function SystemPage() {
                   <tr className="border-b border-line-soft font-mono text-[10px] tracking-[0.12em] text-ink-faint whitespace-nowrap uppercase">
                     <th className="py-2 pr-3 text-left font-medium">資料源</th>
                     <th className="px-3 py-2 text-right font-medium">交易日</th>
+                    <th className="px-3 py-2 text-right font-medium">缺口</th>
                     <th className="px-3 py-2 text-right font-medium">最早</th>
                     <th className="py-2 pl-3 text-right font-medium">最新</th>
                   </tr>
@@ -360,6 +361,24 @@ export default function SystemPage() {
                       <td className="px-3 py-2.5 text-right font-mono text-sm tnum text-ink">
                         {v.days}
                       </td>
+                      <td
+                        className={`px-3 py-2.5 text-right font-mono text-sm tnum ${
+                          v.missing ? "text-gold" : "text-ink-faint"
+                        }`}
+                        title={
+                          v.missing
+                            ? `缺:${(v.missing_recent ?? []).join(" ")}${
+                                v.missing > (v.missing_recent?.length ?? 0) ? " …" : ""
+                              }`
+                            : undefined
+                        }
+                      >
+                        {v.missing === undefined
+                          ? "—"
+                          : v.missing === 0
+                            ? "齊"
+                            : `缺 ${v.missing}`}
+                      </td>
                       <td className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap tnum text-ink-dim">
                         {v.min ?? "—"}
                       </td>
@@ -371,6 +390,13 @@ export default function SystemPage() {
                 </tbody>
               </table>
             </div>
+            <p className="pt-3 text-xs text-ink-faint">
+              缺口 = 相對「已知交易日曆」(日K 有資料的
+              {data.coverage.calendar?.days ?? 0} 日)少了幾個交易日;滑過數字看缺漏日期。
+              集保(週度)、除權息(事件表)、逐筆(受 Shioaji 配額限制)不適用,顯示
+              「—」。整條資料鏈都沒補的日子不會出現在日曆裡,故此欄看不出「整天全缺」——
+              那要看最新日期是否落後今天。
+            </p>
           </Card>
 
           {/* 逐筆每日灌檔數(診斷配額被砍) */}
