@@ -111,11 +111,11 @@ export function FlowsPanel({ symbol }: { symbol: string }) {
   return (
     <div className="space-y-8">
       {/* 區間切換 */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="font-mono text-[11px] tracking-[0.15em] text-ink-faint uppercase">
           {data.count} 個交易日 · 買超為正（張）
         </div>
-        <div className="flex gap-1 rounded-lg border border-line-soft bg-panel-2/50 p-0.5">
+        <div className="flex shrink-0 gap-1 rounded-lg border border-line-soft bg-panel-2/50 p-0.5">
           {RANGES.map((r) => (
             <button
               key={r.days}
@@ -569,7 +569,7 @@ function DailyBarChart({ points }: { points: FlowPoint[] }) {
 
   return (
     <div>
-      <div className="mb-2 flex gap-1">
+      <div className="mb-2 flex flex-wrap gap-1">
         {SERIES.map((ln) => (
           <button
             key={ln.key}

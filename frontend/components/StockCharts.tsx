@@ -106,9 +106,9 @@ export function StockCharts({
   return (
     <div className="space-y-6">
       <div>
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <SectionTitle>{tab === "flows" ? "主力進出" : "價格走勢"}</SectionTitle>
-          <div className="flex gap-1 rounded-lg border border-line-soft bg-panel-2/50 p-0.5">
+          <div className="-mx-0.5 flex gap-1 overflow-x-auto rounded-lg border border-line-soft bg-panel-2/50 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <TabBtn active={tab === "daily"} onClick={() => setTab("daily")}>
               日K線
             </TabBtn>
@@ -623,7 +623,7 @@ function TabBtn({
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-md px-3 py-1 text-sm transition-colors ${
+      className={`shrink-0 rounded-md px-3 py-1 text-sm whitespace-nowrap transition-colors ${
         active
           ? "bg-gold/15 text-gold"
           : disabled

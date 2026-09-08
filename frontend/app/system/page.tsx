@@ -49,15 +49,15 @@ function fmtNextRun(iso: string | null): string {
   }
 }
 
-const SOURCE_ZH: Record<string, string> = {
-  feature_daily: "特徵 feature_daily",
-  daily_price: "日K daily_price",
-  institutional_daily: "法人 institutional",
-  margin_daily: "融資券 margin",
-  tdcc_summary_weekly: "集保 TDCC",
-  sbl_daily: "借券 SBL",
-  market_daily: "大盤 market_daily",
-  raw_tick: "逐筆 raw_tick",
+const SOURCE_ZH: Record<string, { zh: string; en: string }> = {
+  feature_daily: { zh: "特徵", en: "feature_daily" },
+  daily_price: { zh: "日K", en: "daily_price" },
+  institutional_daily: { zh: "法人", en: "institutional" },
+  margin_daily: { zh: "融資券", en: "margin" },
+  tdcc_summary_weekly: { zh: "集保", en: "TDCC" },
+  sbl_daily: { zh: "借券", en: "SBL" },
+  market_daily: { zh: "大盤", en: "market_daily" },
+  raw_tick: { zh: "逐筆", en: "raw_tick" },
 };
 
 const QUOTA_STOP = 95; // 對齊後端 intraday_batch.usage_stop_pct
@@ -333,7 +333,7 @@ export default function SystemPage() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-line-soft font-mono text-[10px] tracking-[0.12em] text-ink-faint uppercase">
+                  <tr className="border-b border-line-soft font-mono text-[10px] tracking-[0.12em] text-ink-faint whitespace-nowrap uppercase">
                     <th className="py-2 pr-3 text-left font-medium">資料源</th>
                     <th className="px-3 py-2 text-right font-medium">交易日</th>
                     <th className="px-3 py-2 text-right font-medium">最早</th>
@@ -343,16 +343,21 @@ export default function SystemPage() {
                 <tbody>
                   {Object.entries(data.coverage.sources).map(([k, v]) => (
                     <tr key={k} className="border-b border-line-soft/50 last:border-0">
-                      <td className="py-2.5 pr-3 text-sm text-ink">
-                        {SOURCE_ZH[k] ?? k}
+                      <td className="py-2.5 pr-3 text-sm whitespace-nowrap text-ink">
+                        {SOURCE_ZH[k]?.zh ?? k}
+                        {SOURCE_ZH[k]?.en && (
+                          <span className="ml-1.5 hidden font-mono text-[11px] text-ink-faint sm:inline">
+                            {SOURCE_ZH[k].en}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-sm tnum text-ink">
                         {v.days}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-sm tnum text-ink-dim">
+                      <td className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap tnum text-ink-dim">
                         {v.min ?? "—"}
                       </td>
-                      <td className="py-2.5 pl-3 text-right font-mono text-sm tnum text-ink-dim">
+                      <td className="py-2.5 pl-3 text-right font-mono text-sm whitespace-nowrap tnum text-ink-dim">
                         {v.max ?? "—"}
                       </td>
                     </tr>

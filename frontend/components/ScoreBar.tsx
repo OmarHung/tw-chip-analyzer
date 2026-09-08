@@ -41,7 +41,7 @@ export function ScoreRing({ score }: { score: number }) {
   const stroke =
     score >= 75 ? "var(--color-gold-bright)" : score >= 65 ? "var(--color-gold)" : score >= 50 ? "var(--color-ink-faint)" : "var(--color-line)";
   return (
-    <div className="relative h-28 w-28">
+    <div className="relative h-24 w-24 sm:h-28 sm:w-28">
       <svg className="h-full w-full -rotate-90" viewBox="0 0 100 100">
         <circle cx="50" cy="50" r={r} fill="none" stroke="var(--color-line-soft)" strokeWidth="6" />
         <circle
@@ -52,7 +52,7 @@ export function ScoreRing({ score }: { score: number }) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={`font-mono text-3xl font-bold tnum ${scoreColor(score)}`}>
+        <span className={`font-mono text-2xl font-bold tracking-tight tnum sm:text-[1.75rem] ${scoreColor(score)}`}>
           {score.toFixed(1)}
         </span>
         <span className="font-mono text-[9px] tracking-[0.15em] text-ink-faint uppercase">

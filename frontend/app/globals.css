@@ -32,6 +32,8 @@ html {
 body {
   background-color: var(--color-bg);
   color: var(--color-ink);
+  /* 防護網：任何元件意外超寬時，橫向裁切而非撐破整頁（clip 不建立捲動容器，不影響 sticky nav） */
+  overflow-x: clip;
   font-family: var(--font-sans), "Noto Sans TC", sans-serif;
   /* 大氣氛圍：金色徑向光暈 + 細噪點網格 */
   background-image:
