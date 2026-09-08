@@ -276,3 +276,60 @@ async def test_features_endpoint_defaults_to_latest_and_404s(client):
     assert r.status_code == 404
     r = await client.get("/api/stocks/9999/features")
     assert r.status_code == 404
+
+
+async def test_flows_backadjusts_corporate_action(db_session):
+    """主力成本/股價線/累積買賣超跨拆股要還原：面額 1:20 後，成本應在現價尺度而非拆股前。"""
+    import datetime as dt
+
+    import httpx
+    from httpx import ASGITransport
+
+    from app.db.models.chips import InstitutionalDaily
+    from app.db.models.market import CorporateAction
+    from app.importers.base import availability_for
+
+    sym = "9998"
+    db_session.add(Stock(symbol=sym, name="拆股股", market="TWSE"))
+    await db_session.flush()
+    base = dt.date(2026, 9, 8)
+    dates = [base - dt.timedelta(days=(24 - i)) for i in range(25)]
+    split_date = dates[-1]  # 最後一日 1:20 面額變更
+    for d in dates:
+        px = 50.0 if d == split_date else 1000.0
+        db_session.add(DailyPrice(
+            symbol=sym, data_date=d, available_at=availability_for(d),
+            open=px, high=px, low=px, close=px,
+            volume=1_000_000, turnover=px * 1_000_000,
+        ))
+        net = 0 if d == split_date else 1_000_000  # 拆股前主力持續買超（股）
+        db_session.add(InstitutionalDaily(
+            symbol=sym, data_date=d, available_at=availability_for(d),
+            foreign_net=net, trust_net=0, dealer_self_net=0, dealer_hedge_net=0,
+        ))
+    db_session.add(CorporateAction(
+        symbol=sym, data_date=split_date, available_at=availability_for(split_date),
+        kind="面額", prev_close=1000, reference_price=50, value=None,
+        adj_factor=0.05, share_factor=20,
+    ))
+    await db_session.commit()
+
+    async def _override():
+        yield db_session
+
+    app.dependency_overrides[get_session] = _override
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get(f"/api/stocks/{sym}/flows", params={"days": 90})
+    app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    j = r.json()
+    cb = j["cost_basis"]
+    # 還原後：主力成本在拆股後尺度（~50），不是拆股前的 ~1000；溢價不再是假的 -95%
+    assert cb["latest_cost"] is not None and cb["latest_cost"] < 100
+    assert cb["premium_pct"] > -0.2
+    # 股價線也還原：最早一點 close ~50（不是原始 1000）
+    assert j["points"][0]["close"] < 100
+    # 張數還原到現股尺度：拆股前的日買超 1000 張 → ×20
+    assert j["points"][0]["foreign"] == 20000

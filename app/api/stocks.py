@@ -423,7 +423,23 @@ async def get_flows(
     vwap_by_date = {r.data_date: _vwap(r) for r in price_rows}
     margin_by_date = {r.data_date: r for r in margin_rows}
 
-    # 以三大法人資料日為主軸（主力進出的核心來源）
+    # 公司行動還原（拆股/除權息/減資）：主力成本/股價線/累積買賣超都是即時算、原本走
+    # 原始 daily_price，跨拆股會斷點（如 6949 面額 1:20，成本停在拆股前 ~771）。以三大
+    # 法人資料日為軸，價序列後復權（元），張序列用 share_factor 換算到現股單位（張）。
+    from app.repositories.corporate_actions import load_factors
+    from app.services.price_adjust import cumulative_factors
+
+    price_acts, share_acts = await load_factors(session, symbols=[symbol])
+    axis_dates = [r.data_date for r in inst_rows]
+    pf = cumulative_factors(axis_dates, price_acts.get(symbol, []))
+    sf = cumulative_factors(axis_dates, share_acts.get(symbol, []))
+
+    def _padj(v: float | None, f: float) -> float | None:
+        return v * f if v is not None else None
+
+    def _sadj_lots(v: float | None, f: float) -> float | None:
+        return round(v * f) if v is not None else None  # 張維持整數
+
     points: list[FlowPoint] = []
     inst_totals: list[float | None] = []
     foreigns: list[float | None] = []
@@ -431,36 +447,39 @@ async def get_flows(
     closes_arr: list[float | None] = []
     vols_arr: list[float | None] = []
     vwaps_arr: list[float | None] = []
-    for r in inst_rows:
-        foreign = _to_lots(r.foreign_net)
-        trust = _to_lots(r.trust_net)
+    for i, r in enumerate(inst_rows):
+        fp, sp = pf[i], sf[i]
+        foreign = _sadj_lots(_to_lots(r.foreign_net), sp)
+        trust = _sadj_lots(_to_lots(r.trust_net), sp)
         dealer_parts = [r.dealer_self_net, r.dealer_hedge_net]
         dealer = (
-            _to_lots(sum(p for p in dealer_parts if p is not None))
+            _sadj_lots(_to_lots(sum(p for p in dealer_parts if p is not None)), sp)
             if any(p is not None for p in dealer_parts)
             else None
         )
         inst_total = sum(v for v in (foreign, trust, dealer) if v is not None)
         m = margin_by_date.get(r.data_date)
-        mb = m.margin_balance if m else None
+        mb = _sadj_lots(m.margin_balance, sp) if m and m.margin_balance is not None else None
+        sb = _sadj_lots(m.short_balance, sp) if m and m.short_balance is not None else None
+        close_adj = _padj(close_by_date.get(r.data_date), fp)
         points.append(
             FlowPoint(
                 t=str(r.data_date),
-                close=close_by_date.get(r.data_date),
+                close=close_adj,
                 foreign=foreign,
                 trust=trust,
                 dealer=dealer,
                 inst_total=inst_total,
-                margin_balance=mb,
-                short_balance=m.short_balance if m else None,
+                margin_balance=int(mb) if mb is not None else None,
+                short_balance=int(sb) if sb is not None else None,
             )
         )
         foreigns.append(foreign)
         inst_totals.append(inst_total)
-        margin_bals.append(mb)
-        closes_arr.append(close_by_date.get(r.data_date))
-        vols_arr.append(vol_by_date.get(r.data_date))
-        vwaps_arr.append(vwap_by_date.get(r.data_date))
+        margin_bals.append(int(mb) if mb is not None else None)
+        closes_arr.append(close_adj)
+        vols_arr.append(_sadj_lots(vol_by_date.get(r.data_date), sp))
+        vwaps_arr.append(_padj(vwap_by_date.get(r.data_date), fp))
 
     stock = await session.get(Stock, symbol)
     name = stock.name if stock else symbol
