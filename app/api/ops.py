@@ -47,7 +47,7 @@ _coverage_refreshing = False
 # raw_tick span 以外的資料源鍵(供空骨架維持與前端一致的結構)。
 _COVERAGE_SOURCE_KEYS = (
     "feature_daily", "daily_price", "institutional_daily", "margin_daily",
-    "tdcc_summary_weekly", "sbl_daily", "market_daily", "raw_tick",
+    "tdcc_summary_weekly", "sbl_daily", "market_daily", "corporate_action", "raw_tick",
 )
 
 

@@ -18,7 +18,7 @@ from app.db.models.chips import (
 )
 from app.db.models.features import FeatureDaily
 from app.db.models.intraday import RawTick
-from app.db.models.market import DailyPrice, MarketDaily
+from app.db.models.market import CorporateAction, DailyPrice, MarketDaily
 
 
 async def _date_span(session: AsyncSession, col) -> dict:
@@ -51,6 +51,7 @@ async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
     tdcc = await _date_span(session, TdccSummaryWeekly.data_date)
     sbl = await _date_span(session, SblDaily.data_date)
     market = await _date_span(session, MarketDaily.data_date)
+    ca = await _date_span(session, CorporateAction.data_date)
     tick = await _date_span(session, RawTick.data_date)
 
     # 逐筆:近 N 天每日灌了幾檔(distinct symbol)與總筆數
@@ -78,6 +79,7 @@ async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
             "tdcc_summary_weekly": tdcc,
             "sbl_daily": sbl,
             "market_daily": market,
+            "corporate_action": ca,
             "raw_tick": tick,
         },
         "row_counts": {

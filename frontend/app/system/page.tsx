@@ -57,6 +57,7 @@ const SOURCE_ZH: Record<string, { zh: string; en: string }> = {
   tdcc_summary_weekly: { zh: "集保", en: "TDCC" },
   sbl_daily: { zh: "借券", en: "SBL" },
   market_daily: { zh: "大盤", en: "market_daily" },
+  corporate_action: { zh: "除權息", en: "corporate_action" },
   raw_tick: { zh: "逐筆", en: "raw_tick" },
 };
 
