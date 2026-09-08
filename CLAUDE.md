@@ -41,9 +41,15 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 - **歷史現金減資的換股率也補不回來**（2026-09-09 修正）：TWTAVU 與 TWT48U 同性質、只回未來事件，故已執行的現金減資 `share_factor` 一律 NULL（只還原價、不還原量），舊有由 `1/adj_factor` 寫入的錯值已由 `scripts/backfill_corporate_actions.py` 清除（dev 庫 1414/1459/6176/1563 四筆）。TPEx 減資不受影響（revivt 詳細資料同表即有換股率，歷史可回補）。
 - **§28 成功標準仍未達成**：乾淨重算後各 horizon IC 全 ≈0（bucket 平坦）。歷次因子挖掘結論=病根是「單一 5 個月 regime 樣本」，非程式；勿再於現有資料挖因子（詳見 memory chip-score-backtest-finding）。累積跨 regime 資料後用 `/validation` 頁與 `scripts/score_monotonicity.py` 重驗。
 - **SBL 特徵已接線但權重刻意為 0**：`sbl_change_z` 已入 feature_daily，config `weights.institutional.sbl_change: 0.0`（原設計 -0.10）——紀律：未經 OOS 驗證不進分數；待借券累積足量後跑 `scripts/sbl_factor_oos.py` 驗證後再啟用。**「≥2 個月」是錯的門檻**(2026-09-09 實跑證實)：該腳本 20D forward + split-half + embargo 20，有效 test 橫斷面日 ≈ `N/2 − 30`；N=63 時只剩 3 天，t 值全無意義(連融券對照的 ✓ 也不可信)。**要 ~20 個 test 日需 N≈100、~30 個需 N≈120 交易日**。融券 short_change 同理維持原 config，勿依 in-sample 調整。
+  **2026-09-09 補完缺漏日後首次有效實跑（N=130、test 35 天）**：借券**餘額百分比變化**方向為負且 train/test 一致——`sbl_bal_pct_20d` test IC -0.026 (t=-3.81)、`sbl_bal_pct_5d` -0.020 (t=-2.39)，符合「借券增加＝偏空」的原設計方向；但**現行 feature 用的絕對量版本（`sbl_bal_chg_5d`，即 sbl_change_z 的定義）test t 僅 -0.02，等於無訊號**。融券對照 t=+1.72 未過關。**t 值仍被高估**：連續交易日的 20D forward return 高度重疊，有效自由度遠低於 35 天，且仍是單一 regime——故權重維持 0，先修因子定義（絕對量→百分比、5D→20D）再累積資料重驗。
 - **TDCC holder：視窗內 ≥2 週快照自動切真實 change**（feature_builder），1 週時 level proxy；`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
-- **industry_trend 仍中性**：importer 未帶產業別。
-- 尚未做：TPEx 的 SBL、產業別/趨勢、Shioaji realtime、intraday 併入 backtest 驗證單調性（需累積多日 tick；Shioaji simulation 配額僅 500MB，backfill 逐筆會燒穿，逐筆只靠每日 EOD 累積）。
+- **industry_trend 已啟用**（2026-09-09）：`stock.industry` 來自 MOPS 公司基本資料
+  （上市 t187ap03_L／上櫃 mopsfin_t187ap03_O，同一套產業代碼，存中文名跨市場同組），
+  `feature_daily.industry_trend_score` = 產業成分股近 5 日報酬中位數 → 跨產業橫斷面 z
+  → squash(-1..1)，成分股 <5 的產業不給分（NULL＝中性）。**注意：這條未經 OOS 驗證就
+  進了分數**（權重 config 早已存在：market 分項內 industry_trend 0.35），與 SBL 的紀律
+  不同——因為它補的是既有設計的缺料，不是新增因子；累積跨 regime 後仍應回頭驗。
+- 尚未做：TPEx 的 SBL、Shioaji realtime、intraday 併入 backtest 驗證單調性（需累積多日 tick；Shioaji simulation 配額僅 500MB，backfill 逐筆會燒穿，逐筆只靠每日 EOD 累積）。
 
 ## 頂層地圖
 
