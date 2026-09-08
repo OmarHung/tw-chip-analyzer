@@ -28,6 +28,7 @@ export interface AnalysisResponse {
   symbol: string;
   name: string;
   market: string | null; // "TWSE"=上市 / "TPEx"=上櫃（興櫃未納入資料源）
+  industry: string | null; // 產業別（MOPS 中文名，如「半導體」）
   price: number;
   change_pct: number | null;
   chip_score: number;

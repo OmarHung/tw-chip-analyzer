@@ -64,6 +64,7 @@ export default async function StockDetailPage({
               {data.name}
             </span>
             <MarketBadge market={data.market} />
+            <IndustryBadge industry={data.industry} />
           </div>
           <div className="mt-2 flex items-baseline gap-3">
             <span className="font-mono text-2xl tnum text-ink">
@@ -254,6 +255,16 @@ function AdjustedPricePanel({ data }: { data: FeaturesResponse }) {
 
 /* 市場別徽章：資料源僅含上市(TWSE)與上櫃一般板(TPEx)，興櫃未匯入故不會出現。 */
 const MARKET_ZH: Record<string, string> = { TWSE: "上市", TPEx: "上櫃" };
+
+/* 產業別徽章：來自 MOPS 公司基本資料，也是 industry_trend 分項的分組依據。 */
+function IndustryBadge({ industry }: { industry: string | null }) {
+  if (!industry) return null;
+  return (
+    <span className="rounded-md border border-line-soft bg-panel-2/50 px-2 py-0.5 text-[10px] tracking-wider text-ink-dim">
+      {industry}
+    </span>
+  );
+}
 
 function MarketBadge({ market }: { market: string | null }) {
   if (!market) return null;

@@ -29,6 +29,7 @@ class AnalysisResponse(BaseModel):
     symbol: str
     name: str
     market: str | None = None  # TWSE(上市) / TPEx(上櫃);由 endpoint 補,不在 AnalysisResult
+    industry: str | None = None  # 產業別(MOPS 中文名);同上由 endpoint 補
     price: float
     change_pct: float | None = None
     chip_score: float

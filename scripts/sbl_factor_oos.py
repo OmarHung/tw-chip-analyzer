@@ -24,6 +24,9 @@ from app.db.session import get_sessionmaker
 
 EMBARGO = 20
 HZ = 20
+# 樣本起點:取全部已回補的 SBL 歷史(缺漏日見 scripts/backfill_sbl.py)。有效 test
+# 橫斷面日 ≈ N/2 − EMBARGO/2 − HZ,故 N 越大結論才越站得住(N≈120 才有 ~30 天)。
+START = "2026-01-01"
 
 
 def _day_ic(g: pd.DataFrame, value: pd.Series, ret_col: str) -> float | None:
@@ -50,16 +53,16 @@ async def _amain() -> None:
     async with sm() as s:
         sbl = pd.DataFrame(
             (await s.execute(text(
-                "select symbol, data_date, sbl_balance, sbl_short_sell, sbl_return "
-                "from sbl_daily where data_date >= '2026-04-01' order by symbol, data_date"
+                f"select symbol, data_date, sbl_balance, sbl_short_sell, sbl_return "
+                f"from sbl_daily where data_date >= '{START}' order by symbol, data_date"
             ))).all(),
             columns=["symbol", "data_date", "sbl_balance", "sbl_short_sell", "sbl_return"],
         )
         # 融券對照因子
         fin = pd.DataFrame(
             (await s.execute(text(
-                "select symbol, data_date, short_balance_change_z from feature_daily "
-                "where data_date >= '2026-04-01'"
+                f"select symbol, data_date, short_balance_change_z from feature_daily "
+                f"where data_date >= '{START}'"
             ))).all(),
             columns=["symbol", "data_date", "short_balance_change_z"],
         )
