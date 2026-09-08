@@ -140,3 +140,40 @@ async def test_industry_trend_null_when_too_few_members(db_session):
     await build_features(db_session, TARGET)
     a = await FeatureDailyRepository(db_session).get_latest("AAA")
     assert a.industry_trend_score is None
+
+
+async def test_sbl_change_uses_pct_of_own_balance(db_session):
+    """借券因子＝相對自身餘額的百分比變化，不是絕對量（OOS 上絕對量版本無訊號）。
+
+    兩檔同樣「多借 100 萬股」，但基期餘額差 10 倍 → 百分比小的那檔 z 必須較低。
+    """
+    from app.db.models.chips import SblDaily
+
+    await _seed_history(db_session)
+    bases = {"AAA": 1_000_000, "CCC": 10_000_000}
+    for sym, base in bases.items():
+        for i in range(25):
+            d = TARGET - dt.timedelta(days=24 - i)
+            db_session.add(
+                SblDaily(
+                    symbol=sym, data_date=d, available_at=availability_for(d),
+                    sbl_balance=base + (1_000_000 if i >= 20 else 0),
+                )
+            )
+    # BBB 借券完全不動 → 落在兩者之間的基準
+    for i in range(25):
+        d = TARGET - dt.timedelta(days=24 - i)
+        db_session.add(
+            SblDaily(
+                symbol="BBB", data_date=d, available_at=availability_for(d),
+                sbl_balance=5_000_000,
+            )
+        )
+    await db_session.commit()
+
+    await build_features(db_session, TARGET)
+    repo = FeatureDailyRepository(db_session)
+    a = await repo.get_latest("AAA")   # +100%
+    c = await repo.get_latest("CCC")   # +10%
+    b = await repo.get_latest("BBB")   # 0%
+    assert a.sbl_change_z > c.sbl_change_z > b.sbl_change_z

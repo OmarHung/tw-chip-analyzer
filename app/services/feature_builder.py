@@ -32,6 +32,7 @@ from app.services.normalize import squash_z
 from app.services.price_adjust import back_adjust
 
 LOTS_TO_SHARES = 1000  # 融資融券單位為張
+SBL_LOOKBACK = 20  # 借券餘額百分比變化的回看交易日數（OOS 上 20D > 5D）
 _MIN_INDUSTRY_MEMBERS = 5  # 產業成分股門檻：不足者不給趨勢分（樣本太少不成趨勢）
 
 
@@ -205,6 +206,24 @@ def _net_5d(g: pd.DataFrame, col: str) -> float:
     return float(g.sort_values("data_date")[col].tail(5).fillna(0).sum())
 
 
+def _balance_pct_change(g: pd.DataFrame, col: str, lookback: int = 20) -> float | None:
+    """餘額的 lookback 日**百分比**變化（相對自身餘額，非除以成交量）。
+
+    借券 OOS 實測（2026-09-09，N=130／test 35 天）：百分比版本 train/test 同號且
+    test t 顯著（20D t=-3.81、5D t=-2.39），而「絕對變化 ÷ avg_vol20」版本 t=-0.02
+    形同無訊號——因為借券餘額的絕對變動量與該檔成交量幾乎無關，除以均量反而把
+    「相對自己借券部位增加多少」這個訊息洗掉。故借券改用此函式。
+    """
+    s_ = g.sort_values("data_date")[col].dropna()
+    if len(s_) < 2:
+        return None
+    base = s_.iloc[-(lookback + 1)] if len(s_) >= lookback + 1 else s_.iloc[0]
+    base = float(base)
+    if base <= 0:
+        return None
+    return float(s_.iloc[-1] - base) / base
+
+
 def _balance_change_5d(g: pd.DataFrame, col: str) -> float | None:
     s = g.sort_values("data_date")[col].dropna()
     if len(s) < 2:
@@ -329,16 +348,14 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
             if sc is not None:
                 short_chg[sym] = sc * LOTS_TO_SHARES / av
 
-    # 借券 SBL 餘額 5 日變化(單位已是股數,直接除以 20 日均量)
+    # 借券 SBL 餘額 20 日**百分比**變化(相對自身部位;見 _balance_pct_change 的
+    # OOS 依據——舊的「絕對變化 ÷ 均量」版本實測無訊號)。
     sbl_chg: dict[str, float] = {}
     if not sbl.empty:
         for sym, g in sbl.groupby("symbol"):
-            av = pf.get(sym, {}).get("_avg_vol20")
-            if not av:
-                continue
-            bc = _balance_change_5d(g, "sbl_balance")
-            if bc is not None:
-                sbl_chg[sym] = bc / av
+            pc = _balance_pct_change(g, "sbl_balance", SBL_LOOKBACK)
+            if pc is not None:
+                sbl_chg[sym] = pc
 
     # TDCC 大戶/散戶:視窗內有 >=2 個快照日 → 真實 week-over-week change;
     # 只有 1 週 → 橫斷面 level proxy(資料累積到位自動切換,見 docs/03 §10)。

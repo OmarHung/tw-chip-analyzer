@@ -126,7 +126,13 @@ weights:
     holder_count_change: -0.15
   market:
     market_trend: 0.65
-    industry_trend: 0.35
+    # 產業趨勢:資料已接(feature_daily.industry_trend_score),但 OOS 未過關——
+    # 2026-09-09 實跑 train IC +0.059 → test +0.028、t=0.62(有效 test 日僅 25),
+    # 方向一致但不顯著。比照 SBL 紀律:未經 OOS 驗證不進分數,故權重 0。
+    # market_trend 刻意維持 0.65 不補到 1.0——保持與歷史分數同尺度(產業別接線前
+    # 的行為就是「industry 分項恆 0、權重 0.35」),避免整段歷史分數不可比。
+    # 累積跨 regime 資料後重驗(方法見 scripts/sbl_factor_oos.py),過關再開回 0.35。
+    industry_trend: 0.0
 
 # 大盤 regime 計算（market_trend_score，見 docs/03 §10）
 market_regime:
