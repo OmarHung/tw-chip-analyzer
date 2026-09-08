@@ -62,7 +62,7 @@
 
 ## 5. 必知陷阱（本次對話才知道的坑）
 
-- **TWSE 端點怪癖**：TWT49U 在 `/exchangeReport/TWT49U`（`/rwd/zh/afterTrading/TWT49U` 會回 404 HTML）；TWTB8U 在 `/rwd/zh/change/TWTB8U`；TWTAUU 在 `/rwd/zh/reducation/TWTAUU`（TWSE 拼字 "reducation"）。**日期參數是 `startDate`/`endDate`（西元 YYYYMMDD），`date` 參數無效會回「當日」**。三者歷史區間都可查（**與 SBL 不同**，SBL 歷史抓不回）。
+- **TWSE 端點怪癖**：TWT49U 在 `/exchangeReport/TWT49U`（`/rwd/zh/afterTrading/TWT49U` 會回 404 HTML）；TWTB8U 在 `/rwd/zh/change/TWTB8U`；TWTAUU 在 `/rwd/zh/reducation/TWTAUU`（TWSE 拼字 "reducation"）。**日期參數是 `startDate`/`endDate`（西元 YYYYMMDD），`date` 參數無效會回「當日」**。三者歷史區間都可查。（**2026-09-09 更正**：原記「SBL 歷史抓不回」已證偽，TWT93U 歷史同樣可查可回補。）
 - **日期格式不一**：TWT49U 的「資料日期」是 `115年09月09日`（CJK，用 `parse_roc_cjk_date`）；TWTB8U/TWTAUU 的「恢復買賣日期」是 `115/09/07`（斜線，用 `parse_roc_date`）。
 - **量因子 ≠ 價因子**：除權息混現金股利與配股，`adj_factor` 不能直接當量因子（見 §3 A / §8）。這是任務 A 的核心陷阱，別直接 `1/adj_factor` 套到所有 kind。
 - **觀測限制**：還原值只在 `feature_daily`；`chart` API 回原始 `daily_price`（設計上保留原始價，別改成還原）；AVOID 股的 `/analysis` 不輸出 MA/ATR（entry/risk 為 null）——這正是任務 B 要補的。
