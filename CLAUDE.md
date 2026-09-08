@@ -39,7 +39,7 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 **已知限制 / 待辦（會影響決策，讀不出來的部分）**：
 - **歷史除權息的配股率補不回來**：TWT48U 是預告表，只回「未來尚未執行」的事件（區間參數無效）——只能靠每日 EOD 往前累積。（註：SBL TWT93U 歷史其實可回補，勿再以它類比。）故 2026-09-09 以前的 `權`/`權息` 事件 `share_factor` 為 NULL（只還原價、不還原量）；`面額`/`減資` 不受影響（用 `1/adj_factor`，精確且可回補）。TPEx 的公司行動則整個尚未接。
 - **§28 成功標準仍未達成**：乾淨重算後各 horizon IC 全 ≈0（bucket 平坦）。歷次因子挖掘結論=病根是「單一 5 個月 regime 樣本」，非程式；勿再於現有資料挖因子（詳見 memory chip-score-backtest-finding）。累積跨 regime 資料後用 `/validation` 頁與 `scripts/score_monotonicity.py` 重驗。
-- **SBL 特徵已接線但權重刻意為 0**：`sbl_change_z` 已入 feature_daily，config `weights.institutional.sbl_change: 0.0`（原設計 -0.10）——紀律：未經 OOS 驗證不進分數；待借券累積 ≥2 個月跑 `scripts/sbl_factor_oos.py` 驗證後再啟用。融券 short_change 同理維持原 config，勿依 in-sample 調整。
+- **SBL 特徵已接線但權重刻意為 0**：`sbl_change_z` 已入 feature_daily，config `weights.institutional.sbl_change: 0.0`（原設計 -0.10）——紀律：未經 OOS 驗證不進分數；待借券累積足量後跑 `scripts/sbl_factor_oos.py` 驗證後再啟用。**「≥2 個月」是錯的門檻**(2026-09-09 實跑證實)：該腳本 20D forward + split-half + embargo 20，有效 test 橫斷面日 ≈ `N/2 − 30`；N=63 時只剩 3 天，t 值全無意義(連融券對照的 ✓ 也不可信)。**要 ~20 個 test 日需 N≈100、~30 個需 N≈120 交易日**。融券 short_change 同理維持原 config，勿依 in-sample 調整。
 - **TDCC holder：視窗內 ≥2 週快照自動切真實 change**（feature_builder），1 週時 level proxy；`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
 - **industry_trend 仍中性**：importer 未帶產業別。
 - 尚未做：TPEx 的 SBL、產業別/趨勢、Shioaji realtime、intraday 併入 backtest 驗證單調性（需累積多日 tick；Shioaji simulation 配額僅 500MB，backfill 逐筆會燒穿，逐筆只靠每日 EOD 累積）。
