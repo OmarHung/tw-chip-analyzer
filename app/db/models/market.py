@@ -74,12 +74,14 @@ class DailyPrice(Base, AvailabilityMixin, TimestampMixin):
 
 
 class CorporateAction(Base, AvailabilityMixin, TimestampMixin):
-    """除權除息／拆股事件（來源：TWSE TWT49U 除權除息計算結果表）。
+    """公司行動造成的價格斷點事件。來源（皆 TWSE，欄位含前收/參考價）：
+    - TWT49U 除權除息（kind：權/息/權息）
+    - TWTB8U 變更股票面額（拆股/面額變更，kind：面額）
+    - TWTAUU 減資恢復買賣（kind：減資）
 
-    價格序列在 data_date（除權息日）出現非交易性斷點。還原因子
-    `adj_factor = reference_price / prev_close`（配息 <1、配股/拆股 <1）：
-    把 data_date 之前的價格全部乘上此因子，即可讓報酬/MA/ATR 連續。
-    kind：'權'（除權）/ '息'（除息）/ '權息'（兩者）。
+    價格序列在 data_date（除權息日 / 恢復買賣首日）出現非交易性斷點。還原因子
+    `adj_factor = reference_price / prev_close`（配息/拆股 <1、減資 >1）：把 data_date
+    之前的價格全部乘上此因子，即可讓報酬/MA/ATR 連續。
     """
 
     __tablename__ = "corporate_action"

@@ -16,11 +16,13 @@ from app.connectors import twse as twse_conn
 from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
 from app.importers.service import (
+    import_capital_reduction,
     import_ex_dividend,
     import_index,
     import_institutional,
     import_margin,
     import_ohlcv,
+    import_par_change,
     import_sbl,
     import_tdcc,
     import_tpex_institutional,
@@ -90,14 +92,20 @@ async def run(
                 n_sbl = await import_sbl(s, sbl, target)
         except Exception as e:  # noqa: BLE001 — SBL 非必要，缺則後續中性
             logger.warning("SBL 匯入失敗（TWT93U）：%s", e)
-        # 除權除息（TWT49U）：當日除權息事件 + 還原因子。失敗不影響核心匯入。
+        # 公司行動還原因子：除權息(TWT49U) + 面額變更/拆股(TWTB8U) + 減資(TWTAUU)。
+        # 各自 fail-soft，缺則該日該類無還原。
         n_ca = 0
-        try:
-            ca = await twse_conn.fetch_ex_dividend(target)
-            async with sm() as s:
-                n_ca = await import_ex_dividend(s, ca)
-        except Exception as e:  # noqa: BLE001 — 除權息非必要，缺則該日無還原
-            logger.warning("除權除息匯入失敗（TWT49U）：%s", e)
+        for label, fetch, imp in (
+            ("除權息 TWT49U", twse_conn.fetch_ex_dividend, import_ex_dividend),
+            ("面額變更 TWTB8U", twse_conn.fetch_par_change, import_par_change),
+            ("減資 TWTAUU", twse_conn.fetch_capital_reduction, import_capital_reduction),
+        ):
+            try:
+                raw_ca = await fetch(target)
+                async with sm() as s:
+                    n_ca += await imp(s, raw_ca)
+            except Exception as e:  # noqa: BLE001 — 公司行動非必要，缺則該類無還原
+                logger.warning("公司行動匯入失敗（%s）：%s", label, e)
         # TPEx 上櫃（行情/法人/融資券）：失敗不影響 TWSE 核心匯入。
         n_tpx = n_tpx_inst = n_tpx_margin = 0
         try:

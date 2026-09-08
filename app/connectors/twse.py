@@ -77,6 +77,33 @@ async def fetch_ex_dividend(start: dt.date, end: dt.date | None = None) -> dict:
         )
 
 
+async def fetch_par_change(start: dt.date, end: dt.date | None = None) -> dict:
+    """TWTB8U 變更股票面額恢復買賣參考價格（拆股/面額變更；TWT49U 不含此類）。
+
+    欄位同 TWTAUU：停止買賣前收盤價格 / 恢復買賣參考價 → adj_factor。歷史區間可查。
+    """
+    end = end or start
+    async with httpx.AsyncClient(timeout=30) as client:
+        return await _get(
+            client,
+            f"{BASE}/rwd/zh/change/TWTB8U",
+            {"startDate": twse_date(start), "endDate": twse_date(end),
+             "response": "json"},
+        )
+
+
+async def fetch_capital_reduction(start: dt.date, end: dt.date | None = None) -> dict:
+    """TWTAUU 股票減資恢復買賣參考價格（減資；價漲、factor>1）。歷史區間可查。"""
+    end = end or start
+    async with httpx.AsyncClient(timeout=30) as client:
+        return await _get(
+            client,
+            f"{BASE}/rwd/zh/reducation/TWTAUU",
+            {"startDate": twse_date(start), "endDate": twse_date(end),
+             "response": "json"},
+        )
+
+
 async def fetch_index_month(date: dt.date) -> dict:
     """FMTQIK：回傳該月每日大盤成交與 TAIEX 收盤指數。"""
     async with httpx.AsyncClient(timeout=30) as client:

@@ -85,13 +85,30 @@ async def import_sbl(session: AsyncSession, raw: dict, data_date: dt.date) -> in
     return n
 
 
-async def import_ex_dividend(session: AsyncSession, raw: dict) -> int:
-    """除權除息事件（TWT49U）。列內自帶 data_date，故不需傳日期。"""
-    rows = twse.parse_ex_dividend(raw)
+async def _import_corporate_actions(session: AsyncSession, rows: list[dict]) -> int:
     await _ensure_stocks(session, {r["symbol"] for r in rows})
     n = await upsert_many(session, CorporateAction, rows, ["symbol", "data_date"])
     await session.commit()
     return n
+
+
+async def import_ex_dividend(session: AsyncSession, raw: dict) -> int:
+    """除權除息事件（TWT49U）。列內自帶 data_date，故不需傳日期。"""
+    return await _import_corporate_actions(session, twse.parse_ex_dividend(raw))
+
+
+async def import_par_change(session: AsyncSession, raw: dict) -> int:
+    """面額變更/拆股（TWTB8U）→ CorporateAction。"""
+    return await _import_corporate_actions(
+        session, twse.parse_resume_reference(raw, "面額")
+    )
+
+
+async def import_capital_reduction(session: AsyncSession, raw: dict) -> int:
+    """減資（TWTAUU）→ CorporateAction。"""
+    return await _import_corporate_actions(
+        session, twse.parse_resume_reference(raw, "減資")
+    )
 
 
 async def import_index(session: AsyncSession, raw: dict) -> int:

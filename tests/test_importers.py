@@ -17,10 +17,12 @@ from app.importers.base import (
     parse_roc_cjk_date,
 )
 from app.importers.service import (
+    import_capital_reduction,
     import_ex_dividend,
     import_institutional,
     import_margin,
     import_ohlcv,
+    import_par_change,
     import_sbl,
 )
 
@@ -108,6 +110,33 @@ class TestParsers:
             await db_session.execute(select(func.count()).select_from(CorporateAction))
         ).scalar()
         assert cnt == 3
+
+    def test_par_change(self):
+        # TWTB8U 面額變更：6949 前收 1490 → 參考 74.50，factor = 0.05（1:20 面額變更）
+        rows = twse.parse_resume_reference(_load("twse_twtb8u.json"), "面額")
+        r = next(r for r in rows if r["symbol"] == "6949")
+        assert r["kind"] == "面額"
+        assert r["data_date"] == dt.date(2026, 9, 7)
+        assert r["prev_close"] == 1490.0 and r["reference_price"] == 74.5
+        assert abs(r["adj_factor"] - 0.05) < 1e-9
+
+    def test_capital_reduction(self):
+        # TWTAUU 減資：價漲 → factor > 1（2380 虹光 6.60 → 23.86）
+        rows = twse.parse_resume_reference(_load("twse_twtauu.json"), "減資")
+        r = next(r for r in rows if r["symbol"] == "2380")
+        assert r["kind"] == "減資"
+        assert r["adj_factor"] > 1.0
+        assert abs(r["adj_factor"] - 23.86 / 6.60) < 1e-6
+
+    async def test_import_par_and_reduction_to_db(self, db_session):
+        n1 = await import_par_change(db_session, _load("twse_twtb8u.json"))
+        n2 = await import_capital_reduction(db_session, _load("twse_twtauu.json"))
+        assert n1 == 1 and n2 == 2
+        kinds = {
+            r.symbol: r.kind
+            for r in (await db_session.execute(select(CorporateAction))).scalars().all()
+        }
+        assert kinds["6949"] == "面額" and kinds["2380"] == "減資"
 
     def test_sbl_positions_and_filter(self):
         rows = twse.parse_sbl(_load("twse_twt93u.json"), D)

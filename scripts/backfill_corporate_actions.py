@@ -1,6 +1,10 @@
-"""一次性回補除權除息事件（TWT49U，區間查詢）。
+"""一次性回補公司行動事件（區間查詢）：
 
-TWT49U 支援 startDate/endDate 區間查詢且歷史可取（與 SBL 不同），故可一次補整段，
+- 除權除息 TWT49U（除權/除息）
+- 面額變更/拆股 TWTB8U（如 6949 面額 1:20 變更）
+- 減資 TWTAUU（退還股款/彌補虧損）
+
+三者皆支援 startDate/endDate 區間查詢且歷史可取（與 SBL 不同），故可一次補整段，
 不必逐日跑 EOD。以月為單位分段查詢，避免單次區間過長。
 
 用法：
@@ -19,9 +23,20 @@ import datetime as dt
 from app.connectors import twse as twse_conn
 from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
-from app.importers.service import import_ex_dividend
+from app.importers.service import (
+    import_capital_reduction,
+    import_ex_dividend,
+    import_par_change,
+)
 
 logger = get_logger("scripts.backfill_ca")
+
+# (標籤, connector 抓取, importer)
+_SOURCES = (
+    ("除權息", twse_conn.fetch_ex_dividend, import_ex_dividend),
+    ("面額變更", twse_conn.fetch_par_change, import_par_change),
+    ("減資", twse_conn.fetch_capital_reduction, import_capital_reduction),
+)
 
 
 def _month_ranges(start: dt.date, end: dt.date) -> list[tuple[dt.date, dt.date]]:
@@ -43,17 +58,22 @@ async def run(start: dt.date, end: dt.date) -> int:
     sm = get_sessionmaker()
     total = 0
     for seg_start, seg_end in _month_ranges(start, end):
-        raw = await twse_conn.fetch_ex_dividend(seg_start, seg_end)
-        async with sm() as s:
-            n = await import_ex_dividend(s, raw)
-        logger.info("除權除息回補 %s~%s：%d 筆", seg_start, seg_end, n)
-        total += n
-    logger.info("除權除息回補完成：共 %d 筆（%s~%s）", total, start, end)
+        for label, fetch, imp in _SOURCES:
+            try:
+                raw = await fetch(seg_start, seg_end)
+                async with sm() as s:
+                    n = await imp(s, raw)
+            except Exception as e:  # noqa: BLE001 — 單一來源失敗不中斷其餘
+                logger.warning("%s 回補失敗 %s~%s：%s", label, seg_start, seg_end, e)
+                continue
+            logger.info("%s回補 %s~%s：%d 筆", label, seg_start, seg_end, n)
+            total += n
+    logger.info("公司行動回補完成：共 %d 筆（%s~%s）", total, start, end)
     return total
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="一次性回補除權除息事件（TWT49U）")
+    p = argparse.ArgumentParser(description="一次性回補公司行動事件（除權息/面額變更/減資）")
     p.add_argument("start", help="起始日 YYYY-MM-DD")
     p.add_argument("end", help="結束日 YYYY-MM-DD")
     args = p.parse_args()

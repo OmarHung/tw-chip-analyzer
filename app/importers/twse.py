@@ -175,6 +175,47 @@ def parse_ex_dividend(raw: dict) -> list[dict]:
     return out
 
 
+def parse_resume_reference(raw: dict, kind: str) -> list[dict]:
+    """TWTB8U（面額變更）/ TWTAUU（減資）→ 除權除息以外的價格斷點事件。
+
+    兩報表欄位一致：恢復買賣日期（民國斜線）、股票代號、停止買賣前收盤價格、恢復買賣參考價。
+    data_date = 恢復買賣日期（恢復交易首日 = 斷點日）；adj_factor = 參考價 / 前收
+    （面額變更/拆股 <1；減資 >1）。與 TWT49U 共用 CorporateAction。
+    """
+    f = raw.get("fields") or []
+    i_date = col_index(f, "恢復買賣日期")
+    i_sym = col_index(f, "股票代號")
+    i_prev = col_index(f, "停止買賣前收盤價格")
+    i_ref = col_index(f, "恢復買賣參考價")
+    if i_date is None or i_sym is None:
+        return []
+
+    out: list[dict] = []
+    for row in raw.get("data", []):
+        sym = str(row[i_sym]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        d = parse_roc_date(row[i_date])
+        if d is None:
+            continue
+        prev = parse_float(row[i_prev]) if i_prev is not None else None
+        ref = parse_float(row[i_ref]) if i_ref is not None else None
+        adj = ref / prev if prev and prev > 0 and ref is not None else None
+        out.append(
+            {
+                "symbol": sym,
+                "data_date": d,
+                "available_at": availability_for(d),
+                "kind": kind,
+                "prev_close": prev,
+                "reference_price": ref,
+                "value": None,
+                "adj_factor": round(adj, 8) if adj is not None else None,
+            }
+        )
+    return out
+
+
 def _margin_table(raw: dict) -> dict | None:
     for t in raw.get("tables", []):
         f = t.get("fields") or []
