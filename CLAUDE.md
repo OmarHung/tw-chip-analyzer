@@ -34,10 +34,11 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 
 **chip_score 已改橫斷面百分位映射（2026-09-08，重大行為變更）**：`scoring.mapping: percentile`（config 可切回 linear）。分數 = 當日全市場 composite_raw 排名百分位（0~100 均勻分布），修復「z 合成回歸 50、天花板 ~64、高分 bucket 永無樣本」的結構缺陷；rank-preserving 不改 IC。**語意**：75 分 = 當日前 25%，BUY 門檻從「幾乎不可達」變「常態可達」（Entry Filter 其餘關卡仍在）。四呼叫點（scanner/dashboard/persist/單股 analysis）共用 `analysis.analyze_market` 兩段式；單股 `/analysis` 會載入當日全市場一起算。
 
-**公司行動還原（價 + 量）已完成**：`corporate_action` 收 除權息 TWT49U／面額變更 TWTB8U／減資 TWTAUU／**除權息預告 TWT48U**，以「後復權」還原。**價因子 `adj_factor`（參考價/前收）與量因子 `share_factor`（1 舊股→幾新股）是兩件事，不可互推**——除權息把現金股利與配股混在同一個 `adj_factor` 裡（已實證：無償配股 7.1% 的 2442 比值為 1.0、純現增的 6533 卻是 1.032），故配股率只能取自 TWT48U 的「無償配股率」（`share_factor = 1 + 無償配股率`）；面額/減資才可用 `1/adj_factor`。價因子套 close/high/low，量因子只套 `avg_vol20`（法人/融資/借券強度的分母），**`vwap` 是同日 turnover/volume 比值，一律用原始量**。還原值可用 `GET /api/stocks/{symbol}/features?date=` 核對（個股頁「還原後價格結構」卡）。
+**公司行動還原（價 + 量）已完成**：`corporate_action` 收 除權息 TWT49U／面額變更 TWTB8U／減資 TWTAUU／**除權息預告 TWT48U**／**減資預告 TWTAVU**，以「後復權」還原。**價因子 `adj_factor`（參考價/前收）與量因子 `share_factor`（1 舊股→幾新股）是兩件事，不可互推**——除權息把現金股利與配股混在同一個 `adj_factor` 裡（已實證：無償配股 7.1% 的 2442 比值為 1.0、純現增的 6533 卻是 1.032），故配股率只能取自 TWT48U 的「無償配股率」（`share_factor = 1 + 無償配股率`）；面額與「彌補虧損」減資才可用 `1/adj_factor`。**現金減資（減資原因「退還股款」）同樣不可互推**——TWTAUU 自載公式 `參考價 =（前收 − 息值 − 每股退還股款）/ 減資換股率`，參考價已扣掉退還的現金，1/adj 會高估留存股數（實測 6176 瑞儀 0.774 vs 真值 0.75、1459 聯發 0.951 vs 0.75），故換股率只取自 TWTAVU 減資預告表的「減資換股率」。價因子套 close/high/low，量因子只套 `avg_vol20`（法人/融資/借券強度的分母），**`vwap` 是同日 turnover/volume 比值，一律用原始量**。還原值可用 `GET /api/stocks/{symbol}/features?date=` 核對（個股頁「還原後價格結構」卡）。
 
 **已知限制 / 待辦（會影響決策，讀不出來的部分）**：
-- **歷史除權息的配股率補不回來**：TWT48U 是預告表，只回「未來尚未執行」的事件（區間參數無效）——只能靠每日 EOD 往前累積。（註：SBL TWT93U 歷史其實可回補，勿再以它類比。）故 2026-09-09 以前的 `權`/`權息` 事件 `share_factor` 為 NULL（只還原價、不還原量）；`面額`/`減資` 不受影響（用 `1/adj_factor`，精確且可回補）。TPEx 的公司行動則整個尚未接。
+- **歷史除權息的配股率補不回來**：TWT48U 是預告表，只回「未來尚未執行」的事件（區間參數無效）——只能靠每日 EOD 往前累積。（註：SBL TWT93U 歷史其實可回補，勿再以它類比。）故 2026-09-09 以前的 `權`/`權息` 事件 `share_factor` 為 NULL（只還原價、不還原量）；`面額`與「彌補虧損」減資不受影響（用 `1/adj_factor`，精確且可回補）。
+- **歷史現金減資的換股率也補不回來**（2026-09-09 修正）：TWTAVU 與 TWT48U 同性質、只回未來事件，故已執行的現金減資 `share_factor` 一律 NULL（只還原價、不還原量），舊有由 `1/adj_factor` 寫入的錯值已由 `scripts/backfill_corporate_actions.py` 清除（dev 庫 1414/1459/6176/1563 四筆）。TPEx 減資不受影響（revivt 詳細資料同表即有換股率，歷史可回補）。
 - **§28 成功標準仍未達成**：乾淨重算後各 horizon IC 全 ≈0（bucket 平坦）。歷次因子挖掘結論=病根是「單一 5 個月 regime 樣本」，非程式；勿再於現有資料挖因子（詳見 memory chip-score-backtest-finding）。累積跨 regime 資料後用 `/validation` 頁與 `scripts/score_monotonicity.py` 重驗。
 - **SBL 特徵已接線但權重刻意為 0**：`sbl_change_z` 已入 feature_daily，config `weights.institutional.sbl_change: 0.0`（原設計 -0.10）——紀律：未經 OOS 驗證不進分數；待借券累積足量後跑 `scripts/sbl_factor_oos.py` 驗證後再啟用。**「≥2 個月」是錯的門檻**(2026-09-09 實跑證實)：該腳本 20D forward + split-half + embargo 20，有效 test 橫斷面日 ≈ `N/2 − 30`；N=63 時只剩 3 天，t 值全無意義(連融券對照的 ✓ 也不可信)。**要 ~20 個 test 日需 N≈100、~30 個需 N≈120 交易日**。融券 short_change 同理維持原 config，勿依 in-sample 調整。
 - **TDCC holder：視窗內 ≥2 週快照自動切真實 change**（feature_builder），1 週時 level proxy；`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
@@ -56,7 +57,7 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 - `app/services/`：`feature_builder.py`（原始表→`feature_daily`，兩段正規化，look-ahead 只用 `data_date<=target`）、`market_score.py`、`normalize.py`（含 `cross_sectional_percentile`）、`analysis.py`（含 `analyze_market` 橫斷面兩段式）、`market_scan.py`、`flow_scan.py`、`forward_report.py`（前瞻驗證）、`price_adjust.py`（後復權純函式，價/量共用）、`orderflow_intraday.py`、`ticks.py`、`signal_persist.py`
 - `app/api/`：`stocks`（`/analysis`、`/chart`、`/ticks`、`/orderflow`、`/flows`、`/features` 還原值核對）、`scanner`（含 `/divergence`）、`dashboard`、`ops`（`/status`、`/backfill`）、`validation`（`/forward`）；CORS 允許任意 localhost 埠（見 `main.py`）
 - `app/backtest/`：`costs`（禁 0 成本）、`forward_returns`、`metrics`、`engine`（look-ahead 安全）、`runner`
-- `app/connectors/`：`twse`（含 SBL TWT93U、公司行動 TWT49U/TWT48U/TWTB8U/TWTAUU）/ `tpex`（上櫃；憑證缺 SKI，關 strict X509）/ `tdcc` / `yahoo`（圖表用）/ `shioaji_market`（逐筆 ticks，`simulation=True` 單例；金鑰無 production 權限但模擬可取真實行情）
+- `app/connectors/`：`twse`（含 SBL TWT93U、公司行動 TWT49U/TWT48U/TWTB8U/TWTAUU/TWTAVU）/ `tpex`（上櫃；憑證缺 SKI，關 strict X509）/ `tdcc` / `yahoo`（圖表用）/ `shioaji_market`（逐筆 ticks，`simulation=True` 單例；金鑰無 production 權限但模擬可取真實行情）
 - `app/importers/`：TWSE/TPEx/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
 - `app/jobs/`：`daily.py`（抓取→匯入 TWSE+TPEx+SBL→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）、`scheduler.py`（APScheduler EOD）、`runner.py`（手動回補，與 EOD 共用單飛鎖）
 - `frontend/`：Next.js 16 + TS + Tailwind v4。設計約束見下節。UI 規格見 `docs/05-api-ui.md §16`。

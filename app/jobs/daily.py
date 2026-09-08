@@ -17,6 +17,7 @@ from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
 from app.importers.service import (
     import_capital_reduction,
+    import_capital_reduction_forecast,
     import_ex_dividend,
     import_ex_rights_forecast,
     import_index,
@@ -96,14 +97,17 @@ async def run(
                 n_sbl = await import_sbl(s, sbl, target)
         except Exception as e:  # noqa: BLE001 — SBL 非必要，缺則後續中性
             logger.warning("SBL 匯入失敗（TWT93U）：%s", e)
-        # 公司行動還原因子：TWSE 除權息(TWT49U)+面額變更(TWTB8U)+減資(TWTAUU)+預告表
-        # (TWT48U 補配股率→量因子,只回未來)；TPEx 除權息(exDailyQ,同表即有配股率)
+        # 公司行動還原因子：TWSE 除權息(TWT49U)+面額變更(TWTB8U)+減資(TWTAUU)+兩張預告表
+        # (TWT48U 補配股率、TWTAVU 補減資換股率→量因子,只回未來)；
+        # TPEx 除權息(exDailyQ,同表即有配股率)
         # +面額變更(pvChgRslt)+減資(revivt)。
         # 各自 fail-soft，缺則該日該類無還原。
         n_ca = 0
         for label, fetch, imp in (
             ("除權息 TWT49U", twse_conn.fetch_ex_dividend, import_ex_dividend),
             ("面額變更 TWTB8U", twse_conn.fetch_par_change, import_par_change),
+            ("減資預告 TWTAVU", twse_conn.fetch_capital_reduction_forecast,
+             import_capital_reduction_forecast),
             ("減資 TWTAUU", twse_conn.fetch_capital_reduction, import_capital_reduction),
             ("除權息預告 TWT48U", twse_conn.fetch_ex_rights_forecast,
              import_ex_rights_forecast),

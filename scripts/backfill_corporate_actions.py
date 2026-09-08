@@ -20,12 +20,17 @@ import argparse
 import asyncio
 import datetime as dt
 
+from sqlalchemy import select, update
+
 from app.connectors import tpex as tpex_conn
 from app.connectors import twse as twse_conn
 from app.core.logging import get_logger
+from app.db.models.market import CorporateAction
 from app.db.session import get_sessionmaker
+from app.importers import twse as twse_parse
 from app.importers.service import (
     import_capital_reduction,
+    import_capital_reduction_forecast,
     import_ex_dividend,
     import_ex_rights_forecast,
     import_par_change,
@@ -62,6 +67,45 @@ def _month_ranges(start: dt.date, end: dt.date) -> list[tuple[dt.date, dt.date]]
     return out
 
 
+async def _clear_stale_cash_reduction(sm, raw: dict) -> int:
+    """清掉現金減資列上由舊規則（1/adj_factor）寫入的錯誤 share_factor。
+
+    現金減資的參考價已扣掉每股退還股款，1/adj 會高估留存股數（實測 6176 誤差 3%、
+    1459 誤差 27%）。精確換股率只有 TWTAVU 預告表有，歷史補不回來 → 一律歸 NULL
+    （只還原價、不還原量），寧缺勿錯。TWTAVU 寫入的正確值不符 1/adj，不會被清掉。
+    """
+    # parse 後 share_factor is None + adj_factor 有值 ⟺ 減資原因含「退還股款」
+    keys = [
+        (r["symbol"], r["data_date"])
+        for r in twse_parse.parse_resume_reference(raw, "減資")
+        if r["share_factor"] is None and r["adj_factor"] is not None
+    ]
+    if not keys:
+        return 0
+    cleared = 0
+    async with sm() as s:
+        for sym, d in keys:
+            row = (
+                await s.execute(
+                    select(CorporateAction).where(
+                        CorporateAction.symbol == sym, CorporateAction.data_date == d
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None or row.share_factor is None or not row.adj_factor:
+                continue
+            if abs(float(row.share_factor) - 1 / float(row.adj_factor)) > 1e-6:
+                continue  # 來自 TWTAVU 的精確值，保留
+            await s.execute(
+                update(CorporateAction)
+                .where(CorporateAction.symbol == sym, CorporateAction.data_date == d)
+                .values(share_factor=None)
+            )
+            cleared += 1
+        await s.commit()
+    return cleared
+
+
 async def run(start: dt.date, end: dt.date) -> int:
     sm = get_sessionmaker()
     total = 0
@@ -75,6 +119,15 @@ async def run(start: dt.date, end: dt.date) -> int:
         total += n
     except Exception as e:  # noqa: BLE001 — 同其他來源，失敗不中斷
         logger.warning("除權息預告回補失敗：%s", e)
+    # 減資預告表 TWTAVU 同樣只回未來事件，補現金減資的精確換股率（量還原因子）。
+    try:
+        raw = await twse_conn.fetch_capital_reduction_forecast()
+        async with sm() as s:
+            n = await import_capital_reduction_forecast(s, raw)
+        logger.info("減資預告回補（未來事件換股率）：%d 筆", n)
+        total += n
+    except Exception as e:  # noqa: BLE001
+        logger.warning("減資預告回補失敗：%s", e)
 
     for seg_start, seg_end in _month_ranges(start, end):
         for label, fetch, imp in _SOURCES:
@@ -87,6 +140,11 @@ async def run(start: dt.date, end: dt.date) -> int:
                 continue
             logger.info("%s回補 %s~%s：%d 筆", label, seg_start, seg_end, n)
             total += n
+            if label == "減資":
+                c = await _clear_stale_cash_reduction(sm, raw)
+                if c:
+                    logger.info("清除現金減資的錯誤量因子 %s~%s：%d 筆",
+                                seg_start, seg_end, c)
     logger.info("公司行動回補完成：共 %d 筆（%s~%s）", total, start, end)
     return total
 

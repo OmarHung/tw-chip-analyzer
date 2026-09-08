@@ -119,6 +119,22 @@ async def fetch_capital_reduction(start: dt.date, end: dt.date | None = None) ->
         )
 
 
+async def fetch_capital_reduction_forecast(
+    start: dt.date | None = None, end: dt.date | None = None
+) -> dict:
+    """TWTAVU 減資預告表（含「減資換股率」＝減資後發行股數/減資前發行股數）。
+
+    現金減資（退還股款）的量因子唯一正確來源：TWTAUU 的參考價已扣掉每股退還股款，
+    1/adj_factor 會高估留存股數（見 parse_resume_reference）。與 TWT48U 同性質——
+    **只回尚未執行的事件**，stkNo/date 參數無效（傳了也回同一份），故歷史補不回來，
+    只能靠每日 EOD 往前累積。參數保留只為與其他 fetch 同簽名。
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        return await _get(
+            client, f"{BASE}/rwd/zh/reducation/TWTAVU", {"response": "json"}
+        )
+
+
 async def fetch_index_month(date: dt.date) -> dict:
     """FMTQIK：回傳該月每日大盤成交與 TAIEX 收盤指數。"""
     async with httpx.AsyncClient(timeout=30) as client:

@@ -229,14 +229,20 @@ def parse_resume_reference(raw: dict, kind: str) -> list[dict]:
     data_date = 恢復買賣日期（恢復交易首日 = 斷點日）；adj_factor = 參考價 / 前收
     （面額變更/拆股 <1；減資 >1）。與 TWT49U 共用 CorporateAction。
 
-    兩者皆為純股數變動（不涉現金股利），故 share_factor = 1/adj_factor（拆股 >1、
-    減資 <1）——價跌幾倍、股數就漲幾倍。
+    量因子只在**純股數變動**時等於 1/adj_factor（價跌幾倍、股數就漲幾倍）：面額變更、
+    彌補虧損減資皆屬之。**現金減資（減資原因含「退還股款」）不是**——TWTAUU 自載的公式
+    `參考價 =（前收 - 息值 - 每股退還股款）/ 減資換股率` 說明參考價已先扣掉退還的現金，
+    1/adj_factor 會系統性高估留存股數（實測 6176 瑞儀：1/adj = 0.774，真實換股率 0.75）。
+    故現金減資此處記 share_factor=None，改由 TWTAVU 減資預告表提供精確換股率
+    （見 parse_capital_reduction_forecast）；`import_capital_reduction` 亦不在衝突時
+    更新 share_factor，避免把預告表寫入的正確值洗掉。
     """
     f = raw.get("fields") or []
     i_date = col_index(f, "恢復買賣日期")
     i_sym = col_index(f, "股票代號")
     i_prev = col_index(f, "停止買賣前收盤價格")
     i_ref = col_index(f, "恢復買賣參考價")
+    i_reason = col_index(f, "減資原因")  # TWTB8U 無此欄（面額變更必為純股數變動）
     if i_date is None or i_sym is None:
         return []
 
@@ -251,6 +257,8 @@ def parse_resume_reference(raw: dict, kind: str) -> list[dict]:
         prev = parse_float(row[i_prev]) if i_prev is not None else None
         ref = parse_float(row[i_ref]) if i_ref is not None else None
         adj = ref / prev if prev and prev > 0 and ref is not None else None
+        reason = str(row[i_reason]).strip() if i_reason is not None else ""
+        cash_back = "退還股款" in reason
         out.append(
             {
                 "symbol": sym,
@@ -261,7 +269,46 @@ def parse_resume_reference(raw: dict, kind: str) -> list[dict]:
                 "reference_price": ref,
                 "value": None,
                 "adj_factor": round(adj, 8) if adj is not None else None,
-                "share_factor": round(1 / adj, 8) if adj else None,
+                "share_factor": (
+                    None if cash_back or not adj else round(1 / adj, 8)
+                ),
+            }
+        )
+    return out
+
+
+def parse_capital_reduction_forecast(raw: dict) -> list[dict]:
+    """TWTAVU 減資預告表 → 只補 CorporateAction 的 share_factor（量還原因子）。
+
+    share_factor = 減資換股率（＝減資後發行股數/減資前發行股數，1 舊股→幾新股），對
+    彌補虧損與現金減資皆精確；現金減資更是唯一正確來源（TWTAUU 的 1/adj_factor 會偏差）。
+    data_date 取「恢復買賣日期」，與 TWTAUU 同鍵，兩來源寫同一列（價因子由 TWTAUU 於
+    恢復買賣日補上）。與 TWT48U 同樣是預告表，故 available_at 記今日、歷史補不回來。
+    """
+    f = raw.get("fields") or []
+    i_date = col_index(f, "恢復買賣日期")
+    i_sym = col_index(f, "股票代號")
+    i_ratio = col_index(f, "減資換股率")
+    if i_date is None or i_sym is None or i_ratio is None:
+        return []
+
+    out: list[dict] = []
+    for row in raw.get("data", []):
+        sym = str(row[i_sym]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        d = parse_roc_date(row[i_date])
+        ratio = parse_float(row[i_ratio])
+        if d is None or not ratio or ratio <= 0:
+            continue
+        out.append(
+            {
+                "symbol": sym,
+                "data_date": d,
+                # 預告表在恢復買賣日之前公布，取得當下即可用。
+                "available_at": availability_for(dt.date.today()),
+                "kind": "減資",
+                "share_factor": round(ratio, 8),
             }
         )
     return out

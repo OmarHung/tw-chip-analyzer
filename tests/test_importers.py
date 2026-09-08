@@ -18,6 +18,7 @@ from app.importers.base import (
 )
 from app.importers.service import (
     import_capital_reduction,
+    import_capital_reduction_forecast,
     import_ex_dividend,
     import_ex_rights_forecast,
     import_institutional,
@@ -169,8 +170,48 @@ class TestParsers:
         assert r["kind"] == "減資"
         assert r["adj_factor"] > 1.0
         assert abs(r["adj_factor"] - 23.86 / 6.60) < 1e-6
-        # 減資：股數變少 → 量因子 <1
+        # 彌補虧損＝純股數變動 → 量因子 = 1/adj（股數變少，<1）
         assert abs(r["share_factor"] - 6.60 / 23.86) < 1e-6
+
+    def test_cash_reduction_has_no_share_factor(self):
+        """現金減資（退還股款）：參考價已扣掉退還現金，1/adj 會高估留存股數 → 不得產出。"""
+        rows = twse.parse_resume_reference(_load("twse_twtauu.json"), "減資")
+        r = next(r for r in rows if r["symbol"] == "6176")  # 瑞儀，退還股款
+        assert r["adj_factor"] is not None          # 價因子照舊
+        assert r["share_factor"] is None            # 量因子留給 TWTAVU
+        # 真實換股率 0.75，1/adj = 0.774 → 若沿用會系統性偏差
+        assert abs(1 / r["adj_factor"] - 0.75) > 0.02
+
+    def test_capital_reduction_forecast_share_factor(self):
+        rows = twse.parse_capital_reduction_forecast(_load("twse_twtavu.json"))
+        by_sym = {r["symbol"]: r for r in rows}
+        # 現金減資 3356 奇偶：換股率 0.85111744（1 舊股→0.851 新股）
+        assert abs(by_sym["3356"]["share_factor"] - 0.85111744) < 1e-9
+        assert by_sym["3356"]["data_date"] == dt.date(2026, 9, 21)  # 恢復買賣日
+        # 彌補虧損也給精確值（優於 1/adj 的四捨五入）
+        assert abs(by_sym["2321"]["share_factor"] - 0.54687826) < 1e-9
+        # 只帶量因子，不帶價格欄位（預告時前收/參考價還不存在）
+        assert set(by_sym["3356"]) == {
+            "symbol", "data_date", "available_at", "kind", "share_factor"
+        }
+
+    async def test_reduction_forecast_not_clobbered_by_result(self, db_session):
+        """TWTAVU（量因子）先寫，TWTAUU（價因子）於恢復買賣日補上時不得洗掉量因子。"""
+        await import_capital_reduction_forecast(db_session, _load("twse_twtavu.json"))
+        # 3356 恢復買賣當日的 TWTAUU 一列：參考價 =（前收 - 每股退還 1.488825）/ 換股率
+        result_raw = {
+            "fields": ["恢復買賣日期", "股票代號", "名稱", "停止買賣前收盤價格",
+                       "恢復買賣參考價", "減資原因"],
+            "data": [["115/09/21", "3356", "奇偶", "30.00", "33.49", "退還股款"]],
+        }
+        await import_capital_reduction(db_session, result_raw)
+        r = (
+            await db_session.execute(
+                select(CorporateAction).where(CorporateAction.symbol == "3356")
+            )
+        ).scalar_one()
+        assert abs(float(r.share_factor) - 0.85111744) < 1e-8   # 預告表的值保住
+        assert r.adj_factor is not None and float(r.prev_close) == 30.0
 
     async def test_import_par_and_reduction_to_db(self, db_session):
         n1 = await import_par_change(db_session, _load("twse_twtb8u.json"))

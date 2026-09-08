@@ -120,9 +120,24 @@ async def import_par_change(session: AsyncSession, raw: dict) -> int:
 
 
 async def import_capital_reduction(session: AsyncSession, raw: dict) -> int:
-    """減資（TWTAUU）→ CorporateAction。"""
+    """減資（TWTAUU）→ CorporateAction（價因子；量因子只在首次插入時給 1/adj）。
+
+    衝突時不更新 share_factor：現金減資的精確換股率來自 TWTAVU 預告表（先寫入），
+    TWTAUU 於恢復買賣日補價因子時不可把它洗成 1/adj_factor 或 NULL。
+    """
+    rows = twse.parse_resume_reference(raw, "減資")
     return await _import_corporate_actions(
-        session, twse.parse_resume_reference(raw, "減資")
+        session,
+        rows,
+        [c for c in (rows[0] if rows else {}) if c not in
+         ("symbol", "data_date", "share_factor")],
+    )
+
+
+async def import_capital_reduction_forecast(session: AsyncSession, raw: dict) -> int:
+    """減資預告表（TWTAVU）→ 只補 share_factor（量還原因子，含現金減資的精確換股率）。"""
+    return await _import_corporate_actions(
+        session, twse.parse_capital_reduction_forecast(raw), ["share_factor"]
     )
 
 
