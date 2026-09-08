@@ -25,8 +25,10 @@ from app.db.models.features import FeatureDaily
 from app.db.models.intraday import RawTick
 from app.db.models.market import DailyPrice
 from app.importers.base import availability_for
+from app.repositories.corporate_actions import load_actions
 from app.repositories.upsert import upsert_many
 from app.services.orderflow_intraday import compute_orderflow
+from app.services.price_adjust import back_adjust
 
 LOTS_TO_SHARES = 1000  # 融資融券單位為張
 
@@ -114,14 +116,30 @@ async def _load_df(session: AsyncSession, model, cols, start, end) -> pd.DataFra
     return pd.DataFrame(rows, columns=cols)
 
 
-def _price_features(g: pd.DataFrame) -> dict | None:
-    """g：單一 symbol、依日期排序、data_date<=target 的價格。"""
+def _price_features(
+    g: pd.DataFrame, actions: list[tuple[dt.date, float]] | None = None
+) -> dict | None:
+    """g：單一 symbol、依日期排序、data_date<=target 的價格。
+
+    actions：該檔除權除息事件 [(ex_date, adj_factor)]。有事件時對 close/high/low 做
+    後復權（最新一根不動、較早乘上其後因子累積），使 MA/ATR/日報酬跨除權息連續。
+    vwap 為當日 turnover/volume（同日比值），不受跨日還原影響。
+    """
     g = g.sort_values("data_date")
     if g.empty:
         return None
-    close = g["close"].astype(float)
-    high = g["high"].astype(float)
-    low = g["low"].astype(float)
+    if actions:
+        dates = list(g["data_date"])
+        adj_close = back_adjust(dates, g["close"].astype(float), actions)
+        adj_high = back_adjust(dates, g["high"].astype(float), actions)
+        adj_low = back_adjust(dates, g["low"].astype(float), actions)
+        close = pd.Series(adj_close, index=g.index).astype(float)
+        high = pd.Series(adj_high, index=g.index).astype(float)
+        low = pd.Series(adj_low, index=g.index).astype(float)
+    else:
+        close = g["close"].astype(float)
+        high = g["high"].astype(float)
+        low = g["low"].astype(float)
     vol = g["volume"].astype(float)
     turn = g["turnover"].astype(float)
     last_close = close.iloc[-1]
@@ -210,11 +228,16 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     if not symbols_today:
         return 0
 
+    # 除權除息事件（視窗內）→ 對價格序列後復權，修 MA/ATR/日報酬的斷點。
+    actions = await load_actions(
+        session, symbols=list(symbols_today), start=start, end=target
+    )
+
     pf: dict[str, dict] = {}
     for sym, g in prices.groupby("symbol"):
         if sym not in symbols_today:
             continue
-        feat = _price_features(g)
+        feat = _price_features(g, actions.get(sym))
         if feat:
             pf[sym] = feat
 

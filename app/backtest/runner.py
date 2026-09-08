@@ -13,6 +13,8 @@ from app.backtest.engine import BacktestEngine, BacktestReport, BacktestSignal
 from app.backtest.forward_returns import Bar
 from app.db.models.features import SignalSnapshot
 from app.db.models.market import DailyPrice
+from app.repositories.corporate_actions import load_actions
+from app.services.price_adjust import back_adjust
 
 
 async def load_signals(session: AsyncSession) -> list[BacktestSignal]:
@@ -26,6 +28,7 @@ async def load_signals(session: AsyncSession) -> list[BacktestSignal]:
 async def load_bars(
     session: AsyncSession, symbols: list[str]
 ) -> dict[str, list[Bar]]:
+    """載入每檔 OHLC bar，並用除權除息事件後復權（進出場報酬跨除權息連續）。"""
     stmt = (
         select(
             DailyPrice.symbol,
@@ -38,12 +41,29 @@ async def load_bars(
         .where(DailyPrice.symbol.in_(symbols))
         .order_by(DailyPrice.symbol, DailyPrice.data_date)
     )
-    out: dict[str, list[Bar]] = defaultdict(list)
+    raw: dict[str, list[tuple]] = defaultdict(list)
     for sym, d, o, h, low, c in (await session.execute(stmt)).all():
         if None in (o, h, low, c):
             continue
-        out[sym].append(Bar(d, float(o), float(h), float(low), float(c)))
-    return dict(out)
+        raw[sym].append((d, float(o), float(h), float(low), float(c)))
+
+    actions = await load_actions(session, symbols=symbols)
+    out: dict[str, list[Bar]] = {}
+    for sym, series in raw.items():
+        dates = [r[0] for r in series]
+        acts = actions.get(sym)
+        if acts:
+            o_adj = back_adjust(dates, [r[1] for r in series], acts)
+            h_adj = back_adjust(dates, [r[2] for r in series], acts)
+            l_adj = back_adjust(dates, [r[3] for r in series], acts)
+            c_adj = back_adjust(dates, [r[4] for r in series], acts)
+            out[sym] = [
+                Bar(d, o, h, low, c)
+                for d, o, h, low, c in zip(dates, o_adj, h_adj, l_adj, c_adj)
+            ]
+        else:
+            out[sym] = [Bar(r[0], r[1], r[2], r[3], r[4]) for r in series]
+    return out
 
 
 async def run_db_backtest(
