@@ -109,7 +109,10 @@ async def get_analysis(
     ]
     results = analyze_market(AnalysisService(), items, market)
     result = next(r for r in results if r.symbol == symbol)
-    return AnalysisResponse.from_result(result)
+    resp = AnalysisResponse.from_result(result)
+    # 市場別（上市/上櫃）只在 stock 主檔，AnalysisResult 不帶，於此補上供前端標示。
+    resp.market = stock.market if stock else None
+    return resp
 
 
 @router.get("/{symbol}/chart", response_model=ChartResponse)

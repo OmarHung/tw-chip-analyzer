@@ -27,6 +27,7 @@ export interface Scores {
 export interface AnalysisResponse {
   symbol: string;
   name: string;
+  market: string | null; // "TWSE"=上市 / "TPEx"=上櫃（興櫃未納入資料源）
   price: number;
   change_pct: number | null;
   chip_score: number;

@@ -63,6 +63,7 @@ export default async function StockDetailPage({
             <span className="font-display text-2xl text-ink-dim">
               {data.name}
             </span>
+            <MarketBadge market={data.market} />
           </div>
           <div className="mt-2 flex items-baseline gap-3">
             <span className="font-mono text-2xl tnum text-ink">
@@ -247,5 +248,18 @@ function AdjustedPricePanel({ data }: { data: FeaturesResponse }) {
         </div>
       )}
     </Card>
+  );
+}
+
+
+/* 市場別徽章：資料源僅含上市(TWSE)與上櫃一般板(TPEx)，興櫃未匯入故不會出現。 */
+const MARKET_ZH: Record<string, string> = { TWSE: "上市", TPEx: "上櫃" };
+
+function MarketBadge({ market }: { market: string | null }) {
+  if (!market) return null;
+  return (
+    <span className="rounded-md border border-line-soft bg-panel-2/50 px-2 py-0.5 font-mono text-[10px] tracking-wider text-ink-dim">
+      {MARKET_ZH[market] ?? market}
+    </span>
   );
 }

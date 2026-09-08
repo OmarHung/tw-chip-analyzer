@@ -28,6 +28,7 @@ class RiskInfo(BaseModel):
 class AnalysisResponse(BaseModel):
     symbol: str
     name: str
+    market: str | None = None  # TWSE(上市) / TPEx(上櫃);由 endpoint 補,不在 AnalysisResult
     price: float
     change_pct: float | None = None
     chip_score: float

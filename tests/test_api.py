@@ -81,6 +81,26 @@ async def test_analysis_shape(client):
     assert body["reasons"]
 
 
+async def test_analysis_exposes_market(client, db_session):
+    """個股資訊要能標示上市/上櫃（市場別只在 stock 主檔，需由 endpoint 補上）。"""
+    r = await client.get("/api/stocks/2330/analysis")
+    assert r.json()["market"] == "TWSE"
+    # 上櫃股同樣要標對
+    db_session.add(Stock(symbol="8069", name="元太", market="TPEx"))
+    await db_session.flush()
+    d = dt.date(2026, 9, 5)
+    db_session.add(
+        FeatureDaily(
+            symbol="8069", data_date=d, available_at=dt.datetime(2026, 9, 5, 15, 0),
+            close=148.5, atr14=3, ma20=150, vwap=149, recent_swing_low=140,
+            turnover=800_000_000, close_vs_ma20_pct=-0.01, close_vs_vwap_pct=-0.003,
+        )
+    )
+    await db_session.commit()
+    r2 = await client.get("/api/stocks/8069/analysis")
+    assert r2.status_code == 200 and r2.json()["market"] == "TPEx"
+
+
 async def test_analysis_404(client):
     r = await client.get("/api/stocks/9999/analysis")
     assert r.status_code == 404
