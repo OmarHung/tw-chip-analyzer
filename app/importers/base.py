@@ -59,6 +59,13 @@ def parse_roc_date(s: str) -> dt.date | None:
         return None
 
 
+def parse_roc_cjk_date(s: str) -> dt.date | None:
+    """民國日期（含年月日字元）'115年09月09日' → date(2026, 9, 9)。"""
+    return parse_roc_date(
+        str(s).strip().replace("年", "/").replace("月", "/").rstrip("日")
+    )
+
+
 def is_stock_symbol(symbol: str) -> bool:
     """只保留 4 位數普通股（排除 ETF/權證/00 開頭等）。第一版聚焦一般個股。"""
     s = symbol.strip()

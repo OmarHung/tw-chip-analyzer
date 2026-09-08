@@ -17,6 +17,7 @@ from app.importers.base import (
     is_stock_symbol,
     parse_float,
     parse_int,
+    parse_roc_cjk_date,
     parse_roc_date,
 )
 
@@ -127,6 +128,48 @@ def parse_index(raw: dict) -> list[dict]:
                 "available_at": availability_for(d),
                 "taiex_close": parse_float(row[i_close]),
                 "turnover": parse_float(row[i_turn]) if i_turn is not None else None,
+            }
+        )
+    return out
+
+
+def parse_ex_dividend(raw: dict) -> list[dict]:
+    """TWT49U → 除權除息事件。data_date 取自列內「資料日期」（區間查詢每列各自帶日期）。
+
+    還原因子 adj_factor = 除權息參考價 / 除權息前收盤價（把 data_date 前的價乘上它，
+    使報酬/MA/ATR 連續）。缺任一價或前收<=0 則 adj_factor 記 None。
+    """
+    f = raw.get("fields") or []
+    i_date = col_index(f, "資料日期")
+    i_sym = col_index(f, "股票代號")
+    i_prev = col_index(f, "除權息前收盤價")
+    i_ref = col_index(f, "除權息參考價")
+    i_val = col_index(f, "權值+息值")
+    i_kind = col_index(f, "權/息")
+    if i_date is None or i_sym is None:
+        return []
+
+    out: list[dict] = []
+    for row in raw.get("data", []):
+        sym = str(row[i_sym]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        d = parse_roc_cjk_date(row[i_date])
+        if d is None:
+            continue
+        prev = parse_float(row[i_prev]) if i_prev is not None else None
+        ref = parse_float(row[i_ref]) if i_ref is not None else None
+        adj = ref / prev if prev and prev > 0 and ref is not None else None
+        out.append(
+            {
+                "symbol": sym,
+                "data_date": d,
+                "available_at": availability_for(d),
+                "kind": str(row[i_kind]).strip() if i_kind is not None else "",
+                "prev_close": prev,
+                "reference_price": ref,
+                "value": parse_float(row[i_val]) if i_val is not None else None,
+                "adj_factor": round(adj, 8) if adj is not None else None,
             }
         )
     return out

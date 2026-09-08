@@ -52,7 +52,11 @@ class MarketDaily(Base, AvailabilityMixin, TimestampMixin):
 
 
 class DailyPrice(Base, AvailabilityMixin, TimestampMixin):
-    """日 OHLCV（含成交金額，供流動性/量比）。"""
+    """日 OHLCV（含成交金額，供流動性/量比）。
+
+    注意：close 為 TWSE 原始（未還原）收盤價。除權息／拆股的還原因子存於
+    CorporateAction，需連續價格序列（報酬/MA/ATR、回測）時據以調整。
+    """
 
     __tablename__ = "daily_price"
     __table_args__ = (UniqueConstraint("symbol", "data_date", name="uq_daily_price"),)
@@ -67,3 +71,28 @@ class DailyPrice(Base, AvailabilityMixin, TimestampMixin):
     close: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     volume: Mapped[int | None] = mapped_column(BigInteger)  # 股數
     turnover: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))  # 成交金額 TWD
+
+
+class CorporateAction(Base, AvailabilityMixin, TimestampMixin):
+    """除權除息／拆股事件（來源：TWSE TWT49U 除權除息計算結果表）。
+
+    價格序列在 data_date（除權息日）出現非交易性斷點。還原因子
+    `adj_factor = reference_price / prev_close`（配息 <1、配股/拆股 <1）：
+    把 data_date 之前的價格全部乘上此因子，即可讓報酬/MA/ATR 連續。
+    kind：'權'（除權）/ '息'（除息）/ '權息'（兩者）。
+    """
+
+    __tablename__ = "corporate_action"
+    __table_args__ = (
+        UniqueConstraint("symbol", "data_date", name="uq_corporate_action"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(
+        String(16), ForeignKey("stock.symbol"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)  # 權 / 息 / 權息
+    prev_close: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))  # 除權息前收盤價
+    reference_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))  # 除權息參考價
+    value: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))  # 權值+息值
+    adj_factor: Mapped[Decimal | None] = mapped_column(Numeric(12, 8))  # 參考價/前收

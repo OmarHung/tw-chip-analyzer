@@ -8,10 +8,16 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from app.db.models.chips import InstitutionalDaily, MarginDaily, SblDaily
-from app.db.models.market import DailyPrice, Stock
+from app.db.models.market import CorporateAction, DailyPrice, Stock
 from app.importers import twse
-from app.importers.base import is_stock_symbol, parse_float, parse_int
+from app.importers.base import (
+    is_stock_symbol,
+    parse_float,
+    parse_int,
+    parse_roc_cjk_date,
+)
 from app.importers.service import (
+    import_ex_dividend,
     import_institutional,
     import_margin,
     import_ohlcv,
@@ -43,6 +49,11 @@ class TestBase:
         assert not is_stock_symbol("00715L")
         assert not is_stock_symbol("　")
 
+    def test_parse_roc_cjk_date(self):
+        assert parse_roc_cjk_date("115年09月09日") == dt.date(2026, 9, 9)
+        assert parse_roc_cjk_date("115年07月01日") == dt.date(2026, 7, 1)
+        assert parse_roc_cjk_date("--") is None
+
 
 class TestParsers:
     def test_ohlcv(self):
@@ -67,6 +78,36 @@ class TestParsers:
         assert rows
         r = rows[0]
         assert set(r) >= {"margin_balance", "short_balance", "margin_buy", "short_sell"}
+
+    def test_ex_dividend(self):
+        rows = twse.parse_ex_dividend(_load("twse_twt49u.json"))
+        # 特別股 1101B（非四位數純數字）被過濾
+        assert all(is_stock_symbol(r["symbol"]) for r in rows)
+        assert not any(r["symbol"] == "1101B" for r in rows)
+        by_sym = {r["symbol"]: r for r in rows}
+        # 除息：1101 台泥 前收 24.05 → 參考 23.25，因子 = 23.25/24.05
+        r = by_sym["1101"]
+        assert r["data_date"] == dt.date(2026, 7, 1)
+        assert r["kind"] == "息"
+        assert r["prev_close"] == 24.05 and r["reference_price"] == 23.25
+        assert abs(r["adj_factor"] - 23.25 / 24.05) < 1e-6
+        # 除權（創新板）：6951 青新-創 前收 78.70 → 參考 69.61
+        assert by_sym["6951"]["kind"] == "權"
+        assert abs(by_sym["6951"]["adj_factor"] - 69.61 / 78.70) < 1e-6
+        # 除權息：8112 至上
+        assert by_sym["8112"]["kind"] == "權息"
+
+    async def test_import_ex_dividend_to_db(self, db_session):
+        n = await import_ex_dividend(db_session, _load("twse_twt49u.json"))
+        assert n == 3  # 1101B 特別股被過濾，剩 3 檔
+        rows = (await db_session.execute(select(CorporateAction))).scalars().all()
+        assert {r.symbol for r in rows} == {"1101", "6951", "8112"}
+        # 冪等：重跑不新增
+        await import_ex_dividend(db_session, _load("twse_twt49u.json"))
+        cnt = (
+            await db_session.execute(select(func.count()).select_from(CorporateAction))
+        ).scalar()
+        assert cnt == 3
 
     def test_sbl_positions_and_filter(self):
         rows = twse.parse_sbl(_load("twse_twt93u.json"), D)

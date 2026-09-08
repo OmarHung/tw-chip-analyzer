@@ -12,7 +12,7 @@ from app.db.models.chips import (
     TdccSummaryWeekly,
     TdccWeekly,
 )
-from app.db.models.market import DailyPrice, MarketIndex, Stock
+from app.db.models.market import CorporateAction, DailyPrice, MarketIndex, Stock
 from app.importers import tdcc, tpex, twse
 from app.repositories.upsert import upsert_ignore, upsert_many
 
@@ -81,6 +81,15 @@ async def import_sbl(session: AsyncSession, raw: dict, data_date: dt.date) -> in
     rows = twse.parse_sbl(raw, data_date)
     await _ensure_stocks(session, {r["symbol"] for r in rows})
     n = await upsert_many(session, SblDaily, rows, ["symbol", "data_date"])
+    await session.commit()
+    return n
+
+
+async def import_ex_dividend(session: AsyncSession, raw: dict) -> int:
+    """除權除息事件（TWT49U）。列內自帶 data_date，故不需傳日期。"""
+    rows = twse.parse_ex_dividend(raw)
+    await _ensure_stocks(session, {r["symbol"] for r in rows})
+    n = await upsert_many(session, CorporateAction, rows, ["symbol", "data_date"])
     await session.commit()
     return n
 

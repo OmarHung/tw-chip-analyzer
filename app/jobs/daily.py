@@ -16,6 +16,7 @@ from app.connectors import twse as twse_conn
 from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
 from app.importers.service import (
+    import_ex_dividend,
     import_index,
     import_institutional,
     import_margin,
@@ -89,6 +90,14 @@ async def run(
                 n_sbl = await import_sbl(s, sbl, target)
         except Exception as e:  # noqa: BLE001 — SBL 非必要，缺則後續中性
             logger.warning("SBL 匯入失敗（TWT93U）：%s", e)
+        # 除權除息（TWT49U）：當日除權息事件 + 還原因子。失敗不影響核心匯入。
+        n_ca = 0
+        try:
+            ca = await twse_conn.fetch_ex_dividend(target)
+            async with sm() as s:
+                n_ca = await import_ex_dividend(s, ca)
+        except Exception as e:  # noqa: BLE001 — 除權息非必要，缺則該日無還原
+            logger.warning("除權除息匯入失敗（TWT49U）：%s", e)
         # TPEx 上櫃（行情/法人/融資券）：失敗不影響 TWSE 核心匯入。
         n_tpx = n_tpx_inst = n_tpx_margin = 0
         try:
@@ -102,9 +111,9 @@ async def run(
         except Exception as e:  # noqa: BLE001 — TPEx 缺則僅上市參與當日橫斷面
             logger.warning("TPEx 匯入失敗：%s", e)
         logger.info(
-            "匯入完成：price=%d institutional=%d margin=%d sbl=%d "
+            "匯入完成：price=%d institutional=%d margin=%d sbl=%d ca=%d "
             "tpex=%d/%d/%d",
-            n_price, n_inst, n_margin, n_sbl, n_tpx, n_tpx_inst, n_tpx_margin,
+            n_price, n_inst, n_margin, n_sbl, n_ca, n_tpx, n_tpx_inst, n_tpx_margin,
         )
         if n_price + n_tpx == 0:
             logger.warning("當日無 OHLCV（可能非交易日），略過建特徵。")

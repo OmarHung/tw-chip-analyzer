@@ -8,11 +8,18 @@ from app.db.models.chips import (
 )
 from app.db.models.features import FeatureDaily, SignalSnapshot
 from app.db.models.intraday import RawTick
-from app.db.models.market import DailyPrice, MarketDaily, MarketIndex, Stock
+from app.db.models.market import (
+    CorporateAction,
+    DailyPrice,
+    MarketDaily,
+    MarketIndex,
+    Stock,
+)
 
 __all__ = [
     "Stock",
     "DailyPrice",
+    "CorporateAction",
     "MarketIndex",
     "MarketDaily",
     "RawTick",
