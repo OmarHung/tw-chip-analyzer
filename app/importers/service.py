@@ -85,9 +85,13 @@ async def import_sbl(session: AsyncSession, raw: dict, data_date: dt.date) -> in
     return n
 
 
-async def _import_corporate_actions(session: AsyncSession, rows: list[dict]) -> int:
+async def _import_corporate_actions(
+    session: AsyncSession, rows: list[dict], update_columns: list[str] | None = None
+) -> int:
     await _ensure_stocks(session, {r["symbol"] for r in rows})
-    n = await upsert_many(session, CorporateAction, rows, ["symbol", "data_date"])
+    n = await upsert_many(
+        session, CorporateAction, rows, ["symbol", "data_date"], update_columns
+    )
     await session.commit()
     return n
 
@@ -95,6 +99,17 @@ async def _import_corporate_actions(session: AsyncSession, rows: list[dict]) -> 
 async def import_ex_dividend(session: AsyncSession, raw: dict) -> int:
     """除權除息事件（TWT49U）。列內自帶 data_date，故不需傳日期。"""
     return await _import_corporate_actions(session, twse.parse_ex_dividend(raw))
+
+
+async def import_ex_rights_forecast(session: AsyncSession, raw: dict) -> int:
+    """除權息預告表（TWT48U）→ 只補 share_factor（量還原因子）。
+
+    衝突時僅更新 share_factor：這列的價格欄位由 TWT49U 在除權息當日填，兩來源寫同一列
+    互不覆蓋（預告表當下還沒有前收/參考價）。
+    """
+    return await _import_corporate_actions(
+        session, twse.parse_ex_rights_forecast(raw), ["share_factor"]
+    )
 
 
 async def import_par_change(session: AsyncSession, raw: dict) -> int:

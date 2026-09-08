@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datetime as dt
@@ -10,7 +11,7 @@ import datetime as dt
 from app.api.schemas import AnalysisResponse
 from app.connectors import yahoo
 from app.core.logging import get_logger
-from app.db.models.market import Stock
+from app.db.models.market import CorporateAction, DailyPrice, Stock
 from app.db.session import get_session
 from app.repositories.features import FeatureDailyRepository, SignalRepository
 from app.repositories.market import load_daily_prices, load_market_context
@@ -145,6 +146,108 @@ async def get_chart(
     return ChartResponse(
         symbol=symbol, name=name, prev_close=prev_close,
         daily=[Bar(**b) for b in daily], intraday=[Bar(**b) for b in intraday],
+    )
+
+
+class CorporateActionItem(BaseModel):
+    date: str
+    kind: str  # 權 / 息 / 權息 / 面額 / 減資
+    prev_close: float | None = None
+    reference_price: float | None = None
+    adj_factor: float | None = None  # 參考價/前收（價格還原因子）
+    share_factor: float | None = None  # 1 舊股→幾新股（量還原因子）
+
+
+class FeaturesResponse(BaseModel):
+    """feature_daily 的還原後價格特徵 + 造成還原的公司行動（供人工核對）。"""
+
+    symbol: str
+    name: str
+    date: str
+    close: float | None = None  # 還原後收盤（=當日原始收盤，因後復權最新一根不動）
+    raw_close: float | None = None  # daily_price 原始收盤
+    change_pct: float | None = None
+    ma20: float | None = None  # 還原後 20 日均價
+    atr14: float | None = None  # 還原後 ATR14
+    vwap: float | None = None
+    recent_swing_low: float | None = None
+    close_vs_ma20_pct: float | None = None
+    close_vs_vwap_pct: float | None = None
+    actions: list[CorporateActionItem] = []
+
+
+def _f(v: object) -> float | None:
+    return float(v) if v is not None else None  # type: ignore[arg-type]
+
+
+@router.get("/{symbol}/features", response_model=FeaturesResponse)
+async def get_features(
+    symbol: str,
+    date: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> FeaturesResponse:
+    """某檔某日的還原後價格特徵（date 省略=該檔最新一日）。
+
+    `chart` 端點刻意回原始價，還原值只存在 feature_daily；AVOID 股的 `/analysis` 也不
+    輸出 MA/ATR。此端點讓公司行動的還原效果可被直接核對（例：6949 面額 1:20 變更後，
+    close_vs_ma20_pct 應 ≈0 而非 ≈-94%）。
+    """
+    repo = FeatureDailyRepository(session)
+    fd = (
+        await repo.get_on_date(symbol, dt.date.fromisoformat(date))
+        if date
+        else await repo.get_latest(symbol)
+    )
+    if fd is None:
+        raise HTTPException(
+            status_code=404, detail=f"無 {symbol} 於 {date or '最新日'} 的特徵資料"
+        )
+
+    stock = await session.get(Stock, symbol)
+    raw = (
+        await session.execute(
+            select(DailyPrice.close).where(
+                DailyPrice.symbol == symbol, DailyPrice.data_date == fd.data_date
+            )
+        )
+    ).scalar_one_or_none()
+    # 只列「實際影響這天特徵」的事件：feature_builder 的 45 日視窗內、且 <=當日。
+    rows = (
+        await session.execute(
+            select(CorporateAction)
+            .where(
+                CorporateAction.symbol == symbol,
+                CorporateAction.data_date > fd.data_date - dt.timedelta(days=45),
+                CorporateAction.data_date <= fd.data_date,
+            )
+            .order_by(CorporateAction.data_date)
+        )
+    ).scalars().all()
+
+    return FeaturesResponse(
+        symbol=symbol,
+        name=stock.name if stock else symbol,
+        date=str(fd.data_date),
+        close=_f(fd.close),
+        raw_close=_f(raw),
+        change_pct=fd.change_pct,
+        ma20=_f(fd.ma20),
+        atr14=_f(fd.atr14),
+        vwap=_f(fd.vwap),
+        recent_swing_low=_f(fd.recent_swing_low),
+        close_vs_ma20_pct=fd.close_vs_ma20_pct,
+        close_vs_vwap_pct=fd.close_vs_vwap_pct,
+        actions=[
+            CorporateActionItem(
+                date=str(r.data_date),
+                kind=r.kind,
+                prev_close=_f(r.prev_close),
+                reference_price=_f(r.reference_price),
+                adj_factor=_f(r.adj_factor),
+                share_factor=_f(r.share_factor),
+            )
+            for r in rows
+        ],
     )
 
 
@@ -365,15 +468,12 @@ async def get_flows(
     tdcc_row = await load_tdcc_summary_latest(session, symbol)
     tdcc = None
     if tdcc_row is not None:
-        def _pct(v: object) -> float | None:
-            return float(v) if v is not None else None  # type: ignore[arg-type]
-
         tdcc = TdccSnapshot(
             date=str(tdcc_row.data_date),
-            retail_ratio=_pct(tdcc_row.retail_ratio),
-            medium_ratio=_pct(tdcc_row.medium_ratio),
-            large_ratio=_pct(tdcc_row.large_ratio),
-            super_large_ratio=_pct(tdcc_row.super_large_ratio),
+            retail_ratio=_f(tdcc_row.retail_ratio),
+            medium_ratio=_f(tdcc_row.medium_ratio),
+            large_ratio=_f(tdcc_row.large_ratio),
+            super_large_ratio=_f(tdcc_row.super_large_ratio),
             holder_count=tdcc_row.holder_count,
         )
 

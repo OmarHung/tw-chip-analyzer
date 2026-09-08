@@ -25,7 +25,7 @@ from app.db.models.features import FeatureDaily
 from app.db.models.intraday import RawTick
 from app.db.models.market import DailyPrice
 from app.importers.base import availability_for
-from app.repositories.corporate_actions import load_actions
+from app.repositories.corporate_actions import load_factors
 from app.repositories.upsert import upsert_many
 from app.services.orderflow_intraday import compute_orderflow
 from app.services.price_adjust import back_adjust
@@ -117,13 +117,19 @@ async def _load_df(session: AsyncSession, model, cols, start, end) -> pd.DataFra
 
 
 def _price_features(
-    g: pd.DataFrame, actions: list[tuple[dt.date, float]] | None = None
+    g: pd.DataFrame,
+    actions: list[tuple[dt.date, float]] | None = None,
+    share_actions: list[tuple[dt.date, float]] | None = None,
 ) -> dict | None:
     """g：單一 symbol、依日期排序、data_date<=target 的價格。
 
-    actions：該檔除權除息事件 [(ex_date, adj_factor)]。有事件時對 close/high/low 做
-    後復權（最新一根不動、較早乘上其後因子累積），使 MA/ATR/日報酬跨除權息連續。
+    actions：該檔公司行動的價格因子 [(ex_date, adj_factor)]。有事件時對 close/high/low
+    做後復權（最新一根不動、較早乘上其後因子累積），使 MA/ATR/日報酬跨除權息連續。
     vwap 為當日 turnover/volume（同日比值），不受跨日還原影響。
+
+    share_actions：股數因子 [(ex_date, share_factor)]（拆股/配股 >1、減資 <1）。拆股後
+    1 張舊股變 N 張，歷史量與現量尺度不同，會把 avg_vol20 壓小 N 倍——而 avg_vol20 是
+    法人/融資/借券強度的分母。故歷史量同樣後復權成「現在的股數單位」。
     """
     g = g.sort_values("data_date")
     if g.empty:
@@ -142,6 +148,12 @@ def _price_features(
         low = g["low"].astype(float)
     vol = g["volume"].astype(float)
     turn = g["turnover"].astype(float)
+    if share_actions:
+        adj_vol = pd.Series(
+            back_adjust(list(g["data_date"]), vol, share_actions), index=g.index
+        ).astype(float)
+    else:
+        adj_vol = vol
     last_close = close.iloc[-1]
     if not np.isfinite(last_close) or last_close <= 0:
         return None
@@ -153,11 +165,11 @@ def _price_features(
         [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
     ).max(axis=1)
     atr14 = tr.tail(14).mean()
-    last_vol = vol.iloc[-1]
+    last_vol = vol.iloc[-1]  # vwap 是同日 turnover/volume 比值，須用原始量
     last_turn = turn.iloc[-1]
     vwap = (last_turn / last_vol) if last_vol and last_vol > 0 else last_close
     swing_low = low.tail(10).min()
-    avg_vol20 = vol.tail(20).mean()
+    avg_vol20 = adj_vol.tail(20).mean()
     prev_close = close.iloc[-2] if len(close) >= 2 else None
     change_pct = (
         float((last_close - prev_close) / prev_close)
@@ -228,8 +240,9 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     if not symbols_today:
         return 0
 
-    # 除權除息事件（視窗內）→ 對價格序列後復權，修 MA/ATR/日報酬的斷點。
-    actions = await load_actions(
+    # 公司行動（視窗內）→ 價格序列後復權修 MA/ATR/日報酬的斷點；股數變動的事件
+    # （拆股/配股/減資）另把歷史量還原成現在的股數單位，避免污染 avg_vol20。
+    actions, share_actions = await load_factors(
         session, symbols=list(symbols_today), start=start, end=target
     )
 
@@ -237,7 +250,7 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     for sym, g in prices.groupby("symbol"):
         if sym not in symbols_today:
             continue
-        feat = _price_features(g, actions.get(sym))
+        feat = _price_features(g, actions.get(sym), share_actions.get(sym))
         if feat:
             pf[sym] = feat
 

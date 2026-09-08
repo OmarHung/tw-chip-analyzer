@@ -19,6 +19,7 @@ from app.importers.base import (
 from app.importers.service import (
     import_capital_reduction,
     import_ex_dividend,
+    import_ex_rights_forecast,
     import_institutional,
     import_margin,
     import_ohlcv,
@@ -111,6 +112,45 @@ class TestParsers:
         ).scalar()
         assert cnt == 3
 
+    def test_ex_dividend_carries_no_share_factor(self):
+        # TWT49U 無法分離配股率，故不可產出 share_factor（否則會覆蓋 TWT48U 的正確值）
+        rows = twse.parse_ex_dividend(_load("twse_twt49u.json"))
+        assert all("share_factor" not in r for r in rows)
+
+    def test_ex_rights_forecast_share_factor(self):
+        rows = twse.parse_ex_rights_forecast(_load("twse_twt48u.json"))
+        by_sym = {r["symbol"]: r for r in rows}
+        # 無償配股 7.111516% → 1 舊股變 1.0711 新股
+        assert abs(by_sym["2442"]["share_factor"] - 1.07111516) < 1e-8
+        assert by_sym["2442"]["data_date"] == dt.date(2026, 9, 8)
+        # 純現金增資（6533，無償配股率 0）不改既有股數 → 不產生列
+        assert "6533" not in by_sym
+        # 純除息（無償配股率 0）同樣不調量；ETF 代碼一併被過濾
+        assert "00400A" not in by_sym and "00401A" not in by_sym
+        # 只帶量因子，不帶價格欄位（預告時前收/參考價還不存在）
+        assert set(by_sym["2442"]) == {
+            "symbol", "data_date", "available_at", "kind", "share_factor"
+        }
+
+    async def test_forecast_and_result_merge_into_one_row(self, db_session):
+        """預告表(量因子)與結果表(價因子)寫同一列，互不覆蓋。"""
+        await import_ex_rights_forecast(db_session, _load("twse_twt48u.json"))
+        await import_ex_dividend(db_session, _load("twse_twt49u.json"))
+        rows = {
+            (r.symbol, r.data_date): r
+            for r in (await db_session.execute(select(CorporateAction))).scalars().all()
+        }
+        # 8112 只有結果表 → 有價因子、無量因子（歷史配股率補不回來的已知缺口）
+        r8112 = rows[("8112", dt.date(2026, 7, 6))]
+        assert r8112.adj_factor is not None and r8112.share_factor is None
+        # 2442 只有預告表 → 有量因子、價因子待除權息日由 TWT49U 補
+        r2442 = rows[("2442", dt.date(2026, 9, 8))]
+        assert r2442.share_factor is not None and r2442.adj_factor is None
+        # 反向再跑一次結果表，量因子不被洗掉
+        await import_ex_dividend(db_session, _load("twse_twt49u.json"))
+        await db_session.refresh(r2442)
+        assert r2442.share_factor is not None
+
     def test_par_change(self):
         # TWTB8U 面額變更：6949 前收 1490 → 參考 74.50，factor = 0.05（1:20 面額變更）
         rows = twse.parse_resume_reference(_load("twse_twtb8u.json"), "面額")
@@ -119,6 +159,8 @@ class TestParsers:
         assert r["data_date"] == dt.date(2026, 9, 7)
         assert r["prev_close"] == 1490.0 and r["reference_price"] == 74.5
         assert abs(r["adj_factor"] - 0.05) < 1e-9
+        # 純股數變動：1 舊股變 20 新股 → 歷史量要 ×20 才與現量同尺度
+        assert abs(r["share_factor"] - 20.0) < 1e-6
 
     def test_capital_reduction(self):
         # TWTAUU 減資：價漲 → factor > 1（2380 虹光 6.60 → 23.86）
@@ -127,6 +169,8 @@ class TestParsers:
         assert r["kind"] == "減資"
         assert r["adj_factor"] > 1.0
         assert abs(r["adj_factor"] - 23.86 / 6.60) < 1e-6
+        # 減資：股數變少 → 量因子 <1
+        assert abs(r["share_factor"] - 6.60 / 23.86) < 1e-6
 
     async def test_import_par_and_reduction_to_db(self, db_session):
         n1 = await import_par_change(db_session, _load("twse_twtb8u.json"))

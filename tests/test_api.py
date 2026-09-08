@@ -234,3 +234,45 @@ async def test_chart_fallback_to_yahoo_when_no_local(client, monkeypatch):
     assert len(body["daily"]) == 2
     assert body["daily"][-1]["c"] == 102
     assert body["prev_close"] == 101  # 倒數第二根
+
+
+async def test_features_endpoint_exposes_adjusted_values(client, db_session):
+    """還原後的 MA/ATR 只存在 feature_daily；此端點讓它可被核對（6949 情境）。"""
+    from app.db.models.market import CorporateAction
+
+    d = dt.date(2026, 9, 5)
+    av = dt.datetime(2026, 9, 5, 15, 0)
+    await _seed_daily_prices(db_session)  # 2330 於 d 收 1000
+    db_session.add(
+        CorporateAction(
+            symbol="2330", data_date=d, available_at=av, kind="面額",
+            prev_close=20000, reference_price=1000, adj_factor=0.05, share_factor=20,
+        )
+    )
+    await db_session.commit()
+
+    r = await client.get("/api/stocks/2330/features", params={"date": "2026-09-05"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["date"] == "2026-09-05" and body["name"] == "台積電"
+    # feature 的 close/ma20 為還原值；raw_close 取自 daily_price 原始表
+    assert body["ma20"] == 980 and body["atr14"] == 15
+    assert body["close"] == 1000 and body["raw_close"] == 1000
+    assert body["close_vs_ma20_pct"] == 0.02
+    # 一併列出造成還原的公司行動，供人工核對因子
+    assert body["actions"] == [
+        {
+            "date": "2026-09-05", "kind": "面額", "prev_close": 20000.0,
+            "reference_price": 1000.0, "adj_factor": 0.05, "share_factor": 20.0,
+        }
+    ]
+
+
+async def test_features_endpoint_defaults_to_latest_and_404s(client):
+    r = await client.get("/api/stocks/2330/features")
+    assert r.status_code == 200 and r.json()["date"] == "2026-09-05"
+    # 指定沒有特徵的日期不往前找（核對用途要求精確日）
+    r = await client.get("/api/stocks/2330/features", params={"date": "2026-09-04"})
+    assert r.status_code == 404
+    r = await client.get("/api/stocks/9999/features")
+    assert r.status_code == 404

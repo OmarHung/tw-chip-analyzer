@@ -138,6 +138,12 @@ def parse_ex_dividend(raw: dict) -> list[dict]:
 
     還原因子 adj_factor = 除權息參考價 / 除權息前收盤價（把 data_date 前的價乘上它，
     使報酬/MA/ATR 連續）。缺任一價或前收<=0 則 adj_factor 記 None。
+
+    **不產出 share_factor**：本報表沒有任何欄位能分離出「配股率」。adj_factor 混了不改
+    股數的現金股利；「減除股利參考價」減掉的是股利（含無償配股）、反而只剩現金增資效果
+    （實測：無償配股 7.1% 的 2442 比值為 1.0，純現增的 6533 卻是 1.032），不可拿來推。
+    配股率改由 TWT48U 的無償配股率提供（見 parse_ex_rights_forecast），故此處連 key 都
+    不放，讓 upsert 不會覆蓋掉 TWT48U 已寫入的 share_factor。
     """
     f = raw.get("fields") or []
     i_date = col_index(f, "資料日期")
@@ -175,12 +181,56 @@ def parse_ex_dividend(raw: dict) -> list[dict]:
     return out
 
 
+def parse_ex_rights_forecast(raw: dict) -> list[dict]:
+    """TWT48U 除權除息預告表 → 只補 CorporateAction 的 share_factor（量還原因子）。
+
+    share_factor = 1 + 無償配股率：只有無償配股才讓既有股東的 1 股變成 1+r 股。現金增資
+    不會（既有股數不變，要自己掏錢認購），故不計入。已驗證
+    `參考價 = (前收 - 現金股利) / (1 + 無償配股率)` 在無現增的樣本上完全吻合。
+
+    回傳的 row 刻意只帶 share_factor（不帶 prev_close/adj_factor 等），因為預告表在除權息
+    「前」發布、當時還沒有前收與參考價；等 TWT49U 於當日補上價格欄位即成完整一列。
+    無償配股率為 0 者略過（不調量）。
+    """
+    f = raw.get("fields") or []
+    i_date = col_index(f, "除權除息日期")
+    i_sym = col_index(f, "股票代號")
+    i_kind = col_index(f, "除權息")
+    i_free = col_index(f, "無償配股率")
+    if i_date is None or i_sym is None or i_free is None:
+        return []
+
+    out: list[dict] = []
+    for row in raw.get("data", []):
+        sym = str(row[i_sym]).strip()
+        if not is_stock_symbol(sym):
+            continue
+        d = parse_roc_cjk_date(row[i_date])
+        free = parse_float(row[i_free])
+        if d is None or not free or free <= 0:
+            continue
+        out.append(
+            {
+                "symbol": sym,
+                "data_date": d,
+                # 預告表在除權息日之前就公布，取得當下即可用（不必等到除權息日）。
+                "available_at": availability_for(dt.date.today()),
+                "kind": str(row[i_kind]).strip() if i_kind is not None else "",
+                "share_factor": round(1 + free, 8),
+            }
+        )
+    return out
+
+
 def parse_resume_reference(raw: dict, kind: str) -> list[dict]:
     """TWTB8U（面額變更）/ TWTAUU（減資）→ 除權除息以外的價格斷點事件。
 
     兩報表欄位一致：恢復買賣日期（民國斜線）、股票代號、停止買賣前收盤價格、恢復買賣參考價。
     data_date = 恢復買賣日期（恢復交易首日 = 斷點日）；adj_factor = 參考價 / 前收
     （面額變更/拆股 <1；減資 >1）。與 TWT49U 共用 CorporateAction。
+
+    兩者皆為純股數變動（不涉現金股利），故 share_factor = 1/adj_factor（拆股 >1、
+    減資 <1）——價跌幾倍、股數就漲幾倍。
     """
     f = raw.get("fields") or []
     i_date = col_index(f, "恢復買賣日期")
@@ -211,6 +261,7 @@ def parse_resume_reference(raw: dict, kind: str) -> list[dict]:
                 "reference_price": ref,
                 "value": None,
                 "adj_factor": round(adj, 8) if adj is not None else None,
+                "share_factor": round(1 / adj, 8) if adj else None,
             }
         )
     return out

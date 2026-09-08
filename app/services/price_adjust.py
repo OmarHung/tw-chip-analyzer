@@ -8,6 +8,10 @@
 bar 日期 d 的累積因子 = ∏ factor(ex_date > d)：除權息日「之前」的價才乘（<d 的 bar
 屬權前價），除權息日當天與之後的 bar 已是權後價、不調整。
 
+同一組函式也用來還原**成交量**：把 factor 換成 `CorporateAction.share_factor`
+（1 舊股→幾新股）即可，把歷史量換算成現在的股數單位。價因子 ≠ 量因子——除權息混了
+不改股數的現金股利，不可拿 adj_factor 調量。
+
 純函式、無 DB/IO，供 feature_builder 與 backtest 共用。
 """
 from __future__ import annotations

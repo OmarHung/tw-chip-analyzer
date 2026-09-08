@@ -5,7 +5,7 @@ import { Change } from "@/components/Change";
 import { OrderFlowPanel } from "@/components/OrderFlowPanel";
 import { ScoreBar, ScoreRing } from "@/components/ScoreBar";
 import { StockCharts } from "@/components/StockCharts";
-import { api } from "@/lib/api";
+import { api, type FeaturesResponse } from "@/lib/api";
 import { fmtPrice } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +33,15 @@ export default async function StockDetailPage({
         </div>
       </div>
     );
+  }
+
+  // 還原後價格特徵：AVOID 股的 analysis 不輸出 MA/ATR，這裡直接取 feature_daily。
+  // 缺特徵不該讓整頁掛掉（fail-soft，就不顯示這張卡）。
+  let features: FeaturesResponse | null = null;
+  try {
+    features = await api.features(symbol);
+  } catch {
+    features = null;
   }
 
   const { scores, risk } = data;
@@ -104,6 +113,9 @@ export default async function StockDetailPage({
         </Card>
       </div>
 
+      {/* 還原後價格結構（含公司行動還原因子） */}
+      {features && <AdjustedPricePanel data={features} />}
+
       {/* 訊號原因 */}
       <Card className="reveal">
         <SectionTitle>訊號原因</SectionTitle>
@@ -149,27 +161,91 @@ function RiskRow({
   );
 }
 
+const TONE_CLASS = {
+  up: "text-up",
+  down: "text-down",
+  neutral: "text-ink",
+} as const;
+
 function PriceStat({
   label,
   value,
-  tone,
+  tone = "neutral",
 }: {
   label: string;
   value: number | null;
-  tone: "up" | "down";
+  tone?: keyof typeof TONE_CLASS;
 }) {
   return (
     <div className="rounded-xl border border-line-soft bg-panel-2/50 p-3 text-center">
       <div className="font-mono text-[10px] tracking-wider text-ink-faint uppercase">
         {label}
       </div>
-      <div
-        className={`mt-1 font-mono text-lg font-bold tnum ${
-          tone === "up" ? "text-up" : "text-down"
-        }`}
-      >
+      <div className={`mt-1 font-mono text-lg font-bold tnum ${TONE_CLASS[tone]}`}>
         {value != null ? fmtPrice(value) : "—"}
       </div>
     </div>
+  );
+}
+
+const CA_LABEL: Record<string, string> = {
+  權: "除權",
+  息: "除息",
+  權息: "除權息",
+  面額: "面額變更",
+  減資: "減資",
+};
+
+/** 還原後的價格結構。走勢圖與 chart 端點刻意保留原始價，MA/ATR 這類跨日統計則必須
+ *  用還原價才不會被除權息／拆股的斷點污染——這張卡讓還原效果看得到、對得起來。 */
+function AdjustedPricePanel({ data }: { data: FeaturesResponse }) {
+  return (
+    <Card className="reveal">
+      <SectionTitle>還原後價格結構 · {data.date}</SectionTitle>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <PriceStat label="收盤" value={data.close} />
+        <PriceStat label="MA20" value={data.ma20} />
+        <PriceStat label="ATR14" value={data.atr14} />
+        <PriceStat label="VWAP" value={data.vwap} />
+        <PriceStat label="近 10 日低點" value={data.recent_swing_low} />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2 border-t border-line-soft pt-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-ink-dim">距 MA20</span>
+          <Change pct={data.close_vs_ma20_pct} />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-ink-dim">距 VWAP</span>
+          <Change pct={data.close_vs_vwap_pct} />
+        </div>
+      </div>
+      {data.actions.length > 0 && (
+        <div className="mt-4 border-t border-line-soft pt-4">
+          <div className="font-mono text-[10px] tracking-wider text-ink-faint uppercase">
+            視窗內公司行動（已還原）
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {data.actions.map((a) => (
+              <li key={a.date} className="flex flex-wrap items-baseline gap-x-3 text-sm">
+                <span className="font-mono tnum text-ink-dim">{a.date}</span>
+                <span className="text-gold">{CA_LABEL[a.kind] ?? a.kind}</span>
+                {a.prev_close != null && a.reference_price != null && (
+                  <span className="font-mono tnum text-ink-dim">
+                    {fmtPrice(a.prev_close)} → {fmtPrice(a.reference_price)}
+                  </span>
+                )}
+                <span className="font-mono tnum text-ink-faint">
+                  價 ×{a.adj_factor != null ? a.adj_factor.toFixed(4) : "—"} ／ 量 ×
+                  {a.share_factor != null ? a.share_factor.toFixed(4) : "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-ink-faint">
+            上方數值皆為還原值；走勢圖仍顯示原始價（未還原），故除權息／拆股日會有斷點。
+          </p>
+        </div>
+      )}
+    </Card>
   );
 }

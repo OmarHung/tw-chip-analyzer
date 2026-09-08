@@ -82,6 +82,11 @@ class CorporateAction(Base, AvailabilityMixin, TimestampMixin):
     價格序列在 data_date（除權息日 / 恢復買賣首日）出現非交易性斷點。還原因子
     `adj_factor = reference_price / prev_close`（配息/拆股 <1、減資 >1）：把 data_date
     之前的價格全部乘上此因子，即可讓報酬/MA/ATR 連續。
+
+    `share_factor` 是「1 舊股變成幾新股」，只反映**股數變動**（拆股/配股 >1、減資 <1、
+    純配息 =1），與 adj_factor 不同（後者混入了現金股利，不改股數）。歷史成交量乘上
+    其後事件的 share_factor 累積，才能與現在的量同尺度（見 feature_builder 的
+    avg_vol20）。
     """
 
     __tablename__ = "corporate_action"
@@ -98,3 +103,4 @@ class CorporateAction(Base, AvailabilityMixin, TimestampMixin):
     reference_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))  # 除權息參考價
     value: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))  # 權值+息值
     adj_factor: Mapped[Decimal | None] = mapped_column(Numeric(12, 8))  # 參考價/前收
+    share_factor: Mapped[Decimal | None] = mapped_column(Numeric(12, 8))  # 1 舊股→幾新股

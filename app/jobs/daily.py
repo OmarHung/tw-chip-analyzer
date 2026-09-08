@@ -18,6 +18,7 @@ from app.db.session import get_sessionmaker
 from app.importers.service import (
     import_capital_reduction,
     import_ex_dividend,
+    import_ex_rights_forecast,
     import_index,
     import_institutional,
     import_margin,
@@ -92,13 +93,16 @@ async def run(
                 n_sbl = await import_sbl(s, sbl, target)
         except Exception as e:  # noqa: BLE001 — SBL 非必要，缺則後續中性
             logger.warning("SBL 匯入失敗（TWT93U）：%s", e)
-        # 公司行動還原因子：除權息(TWT49U) + 面額變更/拆股(TWTB8U) + 減資(TWTAUU)。
+        # 公司行動還原因子：除權息(TWT49U) + 面額變更/拆股(TWTB8U) + 減資(TWTAUU)，
+        # 外加預告表(TWT48U)補配股率→量還原因子（預告表只回未來，只能每日累積）。
         # 各自 fail-soft，缺則該日該類無還原。
         n_ca = 0
         for label, fetch, imp in (
             ("除權息 TWT49U", twse_conn.fetch_ex_dividend, import_ex_dividend),
             ("面額變更 TWTB8U", twse_conn.fetch_par_change, import_par_change),
             ("減資 TWTAUU", twse_conn.fetch_capital_reduction, import_capital_reduction),
+            ("除權息預告 TWT48U", twse_conn.fetch_ex_rights_forecast,
+             import_ex_rights_forecast),
         ):
             try:
                 raw_ca = await fetch(target)

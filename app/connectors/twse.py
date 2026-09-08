@@ -77,6 +77,21 @@ async def fetch_ex_dividend(start: dt.date, end: dt.date | None = None) -> dict:
         )
 
 
+async def fetch_ex_rights_forecast(
+    start: dt.date | None = None, end: dt.date | None = None
+) -> dict:
+    """TWT48U 除權除息預告表（含無償配股率／現金增資配股率／現金股利）。
+
+    唯一能取得「配股率」的來源——TWT49U 各欄位都無法分離出它（見 parse_ex_dividend）。
+    代價是**只回未來尚未執行的事件**，start/end 參數無效（傳了也回同一份），故歷史補不
+    回來，只能靠每日 EOD 往前累積（與 SBL 同性質）。參數保留只為與其他 fetch 同簽名。
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        return await _get(
+            client, f"{BASE}/exchangeReport/TWT48U", {"response": "json"}
+        )
+
+
 async def fetch_par_change(start: dt.date, end: dt.date | None = None) -> dict:
     """TWTB8U 變更股票面額恢復買賣參考價格（拆股/面額變更；TWT49U 不含此類）。
 

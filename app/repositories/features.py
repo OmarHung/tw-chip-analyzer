@@ -34,6 +34,13 @@ class FeatureDailyRepository:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def get_on_date(self, symbol: str, data_date: dt.date) -> FeatureDaily | None:
+        """精確某日（無資料回 None，不往前找）。供還原值人工核對。"""
+        stmt = select(FeatureDaily).where(
+            FeatureDaily.symbol == symbol, FeatureDaily.data_date == data_date
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def list_on_date(self, data_date: dt.date) -> list[FeatureDaily]:
         stmt = select(FeatureDaily).where(FeatureDaily.data_date == data_date)
         return list((await self.session.execute(stmt)).scalars().all())

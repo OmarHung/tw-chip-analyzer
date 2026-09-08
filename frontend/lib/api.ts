@@ -106,6 +106,32 @@ export interface ChartResponse {
   intraday: Bar[];
 }
 
+export interface CorporateActionItem {
+  date: string;
+  kind: string; // 權 / 息 / 權息 / 面額 / 減資
+  prev_close: number | null;
+  reference_price: number | null;
+  adj_factor: number | null; // 價格還原因子
+  share_factor: number | null; // 量還原因子（1 舊股→幾新股）
+}
+
+/** feature_daily 的還原後價格特徵（chart 端點回的是未還原的原始價）。 */
+export interface FeaturesResponse {
+  symbol: string;
+  name: string;
+  date: string;
+  close: number | null;
+  raw_close: number | null;
+  change_pct: number | null;
+  ma20: number | null;
+  atr14: number | null;
+  vwap: number | null;
+  recent_swing_low: number | null;
+  close_vs_ma20_pct: number | null;
+  close_vs_vwap_pct: number | null;
+  actions: CorporateActionItem[];
+}
+
 export interface Tick {
   t: number; // epoch 秒（台北時間以 UTC 表示）
   time: string; // HH:MM:SS
@@ -388,6 +414,10 @@ export const api = {
   analysis: (symbol: string) =>
     get<AnalysisResponse>(`/api/stocks/${symbol}/analysis`),
   chart: (symbol: string) => get<ChartResponse>(`/api/stocks/${symbol}/chart`),
+  features: (symbol: string, date?: string) =>
+    get<FeaturesResponse>(
+      `/api/stocks/${symbol}/features${date ? `?date=${date}` : ""}`,
+    ),
   ticks: (symbol: string) => get<TicksResponse>(`/api/stocks/${symbol}/ticks`),
   scores: (symbol: string) =>
     get<ScoreHistoryResponse>(`/api/stocks/${symbol}/scores`),

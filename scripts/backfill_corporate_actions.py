@@ -26,6 +26,7 @@ from app.db.session import get_sessionmaker
 from app.importers.service import (
     import_capital_reduction,
     import_ex_dividend,
+    import_ex_rights_forecast,
     import_par_change,
 )
 
@@ -57,6 +58,17 @@ def _month_ranges(start: dt.date, end: dt.date) -> list[tuple[dt.date, dt.date]]
 async def run(start: dt.date, end: dt.date) -> int:
     sm = get_sessionmaker()
     total = 0
+    # 預告表 TWT48U 只回「未來尚未執行」的事件（區間參數無效），故不進月份迴圈，
+    # 只跑一次把即將到來的配股率（量還原因子）補上。歷史配股率補不回來。
+    try:
+        raw = await twse_conn.fetch_ex_rights_forecast()
+        async with sm() as s:
+            n = await import_ex_rights_forecast(s, raw)
+        logger.info("除權息預告回補（未來事件配股率）：%d 筆", n)
+        total += n
+    except Exception as e:  # noqa: BLE001 — 同其他來源，失敗不中斷
+        logger.warning("除權息預告回補失敗：%s", e)
+
     for seg_start, seg_end in _month_ranges(start, end):
         for label, fetch, imp in _SOURCES:
             try:
