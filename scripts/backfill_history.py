@@ -32,6 +32,7 @@ from app.importers.service import (
     import_margin,
     import_ohlcv,
 )
+from app.importers.base import availability_for
 from app.importers.twse import parse_index
 
 logger = get_logger("scripts.backfill")
@@ -111,6 +112,18 @@ async def backfill(
 
     days = await collect_trading_days(start, end, sleep_s, do_index and not dry_run)
     logger.info("區間交易日共 %d 天", len(days))
+
+    # 盤中保護:TWSE 當日報表在收盤/結算前抓到的是半套資料(只有部分個股、無法人
+    # 無借券),匯進去會讓當日橫斷面失真,並讓盤中量污染其後 20 天的 avg_vol20。
+    # 以 look-ahead 用的同一個 availability_for(盤後 15:00)為界,未到即跳過。
+    now = dt.datetime.now()
+    not_ready = [d for d in days if availability_for(d) > now]
+    if not_ready:
+        days = [d for d in days if d not in set(not_ready)]
+        logger.warning(
+            "跳過尚未盤後的日期(資料不完整):%s",
+            ", ".join(str(d) for d in not_ready),
+        )
 
     if skip_existing:
         existing = await _existing_price_dates(start, end)

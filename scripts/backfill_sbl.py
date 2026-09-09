@@ -27,6 +27,7 @@ from app.core.logging import get_logger
 from app.db.models.chips import SblDaily
 from app.db.models.market import DailyPrice
 from app.db.session import get_sessionmaker
+from app.importers.base import availability_for
 from app.importers.service import import_sbl
 
 logger = get_logger("scripts.backfill_sbl")
@@ -44,7 +45,9 @@ async def _missing_days(start: dt.date | None, end: dt.date | None) -> list[dt.d
             q = q.where(DailyPrice.data_date <= end)
         price_days = {d for (d,) in (await s.execute(q)).all()}
         have = {d for (d,) in (await s.execute(select(SblDaily.data_date).distinct())).all()}
-    return sorted(price_days - have)
+    # 盤中保護:同 backfill_history——尚未盤後的日子資料不完整,不匯入。
+    now = dt.datetime.now()
+    return sorted(d for d in (price_days - have) if availability_for(d) <= now)
 
 
 async def run(start: dt.date | None, end: dt.date | None, dry_run: bool) -> int:
