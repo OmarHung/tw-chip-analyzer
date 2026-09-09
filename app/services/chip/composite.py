@@ -35,6 +35,9 @@ class ChipScoreResult:
     reasons: list[str] = field(default_factory=list)
     # 加權合成原始值(-1..1),供橫斷面百分位映射(scoring.mapping=percentile)使用
     composite_raw: float = 0.0
+    # 本次實際參與合成的成分(缺成分會被排除並重分配權重)。不同成分組合的
+    # composite_raw 尺度不同,百分位映射必須分組進行,見 analysis.analyze_market。
+    components: frozenset[str] = frozenset()
 
 
 class ChipScorer:
@@ -82,6 +85,7 @@ class ChipScorer:
             market=to_0_100(s_mkt),
             reasons=self._reasons(intraday, daily, weekly),
             composite_raw=composite,
+            components=frozenset(active),
         )
 
     @staticmethod

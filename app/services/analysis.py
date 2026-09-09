@@ -151,14 +151,28 @@ def analyze_market(
     scoring.mapping=percentile(預設):兩段式——先逐檔 score_features 收集
     composite_raw,做當日橫斷面百分位(0~100)為 chip_score,再帶回決策。
     只用同日資料,無 look-ahead。mapping=linear 則維持舊制 50+50*composite。
+
+    **百分位依「成分組合」分組計算**:缺成分時權重會重分配,四維(有逐筆)與三維
+    (無逐筆)的 composite_raw 尺度不同——實測 intraday 分項均值為中性 0 時,四維的
+    raw 恰為三維的 (1 - intraday 權重) 倍(0.077/0.119 = 0.647 = 1 - 0.35)。混在
+    同一排名裡,有逐筆的標的高低分都被往中間擠,而「有沒有逐筆」只反映 Shioaji 當天
+    抓到誰,與籌碼無關。分組後語意為「當日同類標的中的前 X%」,不因逐筆覆蓋率漂移。
     """
     mapping = service.t.scoring.get("mapping", "linear")
     chips = [service.score_features(fd, market) for fd, _ in items]
-    overrides: list[float | None]
+    overrides: list[float | None] = [None] * len(chips)
     if mapping == "percentile" and len(chips) > 1:
-        overrides = cross_sectional_percentile([c.composite_raw for c in chips])
-    else:
-        overrides = [None] * len(chips)
+        groups: dict[frozenset[str], list[int]] = {}
+        for i, c in enumerate(chips):
+            groups.setdefault(c.components, []).append(i)
+        for idxs in groups.values():
+            # 單一標的的組無法排名(百分位無意義),退回 linear 映射避免給出假的 0/100
+            if len(idxs) < 2:
+                continue
+            for i, pct in zip(
+                idxs, cross_sectional_percentile([chips[i].composite_raw for i in idxs])
+            ):
+                overrides[i] = pct
     return [
         service.analyze(
             fd, market=market, name=name, chip=chip, chip_score_override=ov

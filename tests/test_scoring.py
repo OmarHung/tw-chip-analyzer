@@ -136,3 +136,50 @@ class TestPercentileMapping:
         scores = [r.chip.chip_score for r in results]
         assert scores == sorted(scores)  # 保序
         assert scores[-1] >= 75 and scores[0] <= 25  # 高低分 bucket 有人
+
+
+class TestPercentileGroupedByComponents:
+    """百分位映射依成分組合分組（四維/三維混排會造成結構性偏差）。"""
+
+    @staticmethod
+    def _fd(symbol: str, foreign: float, with_intraday: bool):
+        import datetime as dt
+
+        from app.db.models.features import FeatureDaily
+
+        return FeatureDaily(
+            symbol=symbol, data_date=dt.date(2026, 9, 4),
+            available_at=dt.datetime(2026, 9, 4, 15, 0),
+            close=100, atr14=2, ma20=100, vwap=100, recent_swing_low=95,
+            turnover=5e8, close_vs_ma20_pct=0.0, close_vs_vwap_pct=0.0,
+            foreign_5d_z=foreign,
+            cvd_z=0.0 if with_intraday else None,
+            large_trade_delta_z=0.0 if with_intraday else None,
+            intraday_obi=0.0 if with_intraday else None,
+            absorption_z=0.0 if with_intraday else None,
+            trade_speed_z=0.0 if with_intraday else None,
+            price_efficiency_z=0.0 if with_intraday else None,
+        )
+
+    def test_each_component_group_spans_full_percentile_range(self):
+        """有逐筆與無逐筆各自佔滿 0~100，不因中性 intraday 被稀釋而擠向中間。"""
+        from app.services.analysis import AnalysisService, analyze_market
+
+        svc = AnalysisService()
+        # 兩組各 5 檔、強度相同；有逐筆組的 intraday 全為中性 0
+        items = [
+            (self._fd(f"N{i}", z, False), None)
+            for i, z in enumerate([-2.0, -1.0, 0.0, 1.0, 2.0])
+        ] + [
+            (self._fd(f"T{i}", z, True), None)
+            for i, z in enumerate([-2.0, -1.0, 0.0, 1.0, 2.0])
+        ]
+        res = {r.symbol: r.chip.chip_score for r in analyze_market(svc, items)}
+        # 兩組各自佔滿同一段百分位（5 檔 → 10/30/50/70/90）
+        for prefix in ("N", "T"):
+            assert sorted(res[f"{prefix}{i}"] for i in range(5)) == [
+                10.0, 30.0, 50.0, 70.0, 90.0
+            ], prefix
+        # 同名次跨組同分：分數只反映組內排名，與有無逐筆無關
+        for i in range(5):
+            assert res[f"N{i}"] == res[f"T{i}"]
