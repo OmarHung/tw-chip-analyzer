@@ -52,6 +52,7 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
   **無 TDCC 資料者 holder 分項為 NULL 並排除該成分**（不再以中性 0 灌水），由 `analyze_market` 依成分組合分組映射處理。
   **look-ahead 修正（2026-09-10，鐵則 8）**：TDCC 以每週最後營業日收盤後統計、數日後才公布，原本 `available_at` 設在快照日盤後、且 `feature_builder._load_df` 只用 `data_date` 過濾——等於在還不知道股權分散時就拿來評分，backtest 會虛胖。現改為 `available_at = 資料日 + tdcc.disclosure_lag_days(=5，保守側) 18:00`，且 `_load_df` 一律以 `as_of=availability_for(target)` 依 `available_at` 過濾（日線/法人/融資/借券的 available_at 就是當日盤後，行為不變）。TDCC 視窗同時放寬到 60 天，否則 lag 之後可能整週撈不到快照。
   **代價**：只有當週快照時，該週 lag 內的所有交易日都沒有 holder 成分（正確反映「當時真的不知道」）。要讓 holder 回到分數裡，**必須補 TDCC 歷史**（`scripts/backfill_tdcc.py`）——這是回補的第二個價值，不只是為了 backtest 驗證。
+  **實測（2026-09-10，dev）**：修正後 2026-09-08 只剩 3 檔有 holder（先前試補的 3 檔）；補 100 檔 × 12 週後回到 100 檔。新出現的成分組合（有/無 holder）由分組映射自動涵蓋，兩組 ≥75 各佔 25.0%、平均分皆 50.0——當初以 `components` 集合分組（而非寫死有無 intraday）在此得到回報。
 - **TDCC 歷史回補：`scripts/backfill_tdcc.py`**（集保個股查詢頁，可回溯約 51 週）。openapi 1-5 只給當週、FinMind 對應資料集需付費層，此頁是唯一免費歷史來源，但**逐檔逐週**：全市場 2954 檔 × 51 週 ≈ 15 萬請求/10GB/12+ 小時（不建議），前 300 檔 ≈ 1.5 萬請求/約 100 分鐘（可行，預設）。**CSRF token 是一次性的**——每次 POST 後必須從回應頁重新取出，否則只有第一筆有資料（實測第一次 16 列、之後全 0）。HTML 轉成 openapi 同構 records 後共用 `parse_distribution`，級距→大戶/散戶分類只有一份真相。
 - **industry_trend 已啟用**（2026-09-09）：`stock.industry` 來自 MOPS 公司基本資料
   （上市 t187ap03_L／上櫃 mopsfin_t187ap03_O，同一套產業代碼，存中文名跨市場同組），
@@ -79,7 +80,7 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 - `app/importers/`：TWSE/TPEx/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
 - `app/jobs/`：`daily.py`（抓取→匯入 TWSE+TPEx+SBL→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）、`scheduler.py`（APScheduler EOD）、`runner.py`（手動回補，與 EOD 共用單飛鎖）
 - `frontend/`：Next.js 16 + TS + Tailwind v4。設計約束見下節。UI 規格見 `docs/05-api-ui.md §16`。
-- `tests/`：144 passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
+- `tests/`： passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
 
 **逐筆特別注意**：Shioaji tick ts 為 ns，以 UTC 解讀即台北牆鐘（用 `utcfromtimestamp`）。批次逐筆要先跑 `import_ticks` 再跑 `daily --skip-import`，intraday z 才會進 `feature_daily`。
 
