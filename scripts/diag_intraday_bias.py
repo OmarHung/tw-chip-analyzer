@@ -6,11 +6,15 @@
 若兩種分布混排，有逐筆的標的可能系統性拿不到高分，而「有沒有逐筆」只反映它是不是
 Shioaji 抓得到的熱門股，與籌碼好壞無關。
 
-方法：同一天、同一組標的跑兩次 analyze_market——
-  A) 原樣（有逐筆者走四維）
-  B) 強制全部走三維（把 intraday 欄位就地設 None）
-兩者對「有逐筆」那組的分數差異即為**維度效應**；若 A、B 幾乎相同，則該組分數偏低
-純粹是標的特性（標的效應），不是結構性偏差，不需修。
+偏差已於 2026-09-09 修正（`analyze_market` 依成分組合分組做百分位），本腳本改作
+**回歸驗證**：同一天、同一組標的跑兩次 analyze_market——
+  A) 現行算法（成分組合分組映射）
+  B) 強制全部走三維（把 intraday 欄位就地設 None，等於只有一個成分組）
+判讀看的是 **A 的兩組 ≥75 佔比是否都接近 25%**：是 → 分組映射正常，逐筆覆蓋率不再
+影響分數高低；否 → 映像沒更新到分組映射那版，或又有新的成分組合沒被涵蓋。
+
+B 則用來看「若拿掉 intraday 維度，該組在全市場的相對強弱」——A、B 的 `raw` 差距即
+分組映射的已知代價（組間真實強弱被對齊，見 CLAUDE.md）。
 
 用法：
   APP_ENV=dev  python -m scripts.diag_intraday_bias [YYYY-MM-DD]
@@ -95,7 +99,7 @@ async def run(target: dt.date | None) -> None:
     hdr = (f"{'算法':<24}{'平均分':>7}{'≥75':>6}{'佔比':>7}{'BUY':>5}"
            f"{'raw':>8}{'intra':>7}{'inst':>7}{'hold':>7}{'mkt':>7}")
     print(hdr)
-    for label, res in (("A 原樣（四維混排）", a), ("B 強制全部三維", b)):
+    for label, res in (("A 現行（分組映射）", a), ("B 強制全部三維", b)):
         m = _summary(res, with_intra)
         print(f"{label:<24}{m['avg']:>7.1f}{m['ge75']:>6}{m['ge75'] / m['n']:>7.1%}"
               f"{m['buy']:>5}{m['raw']:>8.3f}{m['intra']:>7.1f}{m['inst']:>7.1f}"
@@ -104,15 +108,18 @@ async def run(target: dt.date | None) -> None:
     others = {r.symbol for r in rows} - with_intra
     print(f"\n對照：無逐筆的 {len(others)} 檔")
     print(hdr)
-    for label, res in (("A 原樣", a), ("B 強制全部三維", b)):
+    for label, res in (("A 現行（分組映射）", a), ("B 強制全部三維", b)):
         m = _summary(res, others)
         print(f"{label:<24}{m['avg']:>7.1f}{m['ge75']:>6}{m['ge75'] / m['n']:>7.1%}"
               f"{m['buy']:>5}{m['raw']:>8.3f}{m['intra']:>7.1f}{m['inst']:>7.1f}"
               f"{m['hold']:>7.1f}{m['mkt']:>7.1f}")
 
+    ok = _summary(a, with_intra)
+    pct = ok["ge75"] / ok["n"]
     print(
-        "\n判讀：A 與 B 在『有逐筆』那組差很多 → 維度效應（結構性偏差，需分組映射）；"
-        "\n　　　A ≈ B → 標的效應（該組本來分數就這樣），不需修。"
+        f"\n判讀：A（現行）有逐筆那組 ≥75 佔 {pct:.1%}"
+        f"{'，接近 25% → 分組映射正常' if 0.2 <= pct <= 0.3 else '，**偏離 25%** → 檢查映像版本或是否有新的成分組合'}"
+        "\n　　　A 與 B 的 raw 差距＝分組映射的已知代價（組間強弱被對齊，見 CLAUDE.md）。"
     )
 
 
