@@ -362,3 +362,27 @@ class TestTpexCorporateActions:
         }
         assert kinds["1815"] == "權息" and kinds["3086"] == "面額"
         assert kinds["3152"] == "減資"
+
+
+class TestTdccStockPage:
+    def test_parse_stock_page_matches_openapi_shape(self):
+        """集保查詢頁 HTML → 與 openapi 同構的 records，共用 parse_distribution。"""
+        from app.importers.tdcc import parse_distribution, parse_stock_page
+
+        html = (FIX / "tdcc_qrystock_2330.html").read_text(encoding="utf-8")
+        recs = parse_stock_page(html, "2330", dt.date(2026, 8, 21))
+        assert len(recs) == 17  # 15 級距 + 差異調整 + 合計
+        d, weekly, summary = parse_distribution(recs)
+        assert d == dt.date(2026, 8, 21)
+        assert len(weekly) == 15 and len(summary) == 1
+        s = summary[0]
+        assert s["symbol"] == "2330"
+        # 台積電籌碼極度集中在超大戶（>1000 張）
+        assert s["super_large_ratio"] > 80
+        assert s["holder_count"] > 1_000_000
+        # 四類佔比合計應接近 100%（差異調整列不計入）
+        total = sum(
+            s[k] for k in
+            ("retail_ratio", "medium_ratio", "large_ratio", "super_large_ratio")
+        )
+        assert abs(total - 100) < 1.0

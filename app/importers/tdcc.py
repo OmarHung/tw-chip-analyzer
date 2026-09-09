@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from app.core.config import get_thresholds
 from app.importers.base import is_stock_symbol, parse_float, parse_int
@@ -100,3 +101,33 @@ def parse_distribution(
             }
         )
     return data_date, weekly_rows, summary_rows
+
+
+def parse_stock_page(html: str, symbol: str, data_date: dt.date) -> list[dict]:
+    """集保個股查詢頁（qryStock）HTML → 與 openapi 1-5 同構的 records。
+
+    刻意轉成 openapi 的欄名，讓歷史回補與每週 EOD 共用同一支
+    `parse_distribution`（級距→散戶/大戶的分類邏輯只有一份真相）。
+
+    表格每列為 `序號 | 級距 | 人數 | 股數 | 占比%`，序號即持股分級 1~17。
+    """
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S)
+    out: list[dict] = []
+    for row in rows:
+        cells = [
+            re.sub(r"<[^>]+>", "", c).replace("\xa0", " ").strip()
+            for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
+        ]
+        if len(cells) < 5 or not re.fullmatch(r"\d+", cells[0]):
+            continue
+        out.append(
+            {
+                _DATE_KEY: data_date.strftime("%Y%m%d"),
+                "證券代號": symbol,
+                "持股分級": cells[0],
+                "人數": cells[2],
+                "股數": cells[3],
+                "占集保庫存數比例%": cells[4],
+            }
+        )
+    return out

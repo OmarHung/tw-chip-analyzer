@@ -177,3 +177,34 @@ async def test_sbl_change_uses_pct_of_own_balance(db_session):
     c = await repo.get_latest("CCC")   # +10%
     b = await repo.get_latest("BBB")   # 0%
     assert a.sbl_change_z > c.sbl_change_z > b.sbl_change_z
+
+
+async def test_tdcc_change_needs_coverage_threshold(db_session):
+    """少數個股有 2 週 TDCC 不足以切 change 模式（否則其餘個股會掉 holder 成分）。"""
+    from app.db.models.chips import TdccSummaryWeekly
+
+    await _seed_history(db_session)
+    # 只有 AAA 有兩週快照，BBB/CCC 各一週 → 涵蓋率 1/3 < 0.5
+    for sym, dates in (
+        ("AAA", [TARGET - dt.timedelta(days=7), TARGET]),
+        ("BBB", [TARGET]),
+        ("CCC", [TARGET]),
+    ):
+        for i, d in enumerate(dates):
+            db_session.add(
+                TdccSummaryWeekly(
+                    symbol=sym, data_date=d,
+                    available_at=availability_for(d),
+                    retail_ratio=20 + i, medium_ratio=10,
+                    large_ratio=30 + i, super_large_ratio=40,
+                    holder_count=10_000 + i * 100,
+                )
+            )
+    await db_session.commit()
+
+    await build_features(db_session, TARGET)
+    repo = FeatureDailyRepository(db_session)
+    # level proxy 模式：三檔都拿得到 holder 分項（不會有人被排除）
+    for sym in ("AAA", "BBB", "CCC"):
+        fd = await repo.get_latest(sym)
+        assert fd.large_holder_ratio_change_z is not None, sym

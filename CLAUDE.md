@@ -47,7 +47,10 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
   **NW 修正後的結果**：`sbl_bal_pct_20d` 樸素 -3.81 → **NW -2.02**（膨脹 1.9 倍，但仍勉強過 2）；`sbl_bal_pct_5d` -2.39 → -1.59（不再過關）；融券對照 +1.72 → +3.01（負自相關使 NW 放大，但 IC 僅 +0.019）。
   **regime 分層更正**：先前記「樣本全是多頭」**是錯的**——以 `market_trend_score>0.3` 切，130 天中多頭 84、非多頭 46。`sbl_bal_pct_20d` 在兩個 regime 方向一致（多頭 -0.032 / NW -2.01、非多頭 -0.026 / NW -1.63），不是單一 regime 的產物。
   **啟用門檻（更新）**：權重仍維持 0，但條件已可下修——累積至 N≈250 交易日（約 2027 上半年）重跑，若 NW t 仍 <−2 且兩 regime 方向一致，即可啟用，且應先給保守權重（如 -0.05，非原設計 -0.10）。
-- **TDCC holder：視窗內 ≥2 週快照自動切真實 change**（feature_builder），1 週時 level proxy；`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
+- **TDCC holder：視窗內 ≥2 週快照且「涵蓋率」達標才切真實 change**（feature_builder），否則 level proxy；`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
+  **涵蓋率門檻**（`tdcc.change_coverage_min: 0.5`，2026-09-09 加）：判定改看「視窗內有 ≥2 週快照的個股佔當日全市場比例」，而非只看有幾個快照日期。否則部分回補（只補重點標的）會讓少數股票觸發 change 模式、其餘只有 1 週的算不出 change 而被排除 holder 成分，等於全市場掉一個維度。
+  **無 TDCC 資料者 holder 分項為 NULL 並排除該成分**（不再以中性 0 灌水），由 `analyze_market` 依成分組合分組映射處理。
+- **TDCC 歷史回補：`scripts/backfill_tdcc.py`**（集保個股查詢頁，可回溯約 51 週）。openapi 1-5 只給當週、FinMind 對應資料集需付費層，此頁是唯一免費歷史來源，但**逐檔逐週**：全市場 2954 檔 × 51 週 ≈ 15 萬請求/10GB/12+ 小時（不建議），前 300 檔 ≈ 1.5 萬請求/約 100 分鐘（可行，預設）。**CSRF token 是一次性的**——每次 POST 後必須從回應頁重新取出，否則只有第一筆有資料（實測第一次 16 列、之後全 0）。HTML 轉成 openapi 同構 records 後共用 `parse_distribution`，級距→大戶/散戶分類只有一份真相。
 - **industry_trend 已啟用**（2026-09-09）：`stock.industry` 來自 MOPS 公司基本資料
   （上市 t187ap03_L／上櫃 mopsfin_t187ap03_O，同一套產業代碼，存中文名跨市場同組），
   `feature_daily.industry_trend_score` = 產業成分股近 5 日報酬中位數 → 跨產業橫斷面 z

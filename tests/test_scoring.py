@@ -183,3 +183,16 @@ class TestPercentileGroupedByComponents:
         # 同名次跨組同分：分數只反映組內排名，與有無逐筆無關
         for i in range(5):
             assert res[f"N{i}"] == res[f"T{i}"]
+
+    def test_missing_tdcc_excludes_holder_component(self):
+        """無 TDCC 快照 → holder 成分被排除（不以中性值灌水），並自成一個映射組。"""
+        from app.services.analysis import AnalysisService
+
+        svc = AnalysisService()
+        with_tdcc = self._fd("A", 1.0, False)
+        with_tdcc.large_holder_ratio_change_z = 0.5
+        without = self._fd("B", 1.0, False)
+        without.large_holder_ratio_change_z = None
+
+        assert "holder" in svc.score_features(with_tdcc).components
+        assert "holder" not in svc.score_features(without).components

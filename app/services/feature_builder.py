@@ -24,6 +24,7 @@ from app.db.models.chips import (
 from app.db.models.features import FeatureDaily
 from app.db.models.intraday import RawTick
 from app.db.models.market import DailyPrice, Stock
+from app.core.config import get_thresholds
 from app.importers.base import availability_for
 from app.repositories.corporate_actions import load_factors
 from app.repositories.upsert import upsert_many
@@ -362,7 +363,15 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     large_conc, retail_conc, holder_cnt_chg = {}, {}, {}
     if not tdcc.empty:
         tdcc_dates = sorted(tdcc["data_date"].unique())
-        use_change = len(tdcc_dates) >= 2
+        # 涵蓋率門檻:只有當「足夠多的個股都有 >=2 週」才切 change,否則全市場
+        # 一致用 level proxy。部分回補期間(少數重點標的有歷史)不會讓其餘個股
+        # 因算不出 change 而被排除 holder 成分。門檻見 config tdcc。
+        multi = tdcc.groupby("symbol")["data_date"].nunique()
+        coverage = (
+            float((multi >= 2).sum()) / len(symbols_today) if symbols_today else 0.0
+        )
+        min_cov = get_thresholds().tdcc.get("change_coverage_min", 0.5)
+        use_change = len(tdcc_dates) >= 2 and coverage >= min_cov
         srt = tdcc.sort_values("data_date")
         if use_change:
             for sym, g in srt.groupby("symbol"):
@@ -421,10 +430,12 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
                 "sbl_change_z": z_sbl.get(sym, 0.0),
                 # 產業趨勢：無產業別/成分股不足 → NULL（market_score 視為中性）
                 "industry_trend_score": industry_trend.get(sym),
-                # TDCC:>=2 週快照時為真實 week-over-week change,否則 level proxy
-                "large_holder_ratio_change_z": z_large_holder.get(sym, 0.0),
-                "retail_holder_ratio_change_z": z_retail_holder.get(sym, 0.0),
-                "holder_count_change_z": z_holder_cnt.get(sym, 0.0),
+                # TDCC:>=2 週快照時為真實 week-over-week change,否則 level proxy。
+                # **無 TDCC 資料者為 NULL**(不是中性 0)——以中性值灌水會稀釋
+                # composite(同 intraday 的混排問題),改由 composite 排除該成分。
+                "large_holder_ratio_change_z": z_large_holder.get(sym),
+                "retail_holder_ratio_change_z": z_retail_holder.get(sym),
+                "holder_count_change_z": z_holder_cnt.get(sym),
                 # intraday：有逐筆才填，否則 NULL（composite 動態排除）
                 "cvd_z": intra["cvd_z"] if intra else None,
                 "large_trade_delta_z": intra["large_trade_delta_z"] if intra else None,

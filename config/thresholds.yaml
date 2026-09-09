@@ -51,6 +51,11 @@ tdcc:
   retail_max_lots: 50
   large_min_lots: 400
   super_large_min_lots: 1000
+  # 切換「真實 week-over-week change」的涵蓋率門檻:視窗內有 >=2 週快照的個股
+  # 佔當日全市場的比例。低於門檻維持 level proxy(全市場一致)——否則部分回補
+  # (scripts/backfill_tdcc.py 只補重點標的)會讓少數股票觸發 change 模式,而多數
+  # 只有 1 週的股票算不出 change、holder 成分被整個排除,等於全市場掉一個維度。
+  change_coverage_min: 0.5
 
 # 主力進出 vs 股價「量價背離」偵測(前端主力進出面板的背離卡)。
 # 鐵則 4/5:門檻 config 化、禁 magic number;鐵則 6:主力淨買超以「佔區間成交比重」正規化,

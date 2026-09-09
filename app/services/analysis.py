@@ -81,7 +81,12 @@ class AnalysisService:
         # 有當日逐筆的標的 → 四維（含 intraday）；無者維持排除、權重重分配給其餘
         # 成分（OECD 複合指標標準做法，見 docs/03 §10 補充）。
         has_intraday = fd.cvd_z is not None or fd.large_trade_delta_z is not None
-        active = {"institutional", "holder", "market"}
+        # holder 同理:無 TDCC 快照的標的(新上市/集保未收錄)不以中性值灌水,
+        # 排除該成分並重分配權重;分數再依成分組合分組做百分位(見 analyze_market)。
+        has_holder = fd.large_holder_ratio_change_z is not None
+        active = {"institutional", "market"}
+        if has_holder:
+            active.add("holder")
         if has_intraday:
             active.add("intraday")
         return self.scorer.score(
