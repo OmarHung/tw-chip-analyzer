@@ -109,6 +109,68 @@ docker compose run --rm api ./scripts/eod.sh 2026-09-04   # 手動觸發一次 E
 > `docker compose up -d --build api`；或在 compose 為 `api` 掛 bind mount
 > `./config:/app/config` 讓改檔免 rebuild（重啟即生效）。
 
+## 升級流程（SOP）
+
+`git pull` 之後要做哪幾步，取決於改了什麼。**多做無害、少做會留下不一致的資料**。
+
+| 改動範圍 | 需要的步驟 |
+|---|---|
+| 只改前端 | `docker compose up -d --build web` |
+| 改後端程式碼 | `docker compose up -d --build api` |
+| 改 `config/thresholds.yaml`（權重／門檻） | 同上——**config 烤在映像內，只 restart 不會生效** |
+| 改 `feature_builder` / `analysis` / 評分邏輯 | 上一項 + **全量重建** `rebuild_signals` |
+| 新增 migration | 上述 + 起動時 entrypoint 自動 `alembic upgrade head`（不必手動） |
+| 新資料源／回補腳本 | **先補資料，最後才重建**（見下方順序鐵則） |
+
+### 順序鐵則
+
+```
+抓/補資料  →  重建特徵與分數  →  驗收
+```
+
+反過來做，重建會用到還沒補進來的資料，等於白跑一次。回補腳本彼此獨立、都是冪等的，
+可以重複執行；`rebuild_signals` 也是冪等的，但**很花時間**（130 個交易日約 6～8 分鐘），
+所以放到最後一次做完。
+
+**不要在盤中回補**：TWSE 當日報表在收盤結算前只有半套（部分上市個股、無上櫃、無法人、
+無借券），匯進去會讓當日橫斷面失真，盤中量還會污染其後 20 天的 `avg_vol20`。
+`backfill_history` / `backfill_sbl` 已用 `availability_for`（盤後 15:00）擋掉，但
+其他手動指令仍要自己注意。
+
+### 驗收
+
+```bash
+# 1. 容器內實際跑的版本（改 config 後最容易忘記 --build，用這個確認）
+docker compose exec -T api python -c \
+  "from app.core.config import get_thresholds; print(get_thresholds().weights)"
+
+# 2. 各資料源的涵蓋（天數應一致，最新日期應為最後一個交易日）
+docker compose exec -T db psql -U twchip -d twchip -c "
+select 'price' t, count(distinct data_date) d, min(data_date), max(data_date) from daily_price
+union all select 'sbl',     count(distinct data_date), min(data_date), max(data_date) from sbl_daily
+union all select 'feature', count(distinct data_date), min(data_date), max(data_date) from feature_daily
+union all select 'signal',  count(distinct data_date), min(data_date), max(data_date) from signal_snapshot;"
+
+# 3. 大盤脈絡有沒有落後（三個日期應該相同）
+docker compose exec -T db psql -U twchip -d twchip -c "
+select (select max(data_date) from market_index) idx,
+       (select max(data_date) from market_daily) mkt,
+       (select max(data_date) from daily_price)  px;"
+
+# 4. 當日分數分布（百分位映射下 ≥75 應恰為總數的 25%）
+docker compose exec -T db psql -U twchip -d twchip -c "
+select data_date, count(*) n, count(*) filter (where chip_score>=75) ge75,
+       count(*) filter (where action='BUY') buy
+from signal_snapshot where data_date=(select max(data_date) from signal_snapshot)
+group by 1;"
+
+# 5. 逐筆覆蓋造成的分數偏差（有逐筆與無逐筆兩組的 ≥75 佔比都應接近 25%）
+docker compose exec -T api python -m scripts.diag_intraday_bias
+```
+
+第 4 項的 `ge75` 若不是總數的 25%，表示 `signal_snapshot` 是舊版程式產生的，重跑
+`rebuild_signals`。第 5 項兩組佔比差很多，表示映像沒更新到分組映射那版。
+
 ## 重點與陷阱
 
 1. **EOD 排程**：`api` 容器內建 APScheduler（`config/thresholds.yaml` 的
