@@ -112,10 +112,20 @@ def _zscore_map(strength: dict[str, float]) -> dict[str, float]:
     return {s: (v - mean) / std for s, v in strength.items()}
 
 
-async def _load_df(session: AsyncSession, model, cols, start, end) -> pd.DataFrame:
+async def _load_df(
+    session: AsyncSession, model, cols, start, end, as_of: dt.datetime | None = None
+) -> pd.DataFrame:
+    """視窗內的資料；as_of 另以 `available_at` 過濾（鐵則 8 的 look-ahead 防護）。
+
+    日線/法人/融資/借券的 available_at 就是當日盤後，與 `data_date <= target` 等價；
+    但 **TDCC 是週五統計、數日後才揭露**，只看 data_date 會在還不知道的時候就用它算
+    特徵。故一律傳 as_of=目標日盤後，讓「何時可用」由資料自己的 available_at 決定。
+    """
     stmt = select(*[getattr(model, c) for c in cols]).where(
         model.data_date >= start, model.data_date <= end
     )
+    if as_of is not None:
+        stmt = stmt.where(model.available_at <= as_of)
     rows = (await session.execute(stmt)).all()
     return pd.DataFrame(rows, columns=cols)
 
@@ -299,10 +309,12 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
         start, target,
     )
     # TDCC 週資料：取 data_date<=target 的近期快照(供 level proxy 或真實 change)
+    # TDCC 視窗放寬到 60 天:揭露落後會讓「target 當下已可用」的快照往前挪,
+    # 30 天視窗在 lag 之後可能一週都撈不到。以 available_at 決定可用性。
     tdcc = await _load_df(
         session, TdccSummaryWeekly,
         ["symbol", "data_date", "retail_ratio", "large_ratio", "super_large_ratio", "holder_count"],
-        target - dt.timedelta(days=30), target,
+        target - dt.timedelta(days=60), target, as_of=availability_for(target),
     )
 
     # 只處理當日有價格的個股

@@ -52,9 +52,13 @@ def parse_distribution(
         data_date = dt.datetime.strptime(raw_date, "%Y%m%d").date()
     except ValueError:
         return None, [], []
-    # TDCC 週資料實際揭露落後數日；為避免 look-ahead，於揭露日才可用。
-    # 第一版：openapi 僅當週快照，available_at 設為快照日盤後（見 docs 註記）。
-    available_at = dt.datetime(data_date.year, data_date.month, data_date.day, 18, 0)
+    # TDCC 週資料實際揭露落後數日（每週最後營業日收盤後統計，之後才公布）。
+    # 鐵則 8：available_at = 資料日 + config 的揭露落後天數，盤後 18:00。
+    # feature_builder 依 available_at 過濾，故快照日當天不會被拿來算特徵。
+    lag = int(t.get("disclosure_lag_days", 5))
+    available_at = dt.datetime(
+        data_date.year, data_date.month, data_date.day, 18, 0
+    ) + dt.timedelta(days=lag)
 
     by_symbol: dict[str, list[dict]] = {}
     for r in records:

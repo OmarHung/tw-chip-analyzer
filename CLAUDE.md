@@ -47,14 +47,16 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
   **NW 修正後的結果**：`sbl_bal_pct_20d` 樸素 -3.81 → **NW -2.02**（膨脹 1.9 倍，但仍勉強過 2）；`sbl_bal_pct_5d` -2.39 → -1.59（不再過關）；融券對照 +1.72 → +3.01（負自相關使 NW 放大，但 IC 僅 +0.019）。
   **regime 分層更正**：先前記「樣本全是多頭」**是錯的**——以 `market_trend_score>0.3` 切，130 天中多頭 84、非多頭 46。`sbl_bal_pct_20d` 在兩個 regime 方向一致（多頭 -0.032 / NW -2.01、非多頭 -0.026 / NW -1.63），不是單一 regime 的產物。
   **啟用門檻（更新）**：權重仍維持 0，但條件已可下修——累積至 N≈250 交易日（約 2027 上半年）重跑，若 NW t 仍 <−2 且兩 regime 方向一致，即可啟用，且應先給保守權重（如 -0.05，非原設計 -0.10）。
-- **TDCC holder：視窗內 ≥2 週快照且「涵蓋率」達標才切真實 change**（feature_builder），否則 level proxy；`available_at` 現設快照日盤後（demo 對齊），生產應 lag 至揭露日。
+- **TDCC holder：視窗內 ≥2 週快照且「涵蓋率」達標才切真實 change**（feature_builder），否則 level proxy；**`available_at` 已 lag 至揭露日**（2026-09-10 修正，見下）。
   **涵蓋率門檻**（`tdcc.change_coverage_min: 0.5`，2026-09-09 加）：判定改看「視窗內有 ≥2 週快照的個股佔當日全市場比例」，而非只看有幾個快照日期。否則部分回補（只補重點標的）會讓少數股票觸發 change 模式、其餘只有 1 週的算不出 change 而被排除 holder 成分，等於全市場掉一個維度。
   **無 TDCC 資料者 holder 分項為 NULL 並排除該成分**（不再以中性 0 灌水），由 `analyze_market` 依成分組合分組映射處理。
+  **look-ahead 修正（2026-09-10，鐵則 8）**：TDCC 以每週最後營業日收盤後統計、數日後才公布，原本 `available_at` 設在快照日盤後、且 `feature_builder._load_df` 只用 `data_date` 過濾——等於在還不知道股權分散時就拿來評分，backtest 會虛胖。現改為 `available_at = 資料日 + tdcc.disclosure_lag_days(=5，保守側) 18:00`，且 `_load_df` 一律以 `as_of=availability_for(target)` 依 `available_at` 過濾（日線/法人/融資/借券的 available_at 就是當日盤後，行為不變）。TDCC 視窗同時放寬到 60 天，否則 lag 之後可能整週撈不到快照。
+  **代價**：只有當週快照時，該週 lag 內的所有交易日都沒有 holder 成分（正確反映「當時真的不知道」）。要讓 holder 回到分數裡，**必須補 TDCC 歷史**（`scripts/backfill_tdcc.py`）——這是回補的第二個價值，不只是為了 backtest 驗證。
 - **TDCC 歷史回補：`scripts/backfill_tdcc.py`**（集保個股查詢頁，可回溯約 51 週）。openapi 1-5 只給當週、FinMind 對應資料集需付費層，此頁是唯一免費歷史來源，但**逐檔逐週**：全市場 2954 檔 × 51 週 ≈ 15 萬請求/10GB/12+ 小時（不建議），前 300 檔 ≈ 1.5 萬請求/約 100 分鐘（可行，預設）。**CSRF token 是一次性的**——每次 POST 後必須從回應頁重新取出，否則只有第一筆有資料（實測第一次 16 列、之後全 0）。HTML 轉成 openapi 同構 records 後共用 `parse_distribution`，級距→大戶/散戶分類只有一份真相。
 - **industry_trend 已啟用**（2026-09-09）：`stock.industry` 來自 MOPS 公司基本資料
   （上市 t187ap03_L／上櫃 mopsfin_t187ap03_O，同一套產業代碼，存中文名跨市場同組），
   `feature_daily.industry_trend_score` = 產業成分股近 5 日報酬中位數 → 跨產業橫斷面 z
-  → squash(-1..1)，成分股 <5 的產業不給分（NULL＝中性）。**注意：這條未經 OOS 驗證就
+  → squash(-1..1)，成分股 <5 的產業不給分（NULL＝中性）。
   **權重刻意設 0**（`weights.market.industry_trend: 0.0`，原 0.35）：2026-09-09 實跑
   train IC +0.059 → test +0.028、t=0.62（有效 test 日僅 25）——方向一致但不顯著，比照
   SBL 紀律不進分數。`market_trend` 維持 0.65 不補到 1.0，以保持與歷史分數同尺度。

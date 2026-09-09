@@ -208,3 +208,30 @@ async def test_tdcc_change_needs_coverage_threshold(db_session):
     for sym in ("AAA", "BBB", "CCC"):
         fd = await repo.get_latest(sym)
         assert fd.large_holder_ratio_change_z is not None, sym
+
+
+async def test_tdcc_not_yet_disclosed_is_unusable(db_session):
+    """鐵則 8：TDCC 快照在揭露日之前不得被用來算特徵（available_at > target）。
+
+    這條若失守，backtest 會在還不知道股權分散的當下就拿它評分，績效虛胖。
+    """
+    from app.db.models.chips import TdccSummaryWeekly
+
+    await _seed_history(db_session)
+    for sym in ("AAA", "BBB", "CCC"):
+        db_session.add(
+            TdccSummaryWeekly(
+                symbol=sym, data_date=TARGET,
+                # 資料日就是 TARGET，但要 5 天後才揭露
+                available_at=dt.datetime(TARGET.year, TARGET.month, TARGET.day, 18, 0)
+                + dt.timedelta(days=5),
+                retail_ratio=20, medium_ratio=10, large_ratio=30,
+                super_large_ratio=40, holder_count=10_000,
+            )
+        )
+    await db_session.commit()
+
+    await build_features(db_session, TARGET)
+    fd = await FeatureDailyRepository(db_session).get_latest("AAA")
+    # 尚未揭露 → 當作沒有這筆，holder 分項為 NULL（由 composite 排除該成分）
+    assert fd.large_holder_ratio_change_z is None
