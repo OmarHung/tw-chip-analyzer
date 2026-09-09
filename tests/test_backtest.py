@@ -123,3 +123,42 @@ class TestEngineAggregation:
         eng = BacktestEngine()
         report = eng.run([BacktestSignal("NOPE", dt.date(2026, 1, 1), 80)], {})
         assert report.evaluated == 0 and report.dropped == 1
+
+
+class TestNeweyWestT:
+    """重疊 forward return 造成的自相關會高估樸素 t 值（見 docs/06 §17）。"""
+
+    @staticmethod
+    def _naive_t(a):
+        import numpy as np
+
+        arr = np.asarray(a, dtype=float)
+        return float(arr.mean() / arr.std(ddof=1) * np.sqrt(arr.size))
+
+    def test_iid_series_close_to_naive_t(self):
+        import numpy as np
+
+        from app.backtest.metrics import newey_west_t
+
+        rng = np.random.default_rng(0)
+        x = rng.normal(0.3, 1.0, 400)          # 獨立樣本
+        nw = newey_west_t(x, lags=19)
+        # 無自相關時 NW 與樸素 t 應相近（容忍小樣本雜訊）
+        assert abs(nw - self._naive_t(x)) < 0.5 * abs(self._naive_t(x))
+
+    def test_autocorrelated_series_shrinks_t(self):
+        import numpy as np
+
+        from app.backtest.metrics import newey_west_t
+
+        rng = np.random.default_rng(1)
+        raw = rng.normal(0.3, 1.0, 419)
+        # 模擬 20 日重疊：每點為連續 20 個獨立值的移動平均
+        x = np.convolve(raw, np.ones(20) / 20, mode="valid")
+        nw = newey_west_t(x, lags=19)
+        assert abs(nw) < abs(self._naive_t(x)) * 0.6   # 顯著縮小
+
+    def test_too_few_samples(self):
+        from app.backtest.metrics import newey_west_t
+
+        assert newey_west_t([1.0], lags=19) is None

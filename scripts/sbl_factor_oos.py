@@ -19,6 +19,7 @@ from sqlalchemy import text
 
 from app.backtest import BacktestEngine
 from app.backtest.engine import BacktestSignal
+from app.backtest.metrics import newey_west_t
 from app.backtest.runner import load_bars
 from app.db.session import get_sessionmaker
 
@@ -37,14 +38,19 @@ def _day_ic(g: pd.DataFrame, value: pd.Series, ret_col: str) -> float | None:
 
 
 def _mean_ic(df: pd.DataFrame, dates, col: str, ret_col: str):
+    """回傳 (平均 IC, 樸素 t, Newey-West t, 有效日數)。
+
+    樸素 t 把 n 個重疊日當獨立樣本、必然高估；NW t 以 HZ-1 階 Bartlett 權重修正
+    自相關，是判斷是否 robust 的依據（樸素 t 只留作對照，看膨脹了多少）。
+    """
     ics = [ic for d in dates
            if (ic := _day_ic(g := df[df["data_date"] == d], g[col], ret_col)) is not None]
     a = np.array(ics)
     if a.size < 2:
-        return None, None, 0
+        return None, None, None, 0
     std = a.std(ddof=1)
     t = (a.mean() / std) * np.sqrt(a.size) if std > 0 else 0.0
-    return a.mean(), t, a.size
+    return a.mean(), t, newey_west_t(a, lags=HZ - 1), a.size
 
 
 async def _amain() -> None:
@@ -113,14 +119,35 @@ async def _amain() -> None:
     print(f"SBL 交易日 {n}  train={len(train_days)}  embargo={EMBARGO}  test={len(test_days)}\n")
 
     print(f"=== 借券 vs 融券 單因子 {HZ}D IC:train vs test ===")
-    print(f"{'factor':<24}{'train IC':>11}{'test IC':>11}{'test t':>9}{'n':>6}  robust")
+    print(f"{'factor':<24}{'train IC':>11}{'test IC':>11}{'樸素 t':>9}{'NW t':>8}{'n':>5}  robust")
     for f in SBL_FACTORS + BENCH:
-        tr, _, _ = _mean_ic(df, train_days, f, ret_col)
-        te, te_t, ntest = _mean_ic(df, test_days, f, ret_col)
+        tr, _, _, _ = _mean_ic(df, train_days, f, ret_col)
+        te, te_t, te_nw, ntest = _mean_ic(df, test_days, f, ret_col)
+        # robust 以 NW t 判定(樸素 t 因重疊視窗必然膨脹,不可作為門檻)
         robust = "✓" if (tr is not None and te is not None
-                         and np.sign(tr) == np.sign(te) and abs(te_t or 0) > 2) else ""
+                         and np.sign(tr) == np.sign(te) and abs(te_nw or 0) > 2) else ""
         tag = "  [融券對照]" if f in BENCH else ""
-        print(f"{f:<24}{(tr or 0):>+11.4f}{(te or 0):>+11.4f}{(te_t or 0):>9.2f}{ntest:>6}  {robust}{tag}")
+        print(f"{f:<24}{(tr or 0):>+11.4f}{(te or 0):>+11.4f}"
+              f"{(te_t or 0):>9.2f}{(te_nw or 0):>8.2f}{ntest:>5}  {robust}{tag}")
+
+    # regime 分層:借券(做空)因子在多頭與非多頭很可能方向不同,混算會互相抵消。
+    # 以 market_daily.market_trend_score 切;目前樣本若全在同一 regime,另一層會空。
+    async with sm() as s2:
+        md = pd.DataFrame(
+            (await s2.execute(text(
+                "select data_date, market_trend_score from market_daily"
+            ))).all(),
+            columns=["data_date", "market_trend_score"],
+        )
+    md["market_trend_score"] = pd.to_numeric(md["market_trend_score"], errors="coerce")
+    bull = set(md.loc[md["market_trend_score"] > 0.3, "data_date"])
+    print(f"\n=== regime 分層(全樣本,非 OOS;多頭日={len(bull)}/{n}) ===")
+    print(f"{'factor':<24}{'多頭 IC':>10}{'NW t':>8}{'n':>5}{'非多頭 IC':>12}{'NW t':>8}{'n':>5}")
+    for f in SBL_FACTORS + BENCH:
+        b_ic, _, b_nw, b_n = _mean_ic(df, [d for d in days if d in bull], f, ret_col)
+        o_ic, _, o_nw, o_n = _mean_ic(df, [d for d in days if d not in bull], f, ret_col)
+        print(f"{f:<24}{(b_ic or 0):>+10.4f}{(b_nw or 0):>8.2f}{b_n:>5}"
+              f"{(o_ic or 0):>+12.4f}{(o_nw or 0):>8.2f}{o_n:>5}")
 
 
 if __name__ == "__main__":
