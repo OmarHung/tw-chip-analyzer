@@ -21,6 +21,7 @@ from app.core.logging import get_logger
 from app.db.models.market import DailyPrice
 from app.db.session import get_sessionmaker
 from app.services.feature_builder import build_features
+from app.services.market_score import build_market_daily
 from app.services.signal_persist import persist_signals
 
 logger = get_logger("scripts.rebuild_signals")
@@ -41,6 +42,12 @@ async def rebuild_day(t: dt.date) -> int:
     sm = get_sessionmaker()
     async with sm() as s:
         await build_features(s, t)  # 內部 commit
+    # 大盤脈絡缺當日時補建：market_daily 平時由 daily job 產生，手動重建若不補，
+    # load_market_context 會沿用「<= 當日的最新一筆」＝更早的 regime 去算分數
+    # （實際踩過：market_index 停在 09-04，09-07/08 用 4 天前的大盤脈絡）。
+    # 需要 market_index 有當日 TAIEX；沒有則 build_market_daily 自行略過。
+    async with sm() as s:
+        await build_market_daily(s, t)
     async with sm() as s:
         return await persist_signals(s, t)
 
