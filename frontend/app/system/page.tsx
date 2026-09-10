@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Card, SectionTitle, StatCard } from "@/components/Card";
+import { CoverageCard } from "@/components/CoverageCard";
 import {
   api,
   type BackfillRequest,
@@ -48,18 +49,6 @@ function fmtNextRun(iso: string | null): string {
     return iso;
   }
 }
-
-const SOURCE_ZH: Record<string, { zh: string; en: string }> = {
-  feature_daily: { zh: "特徵", en: "feature_daily" },
-  daily_price: { zh: "日K", en: "daily_price" },
-  institutional_daily: { zh: "法人", en: "institutional" },
-  margin_daily: { zh: "融資券", en: "margin" },
-  tdcc_summary_weekly: { zh: "集保", en: "TDCC" },
-  sbl_daily: { zh: "借券", en: "SBL" },
-  market_daily: { zh: "大盤", en: "market_daily" },
-  corporate_action: { zh: "除權息", en: "corporate_action" },
-  raw_tick: { zh: "逐筆", en: "raw_tick" },
-};
 
 const QUOTA_STOP = 95; // 對齊後端 intraday_batch.usage_stop_pct
 
@@ -126,22 +115,27 @@ export default function SystemPage() {
     (q?.available && q.used_pct != null && q.used_pct >= QUOTA_STOP) ?? false;
   const ticksBlocked = bfMode === "ticks" && quotaFull;
 
-  const submit = async () => {
+  const sendBackfill = async (body: BackfillRequest) => {
     setSubmitting(true);
     setBfError(null);
     try {
-      const body: BackfillRequest =
-        bfKind === "single"
-          ? { kind: "single", date: bfDate, mode: bfMode }
-          : { kind: "range", start: bfStart, end: bfEnd };
-      const res = await api.backfill(body);
-      setData(res);
+      setData(await api.backfill(body));
     } catch (e) {
       setBfError(e instanceof Error ? e.message : "觸發失敗");
     } finally {
       setSubmitting(false);
     }
   };
+
+  const submit = () =>
+    sendBackfill(
+      bfKind === "single"
+        ? { kind: "single", date: bfDate, mode: bfMode }
+        : { kind: "range", start: bfStart, end: bfEnd },
+    );
+
+  // 補齊缺漏:後端自行算出各源缺漏日的聯集並逐日補,不必手動填區間。
+  const fillMissing = () => sendBackfill({ kind: "missing" });
 
   return (
     <div className="space-y-6">
@@ -333,71 +327,12 @@ export default function SystemPage() {
             />
           </div>
 
-          {/* 資料源涵蓋 */}
-          <Card>
-            <SectionTitle>資料源涵蓋</SectionTitle>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-line-soft font-mono text-[10px] tracking-[0.12em] text-ink-faint whitespace-nowrap uppercase">
-                    <th className="py-2 pr-3 text-left font-medium">資料源</th>
-                    <th className="px-3 py-2 text-right font-medium">交易日</th>
-                    <th className="px-3 py-2 text-right font-medium">缺口</th>
-                    <th className="px-3 py-2 text-right font-medium">最早</th>
-                    <th className="py-2 pl-3 text-right font-medium">最新</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(data.coverage.sources).map(([k, v]) => (
-                    <tr key={k} className="border-b border-line-soft/50 last:border-0">
-                      <td className="py-2.5 pr-3 text-sm whitespace-nowrap text-ink">
-                        {SOURCE_ZH[k]?.zh ?? k}
-                        {SOURCE_ZH[k]?.en && (
-                          <span className="ml-1.5 hidden font-mono text-[11px] text-ink-faint sm:inline">
-                            {SOURCE_ZH[k].en}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-sm tnum text-ink">
-                        {v.days}
-                      </td>
-                      <td
-                        className={`px-3 py-2.5 text-right font-mono text-sm tnum ${
-                          v.missing ? "text-gold" : "text-ink-faint"
-                        }`}
-                        title={
-                          v.missing
-                            ? `缺:${(v.missing_recent ?? []).join(" ")}${
-                                v.missing > (v.missing_recent?.length ?? 0) ? " …" : ""
-                              }`
-                            : undefined
-                        }
-                      >
-                        {v.missing === undefined
-                          ? "—"
-                          : v.missing === 0
-                            ? "齊"
-                            : `缺 ${v.missing}`}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap tnum text-ink-dim">
-                        {v.min ?? "—"}
-                      </td>
-                      <td className="py-2.5 pl-3 text-right font-mono text-sm whitespace-nowrap tnum text-ink-dim">
-                        {v.max ?? "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="pt-3 text-xs text-ink-faint">
-              缺口 = 相對「已知交易日曆」(日K 有資料的
-              {data.coverage.calendar?.days ?? 0} 日)少了幾個交易日;滑過數字看缺漏日期。
-              集保(週度)、除權息(事件表)、逐筆(受 Shioaji 配額限制)不適用,顯示
-              「—」。整條資料鏈都沒補的日子不會出現在日曆裡,故此欄看不出「整天全缺」——
-              那要看最新日期是否落後今天。
-            </p>
-          </Card>
+          {/* 資料源涵蓋（缺口可展開 + 一鍵補齊） */}
+          <CoverageCard
+            coverage={data.coverage}
+            onFillMissing={fillMissing}
+            disabled={submitting || running}
+          />
 
           {/* 逐筆每日灌檔數(診斷配額被砍) */}
           <Card>

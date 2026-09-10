@@ -67,7 +67,7 @@ class OpsStatus(BaseModel):
 
 
 class BackfillRequest(BaseModel):
-    kind: str  # "single" | "range"
+    kind: str  # "single" | "range" | "missing"
     date: str | None = None            # single 用
     mode: str | None = "eod"           # single 用:"eod" | "ticks"
     start: str | None = None           # range 用
@@ -140,6 +140,19 @@ def _coverage_snapshot() -> dict:
     return _coverage_cache or _empty_coverage()
 
 
+def _missing_days() -> list[dt.date]:
+    """各日頻資料源缺漏日的聯集(升冪)。取自涵蓋快取,不另打 DB。
+
+    只含「該源起始日之後」的空洞——回看視窗造成的前段落差不是缺漏,補了也不會
+    有資料(見 repositories.ops._with_gaps)。
+    """
+    cov = _coverage_snapshot()
+    days: set[str] = set()
+    for span in (cov.get("sources") or {}).values():
+        days.update(span.get("missing_dates") or [])
+    return sorted(dt.date.fromisoformat(d) for d in days)
+
+
 @router.get("/status", response_model=OpsStatus)
 async def status() -> OpsStatus:
     return OpsStatus(
@@ -197,8 +210,20 @@ async def backfill(req: BackfillRequest) -> OpsStatus:
             )
         if not runner.start_range(start, end):
             raise HTTPException(status_code=409, detail="工作啟動失敗(忙碌中)")
+    elif req.kind == "missing":
+        days = _missing_days()
+        if not days:
+            raise HTTPException(status_code=400, detail="目前沒有缺漏的交易日")
+        if len(days) > _RANGE_MAX_WEEKDAYS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"缺漏過多({len(days)} 日 > 上限 {_RANGE_MAX_WEEKDAYS}),"
+                "請改用區間回補分批處理",
+            )
+        if not runner.start_days(days):
+            raise HTTPException(status_code=409, detail="工作啟動失敗(忙碌中)")
     else:
-        raise HTTPException(status_code=400, detail="kind 需為 single 或 range")
+        raise HTTPException(status_code=400, detail="kind 需為 single、range 或 missing")
 
     return OpsStatus(
         quota=await _get_quota(),

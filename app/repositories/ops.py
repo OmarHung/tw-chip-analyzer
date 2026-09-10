@@ -51,17 +51,27 @@ def _span_of(dates: list[dt.date]) -> dict:
 
 
 def _with_gaps(dates: list[dt.date], calendar: list[dt.date]) -> dict:
-    """相對交易日曆(以 daily_price 為準)算缺口:缺幾日 + 最近幾個缺漏日。
+    """相對交易日曆(以 daily_price 為準)算缺口:缺哪幾日 + 起始日之前的落差。
+
+    **只算該源起始日「之後」的空洞**。起始日之前沒有資料不是缺漏,而是這個源
+    本來就從那天才開始——feature_daily 需要 20 日回看視窗、market_daily 需要
+    MA60,前面那段永遠不會有值。把它們算成缺口會誤導成「該補」,一鍵補齊也會
+    去補一堆補不出東西的日子(實際踩過:特徵顯示「缺 20」但那 20 天正是視窗)。
+    落差另以 starts_late 表達,語意是「比日曆晚開始幾個交易日」。
 
     日曆本身也可能不完整(整條鏈都沒補的那天不會出現在任何表),故這裡答的是
     「相對已知交易日還缺幾日」,不是「相對台股官方行事曆」。
     """
     have = set(dates)
-    missing = [d for d in calendar if d not in have]
+    start = dates[0] if dates else None
+    within = [d for d in calendar if start is not None and d >= start]
+    missing = [d for d in within if d not in have]
     return {
         **_span_of(dates),
         "missing": len(missing),
-        "missing_recent": [str(d) for d in missing[-8:]],
+        # 完整清單:供 UI 展開檢視與「補齊缺漏」一鍵回補(通常只有個位數)
+        "missing_dates": [str(d) for d in missing],
+        "starts_late": sum(1 for d in calendar if start is not None and d < start),
     }
 
 

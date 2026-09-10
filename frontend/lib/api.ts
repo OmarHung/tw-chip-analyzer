@@ -299,9 +299,12 @@ export interface OpsDateSpan {
   days: number;
   min: string | null;
   max: string | null;
-  // 相對交易日曆(daily_price)缺幾日;非日頻資料源(TDCC/公司行動/逐筆)為 undefined。
+  // 該源「起始日之後」缺幾個交易日;非日頻資料源(TDCC/公司行動/逐筆)為 undefined。
   missing?: number;
-  missing_recent?: string[];
+  // 缺漏日期完整清單(YYYY-MM-DD),供 UI 展開與「補齊缺漏」一鍵回補。
+  missing_dates?: string[];
+  // 比交易日曆晚幾個交易日才開始有資料(回看視窗造成,不是缺漏)。
+  starts_late?: number;
 }
 
 export interface OpsTickDay {
@@ -372,7 +375,7 @@ export interface ForwardReport {
 }
 
 export interface BackfillRequest {
-  kind: "single" | "range";
+  kind: "single" | "range" | "missing";
   date?: string;
   mode?: "eod" | "ticks";
   start?: string;

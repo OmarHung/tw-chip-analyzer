@@ -353,3 +353,42 @@ async def test_flows_backadjusts_corporate_action(db_session):
     assert j["points"][0]["close"] < 100
     # 張數還原到現股尺度：拆股前的日買超 1000 張 → ×20
     assert j["points"][0]["foreign"] == 20000
+
+
+class TestCoverageGaps:
+    """涵蓋缺口語意：只算「該源起始日之後」的空洞（見 repositories.ops._with_gaps）。"""
+
+    def test_late_start_is_not_a_gap(self):
+        """特徵/大盤前段沒資料是回看視窗造成，不是缺漏——算成缺口會誤導成該補。"""
+        import datetime as dt
+
+        from app.repositories.ops import _with_gaps
+
+        cal = [dt.date(2026, 3, d) for d in (2, 3, 4, 5, 6)]
+        # 這個源從第 3 天才開始（前 2 天是回看視窗），之後沒有空洞
+        got = _with_gaps(cal[2:], cal)
+        assert got["missing"] == 0
+        assert got["missing_dates"] == []
+        assert got["starts_late"] == 2
+
+    def test_real_gap_is_reported_with_dates(self):
+        import datetime as dt
+
+        from app.repositories.ops import _with_gaps
+
+        cal = [dt.date(2026, 3, d) for d in (2, 3, 4, 5, 6)]
+        have = [cal[0], cal[1], cal[4]]          # 3/4、3/5 中間缺兩天
+        got = _with_gaps(have, cal)
+        assert got["missing"] == 2
+        assert got["missing_dates"] == ["2026-03-04", "2026-03-05"]
+        assert got["starts_late"] == 0
+
+    def test_empty_source_has_no_gaps(self):
+        """完全沒資料的源不該報一整個日曆的缺口（無從判斷起始日）。"""
+        import datetime as dt
+
+        from app.repositories.ops import _with_gaps
+
+        cal = [dt.date(2026, 3, d) for d in (2, 3, 4)]
+        got = _with_gaps([], cal)
+        assert got["missing"] == 0 and got["starts_late"] == 0

@@ -126,6 +126,35 @@ async def _do_range(start: dt.date, end: dt.date) -> None:
     _state["result"] = {"range": f"{start}~{end}", "days": done}
 
 
+async def _do_days(days: list[dt.date], label: str) -> None:
+    """補指定的幾個交易日(不必連續)。用於「補齊缺漏」——只跑真的缺的那幾天,
+    不像區間回補會把中間已有資料的日子重跑一遍。內容同區間:日線/法人/融資
+    + 特徵 + 落地,不含逐筆(逐筆受 Shioaji 配額限制,只走單日)。"""
+    total = len(days)
+    done = 0
+    for d in days:
+        _state["step"] = f"補齊 {d}({done + 1}/{total})"
+        _state["progress"] = {"done": done, "total": total}
+        await daily.run(
+            d, do_import=True, do_features=True, do_signals=True,
+            do_tdcc=False, do_index=False,
+        )
+        done += 1
+    _state["progress"] = {"done": done, "total": total}
+    _state["result"] = {"missing": label, "days": done}
+
+
+def start_days(days: list[dt.date]) -> bool:
+    global _task
+    if not days:
+        return False
+    label = f"{days[0]}~{days[-1]}" if len(days) > 1 else str(days[0])
+    if not try_mark("missing", "daily", label):
+        return False
+    _task = asyncio.create_task(_guarded(_do_days(days, label)))
+    return True
+
+
 async def _guarded(coro) -> None:
     try:
         await coro
