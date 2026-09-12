@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -31,6 +32,17 @@ _QUOTA_TTL = 60.0
 _quota_cache: dict | None = None
 _quota_at: float = 0.0
 _QUOTA_TIMEOUT = 8.0  # 連線/登入逾時,避免拖垮頁面
+
+# 配額查詢的隔離(實際事故 2026-09-12):Shioaji token 過期後 usage() 會卡在 session
+# 重建而永不返回。wait_for 只能放棄等待、殺不掉 thread,所以三道防線缺一不可:
+#   1. 專屬單執行緒 executor —— 卡死最多佔用這一條,不碰 asyncio default executor
+#      (FastAPI 的同步 def 路由靠它;被填滿會讓整個 API 接了連線卻不回應)。
+#   2. 單飛 —— 上一次查詢還卡著就不再送新工作,否則每次輪詢洩漏一條 thread。
+#   3. 失敗負快取 —— 失敗後一段時間內不重打(前端「系統」頁是高頻輪詢)。
+_QUOTA_FAIL_TTL = 300.0
+_quota_failed_at: float = 0.0
+_quota_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="shioaji-quota")
+_quota_inflight: Future | None = None
 
 # 資料涵蓋 TTL 快取(秒)+ 背景單飛刷新。
 #
@@ -75,21 +87,28 @@ class BackfillRequest(BaseModel):
 
 
 async def _get_quota() -> Quota:
-    global _quota_cache, _quota_at
+    global _quota_cache, _quota_at, _quota_failed_at, _quota_inflight
     now = time.monotonic()
     if _quota_cache is not None and (now - _quota_at) < _QUOTA_TTL:
         return Quota(**_quota_cache, cached_age_sec=int(now - _quota_at))
+    if (now - _quota_failed_at) < _QUOTA_FAIL_TTL:
+        return Quota(available=False)
+    if _quota_inflight is not None and not _quota_inflight.done():
+        # 上一次查詢仍卡在 Shioaji:不再送新工作(否則每輪詢一次就多洩漏一條 thread)
+        return Quota(available=False)
 
     from app.connectors.shioaji_market import usage_sync
 
+    _quota_inflight = fut = _quota_executor.submit(usage_sync)
     try:
-        u = await asyncio.wait_for(asyncio.to_thread(usage_sync), _QUOTA_TIMEOUT)
-    except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001 — 監看失敗不應報錯
+        u = await asyncio.wait_for(asyncio.wrap_future(fut), _QUOTA_TIMEOUT)
+    except Exception as e:  # noqa: BLE001 — 監看失敗不應報錯(含逾時)
         logger.warning("配額查詢失敗:%s", e)
         u = None
 
     if u is None:
-        # 取不到:不快取(下次再試),回 available=false
+        # 取不到:負快取一段時間,避免高頻輪詢反覆打一個已知壞掉的 session
+        _quota_failed_at = time.monotonic()
         return Quota(available=False)
 
     _quota_cache = {

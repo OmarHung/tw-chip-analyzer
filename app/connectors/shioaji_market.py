@@ -37,6 +37,17 @@ def _get_api():
         return _api
 
 
+def reset_api() -> None:
+    """丟棄快取的 session，下次呼叫重新登入。
+
+    token 過期 / session 斷線後，快取的 api 物件已無法使用且不會自行復原
+    （實際事故：401 Token is expired 之後每次 usage() 都失敗直到容器重啟）。
+    """
+    global _api
+    with _lock:
+        _api = None
+
+
 def usage_sync() -> dict | None:
     """回傳 Shioaji 資料用量 {bytes, limit_bytes, used_pct}；取不到回 None。
 
@@ -47,6 +58,8 @@ def usage_sync() -> dict | None:
         u = api.usage()
     except Exception as e:  # noqa: BLE001 — 監看失敗不應中斷批次
         logger.warning("Shioaji usage() 取得失敗：%s", e)
+        # session 可能已失效（token 過期 / 斷線）；丟棄以便下次重新登入。
+        reset_api()
         return None
     used = getattr(u, "bytes", None)
     limit = getattr(u, "limit_bytes", None)
