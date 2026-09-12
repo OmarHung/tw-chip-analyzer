@@ -1,7 +1,7 @@
 """個股籌碼分析 API（見 docs/05 §15）。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,7 @@ from app.db.models.market import CorporateAction, DailyPrice, Stock
 from app.db.session import get_session
 from app.repositories.features import FeatureDailyRepository, SignalRepository
 from app.repositories.market import load_daily_prices, load_market_context
-from app.services.analysis import AnalysisService
+from app.services.analysis import AnalysisService, Position
 from app.services.orderflow_intraday import compute_orderflow
 from app.services.ticks import get_ticks
 
@@ -83,8 +83,14 @@ class OrderFlowResponse(BaseModel):
 @router.get("/{symbol}/analysis", response_model=AnalysisResponse)
 async def get_analysis(
     symbol: str,
+    entry_price: float | None = Query(None, gt=0, description="持倉成本；有值走出場邏輯"),
+    stop_loss: float | None = Query(None, gt=0, description="持倉停損；未給則依成本推導"),
     session: AsyncSession = Depends(get_session),
 ) -> AnalysisResponse:
+    if stop_loss is not None and entry_price is None:
+        raise HTTPException(status_code=422, detail="stop_loss 需搭配 entry_price")
+    # 系統不保存持倉（docs/09 BUG-04 選 API 參數模型）：同一檔依是否持有給不同建議
+    position = Position(entry_price, stop_loss) if entry_price is not None else None
     repo = FeatureDailyRepository(session)
     fd = await repo.get_latest(symbol)
     if fd is None:
@@ -107,9 +113,11 @@ async def get_analysis(
     items: list[tuple[FeatureDaily, str | None]] = [
         (x, name if x.symbol == symbol else None) for x in day_rows
     ]
-    results = analyze_market(AnalysisService(), items, market)
+    positions = {symbol: position} if position else None
+    results = analyze_market(AnalysisService(), items, market, positions)
     result = next(r for r in results if r.symbol == symbol)
     resp = AnalysisResponse.from_result(result)
+    resp.in_position = position is not None
     # 市場別/產業別只在 stock 主檔，AnalysisResult 不帶，於此補上供前端標示。
     resp.market = stock.market if stock else None
     resp.industry = stock.industry if stock else None

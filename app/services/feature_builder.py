@@ -134,6 +134,7 @@ def _price_features(
     g: pd.DataFrame,
     actions: list[tuple[dt.date, float]] | None = None,
     share_actions: list[tuple[dt.date, float]] | None = None,
+    thresholds=None,
 ) -> dict | None:
     """g：單一 symbol、依日期排序、data_date<=target 的價格。
 
@@ -183,6 +184,14 @@ def _price_features(
     last_turn = turn.iloc[-1]
     vwap = (last_turn / last_vol) if last_vol and last_vol > 0 else last_close
     swing_low = low.tail(10).min()
+    t = thresholds or get_thresholds()
+    # 壓力位（RR 目標，docs/09 BUG-01）：近 N 根後復權最高價；bar 數不足 → NULL
+    rk = t.risk
+    resistance = (
+        float(high.tail(rk["resistance_lookback_bars"]).max())
+        if len(high) >= rk["resistance_min_bars"]
+        else None
+    )
     avg_vol20 = adj_vol.tail(20).mean()
     # 近 5 日報酬（後復權價，故跨除權息連續）→ 產業趨勢用
     base5 = close.iloc[-6] if len(close) >= 6 else close.iloc[0]
@@ -197,6 +206,17 @@ def _price_features(
         if prev_close and prev_close > 0
         else None
     )
+    # 鎖死漲停（docs/09 BUG-03）：漲幅達門檻且一價到底（原始 high=low=close）。
+    # 前收以後復權價比較（除權息日即近似參考價）；無前一根 → 無法判斷(NULL)。
+    raw = g.iloc[-1]
+    is_limit_locked = (
+        bool(
+            change_pct >= t.entry_filter["limit_lock_min_change_pct"]
+            and raw["high"] == raw["low"] == raw["close"]
+        )
+        if change_pct is not None
+        else None
+    )
 
     return {
         "close": round(last_close, 4),
@@ -208,6 +228,8 @@ def _price_features(
         "turnover": round(float(last_turn), 2) if np.isfinite(last_turn) else None,
         "close_vs_ma20_pct": float((last_close - ma20) / ma20) if ma20 else None,
         "close_vs_vwap_pct": float((last_close - vwap) / vwap) if vwap else None,
+        "resistance_high": round(resistance, 4) if resistance is not None and np.isfinite(resistance) else None,
+        "is_limit_locked": is_limit_locked,
         "_avg_vol20": float(avg_vol20) if np.isfinite(avg_vol20) and avg_vol20 > 0 else None,
         "_ret5": ret5,
     }
@@ -284,7 +306,9 @@ async def _industry_trend(
 
 
 async def build_features(session: AsyncSession, target: dt.date) -> int:
-    start = target - dt.timedelta(days=45)
+    t = get_thresholds()
+    # 價格視窗須涵蓋壓力位回看根數；法人/信用等 5/20 日特徵仍只用 tail，視窗較寬無副作用
+    start = target - dt.timedelta(days=t.get("features", "price_window_days", default=45))
 
     prices = await _load_df(
         session, DailyPrice,
@@ -332,7 +356,7 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     for sym, g in prices.groupby("symbol"):
         if sym not in symbols_today:
             continue
-        feat = _price_features(g, actions.get(sym), share_actions.get(sym))
+        feat = _price_features(g, actions.get(sym), share_actions.get(sym), t)
         if feat:
             pf[sym] = feat
 

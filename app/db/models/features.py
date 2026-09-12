@@ -41,6 +41,9 @@ class FeatureDaily(Base, AvailabilityMixin, TimestampMixin):
     turnover: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
     close_vs_ma20_pct: Mapped[float | None] = mapped_column()
     close_vs_vwap_pct: Mapped[float | None] = mapped_column()
+    # 壓力位：近 N 根後復權最高價（RR 目標）；鎖死漲停旗標（NULL=無法判斷）
+    resistance_high: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    is_limit_locked: Mapped[bool | None] = mapped_column()
 
     # 法人/信用（正規化 Z-score）
     foreign_5d_z: Mapped[float | None] = mapped_column()

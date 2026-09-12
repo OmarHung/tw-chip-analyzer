@@ -38,6 +38,7 @@ class AnalysisResponse(BaseModel):
     entry: EntryZone | None = None
     risk: RiskInfo
     reasons: list[str]
+    in_position: bool = False  # 是否以持倉上下文分析(由 endpoint 補)
 
     @classmethod
     def from_result(cls, r: AnalysisResult) -> "AnalysisResponse":

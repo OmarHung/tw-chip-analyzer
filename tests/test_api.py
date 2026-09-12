@@ -101,6 +101,25 @@ async def test_analysis_exposes_market(client, db_session):
     assert r2.status_code == 200 and r2.json()["market"] == "TPEx"
 
 
+async def test_analysis_with_position_uses_exit_logic(client):
+    """帶持倉參數 → 走出場邏輯（docs/09 BUG-04）：停損價以使用者給的為準、無進場區。"""
+    flat = (await client.get("/api/stocks/2330/analysis")).json()
+    assert flat["in_position"] is False
+    r = await client.get(
+        "/api/stocks/2330/analysis",
+        params={"entry_price": flat["price"] * 2, "stop_loss": flat["price"] * 1.5},
+    )
+    body = r.json()
+    assert r.status_code == 200 and body["in_position"] is True
+    assert body["action"] == "EXIT"  # 現價已跌破停損
+    assert body["entry"] is None
+
+
+async def test_analysis_stop_without_entry_rejected(client):
+    r = await client.get("/api/stocks/2330/analysis", params={"stop_loss": 100})
+    assert r.status_code == 422
+
+
 async def test_analysis_404(client):
     r = await client.get("/api/stocks/9999/analysis")
     assert r.status_code == 404

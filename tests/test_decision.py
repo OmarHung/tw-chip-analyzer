@@ -13,8 +13,9 @@ class TestRiskPlan:
         assert p.stop_loss < 100
         assert p.tp1 > 100 and p.tp2 > p.tp1
         r = 100 - p.stop_loss
-        assert abs(p.tp1 - (100 + 2 * r)) < 0.05  # tp1_r=2
-        assert p.rr == 2.0
+        assert abs(p.tp1 - (100 + 2 * r)) < 0.05  # tp1_r=2（風控目標）
+        # RR 不再由 TP1 反算（docs/09 BUG-01）；無壓力位資料 → 保守 0
+        assert p.rr == 0.0
 
     def test_max_stop_pct_floor(self):
         # ATR 很大時，停損被 max_stop_pct(6%) 地板限制住
@@ -26,7 +27,7 @@ class TestEntryFilter:
     def _good_ctx(self):
         return PriceContext(
             close_vs_vwap_pct=0.01, close_vs_ma20_pct=0.02,
-            turnover=50_000_000, market_score_norm=0.3,
+            turnover=50_000_000, market_trend_score=0.3,
         )
 
     def test_buy_when_all_pass(self):
@@ -47,7 +48,7 @@ class TestEntryFilter:
 
     def test_strong_bear_blocks_buy(self):
         ctx = self._good_ctx()
-        ctx.market_score_norm = -0.7
+        ctx.market_trend_score = -0.7
         d = decide_entry(score=80, rr=2.5, ctx=ctx)
         assert d.action == Action.WATCH
 
@@ -88,7 +89,8 @@ class TestDecideOrchestration:
     def test_buy_end_to_end(self):
         res = decide(
             score=82, reasons=["投信買超"], last_price=100, atr14=2.0, recent_swing_low=96,
-            price_ctx=PriceContext(turnover=50_000_000, market_score_norm=0.3),
+            resistance=120,
+            price_ctx=PriceContext(turnover=50_000_000, market_trend_score=0.3),
         )
         assert res.action == Action.BUY
         assert res.entry_zone is not None and res.risk_reward >= 2

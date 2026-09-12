@@ -28,30 +28,45 @@ def decide(
     already_in_position: bool = False,
     exit_ctx: ExitContext | None = None,
     thresholds: Thresholds | None = None,
+    resistance: float | None = None,
 ) -> SignalResult:
     """產生完整訊號建議。
 
     - 未持倉：走 Entry Filter（BUY/WATCH/HOLD/AVOID）。
-    - 持倉中：走 Exit Logic（HOLD/REDUCE/EXIT）。
+    - 持倉中：走 Exit Logic（HOLD/REDUCE/EXIT）；停損/TP 以持倉成本與停損為準，
+      不給進場區與 RR（持倉管理不適用進場 gate）。
     """
     t = thresholds or get_thresholds()
-    plan = build_risk_plan(last_price, atr14, recent_swing_low, t)
+    plan = build_risk_plan(last_price, atr14, recent_swing_low, t, resistance)
 
     if already_in_position:
         ectx = exit_ctx or ExitContext(price=last_price, stop_loss=plan.stop_loss)
         action, gate = decide_exit(score, ectx, t)
-        all_reasons = reasons + gate
-    else:
-        ctx = price_ctx or PriceContext()
-        decision = decide_entry(score, plan.rr, ctx, t)
-        action = decision.action
-        all_reasons = reasons + decision.gate_reasons
+        has_plan = action in (Action.HOLD, Action.REDUCE)
+        tp1, tp2 = plan.tp1, plan.tp2
+        if ectx.entry_price is not None:
+            risk = max(ectx.entry_price - ectx.stop_loss, 0.0)
+            tp1 = round(ectx.entry_price + t.risk["tp1_r"] * risk, 2)
+            tp2 = round(ectx.entry_price + t.risk["tp2_r"] * risk, 2)
+        return SignalResult(
+            score=score,
+            action=action,
+            reasons=reasons + gate,
+            entry_zone=None,
+            stop_loss=ectx.stop_loss if has_plan else None,
+            take_profit_1=tp1 if has_plan else None,
+            take_profit_2=tp2 if has_plan else None,
+            risk_reward=None,
+        )
 
-    has_plan = action in (Action.BUY, Action.WATCH, Action.HOLD, Action.REDUCE)
+    ctx = price_ctx or PriceContext()
+    decision = decide_entry(score, plan.rr, ctx, t)
+    action = decision.action
+    has_plan = action in (Action.BUY, Action.WATCH, Action.HOLD)
     return SignalResult(
         score=score,
         action=action,
-        reasons=all_reasons,
+        reasons=reasons + decision.gate_reasons,
         entry_zone=entry_zone_for(action, plan),
         stop_loss=plan.stop_loss if has_plan else None,
         take_profit_1=plan.tp1 if has_plan else None,

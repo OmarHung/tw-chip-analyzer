@@ -11,6 +11,7 @@ from app.models.signal import Action
 class ExitContext:
     price: float
     stop_loss: float
+    entry_price: float | None = None  # 持倉成本；有值時 TP 以成本為基準
     price_new_high: bool = False
     cvd_slope: float = 0.0
     large_trade_delta: float = 0.0

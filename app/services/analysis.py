@@ -17,12 +17,25 @@ from app.models.signal import (
     WeeklyFeatures,
 )
 from app.services.chip import ChipScorer, ChipScoreResult
-from app.services.decision import PriceContext, decide
-from app.services.normalize import clamp, cross_sectional_percentile
+from app.services.decision import ExitContext, PriceContext, decide
+from app.services.decision.risk import stop_for
+from app.services.normalize import cross_sectional_percentile
 
 
 def _f(value, default: float = 0.0) -> float:
     return default if value is None else float(value)
+
+
+def _opt(value) -> float | None:
+    return None if value is None else float(value)
+
+
+@dataclass(frozen=True)
+class Position:
+    """使用者持倉上下文(docs/09 BUG-04)。stop_loss 未給則以成本價依 Risk Engine 推導。"""
+
+    entry_price: float
+    stop_loss: float | None = None
 
 
 @dataclass
@@ -97,18 +110,48 @@ class AnalysisService:
             active_components=active,
         )
 
+    def _exit_ctx(
+        self,
+        fd: FeatureDaily,
+        position: Position,
+        last_price: float,
+        atr14: float,
+        swing_low: float,
+        resistance: float | None,
+    ) -> ExitContext:
+        stop = (
+            position.stop_loss
+            if position.stop_loss is not None
+            else stop_for(position.entry_price, atr14, swing_low, self.t)
+        )
+        # 出貨警示需逐筆訊號;無逐筆時維持預設(不觸發),不以缺值推論背離
+        has_intraday = fd.cvd_z is not None and fd.large_trade_delta_z is not None
+        return ExitContext(
+            price=last_price,
+            stop_loss=stop,
+            entry_price=position.entry_price,
+            price_new_high=resistance is not None and last_price >= resistance,
+            cvd_slope=_f(fd.cvd_z) if has_intraday else 0.0,
+            large_trade_delta=_f(fd.large_trade_delta_z) if has_intraday else 0.0,
+            buy_absorption_rising=has_intraday and _f(fd.absorption_z) > 0,
+        )
+
     def analyze(
         self,
         fd: FeatureDaily,
         market: MarketContext | None = None,
-        already_in_position: bool = False,
+        position: Position | None = None,
         name: str | None = None,
         chip: ChipScoreResult | None = None,
         chip_score_override: float | None = None,
     ) -> AnalysisResult:
         """單檔完整分析。chip / chip_score_override 供橫斷面百分位流程重入:
         先 score_features 收集全市場 composite_raw → 百分位 → 帶回覆寫分數再決策。
+
+        position:使用者持倉(成本/停損)。有值走出場邏輯(HOLD/REDUCE/EXIT),
+        否則走 Entry Filter。系統不保存持倉,由呼叫端(API 參數)帶入。
         """
+        market = market or MarketContext()
         chip = chip or self.score_features(fd, market)
         if chip_score_override is not None:
             chip = replace(chip, chip_score=chip_score_override)
@@ -116,14 +159,15 @@ class AnalysisService:
         last_price = _f(fd.close)
         atr14 = _f(fd.atr14, default=max(last_price * 0.02, 0.01))
         swing_low = _f(fd.recent_swing_low, default=last_price * 0.95)
+        resistance = _opt(fd.resistance_high)
 
-        # market_score(0..100) 轉回 -1..1 供 entry filter 用
-        market_norm = clamp((chip.market - 50) / 50)
         price_ctx = PriceContext(
             close_vs_vwap_pct=_f(fd.close_vs_vwap_pct),
             close_vs_ma20_pct=_f(fd.close_vs_ma20_pct),
             turnover=_f(fd.turnover),
-            market_score_norm=market_norm,
+            # 原始大盤趨勢,非 chip.market(已乘市場權重且混入產業趨勢)
+            market_trend_score=market.market_trend_score,
+            is_locked_limit=fd.is_limit_locked,
         )
 
         signal = decide(
@@ -133,8 +177,14 @@ class AnalysisService:
             atr14=atr14,
             recent_swing_low=swing_low,
             price_ctx=price_ctx,
-            already_in_position=already_in_position,
+            already_in_position=position is not None,
+            exit_ctx=(
+                self._exit_ctx(fd, position, last_price, atr14, swing_low, resistance)
+                if position is not None
+                else None
+            ),
             thresholds=self.t,
+            resistance=resistance,
         )
         return AnalysisResult(
             symbol=fd.symbol,
@@ -150,6 +200,7 @@ def analyze_market(
     service: AnalysisService,
     items: list[tuple[FeatureDaily, str | None]],
     market: MarketContext | None = None,
+    positions: dict[str, Position] | None = None,
 ) -> list[AnalysisResult]:
     """同一交易日整組標的的分析(單一真相來源:scanner/dashboard/persist/單股共用)。
 
@@ -180,7 +231,8 @@ def analyze_market(
                 overrides[i] = pct
     return [
         service.analyze(
-            fd, market=market, name=name, chip=chip, chip_score_override=ov
+            fd, market=market, name=name, chip=chip, chip_score_override=ov,
+            position=(positions or {}).get(fd.symbol),
         )
         for (fd, name), chip, ov in zip(items, chips, overrides)
     ]

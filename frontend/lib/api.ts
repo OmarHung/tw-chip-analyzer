@@ -42,6 +42,7 @@ export interface AnalysisResponse {
     rr: number | null;
   };
   reasons: string[];
+  in_position: boolean; // 以持倉上下文分析（走出場邏輯 HOLD/REDUCE/EXIT）
 }
 
 export interface ScannerRow {
@@ -421,8 +422,19 @@ export const api = {
     const qs = q.toString();
     return get<ScannerResponse>(`/api/scanner${qs ? `?${qs}` : ""}`);
   },
-  analysis: (symbol: string) =>
-    get<AnalysisResponse>(`/api/stocks/${symbol}/analysis`),
+  analysis: (
+    symbol: string,
+    position?: { entry_price?: string; stop_loss?: string },
+  ) => {
+    const q = new URLSearchParams();
+    if (position?.entry_price) q.set("entry_price", position.entry_price);
+    if (position?.entry_price && position.stop_loss)
+      q.set("stop_loss", position.stop_loss);
+    const qs = q.toString();
+    return get<AnalysisResponse>(
+      `/api/stocks/${symbol}/analysis${qs ? `?${qs}` : ""}`,
+    );
+  },
   chart: (symbol: string) => get<ChartResponse>(`/api/stocks/${symbol}/chart`),
   features: (symbol: string, date?: string) =>
     get<FeaturesResponse>(

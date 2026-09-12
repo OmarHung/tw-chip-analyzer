@@ -15,13 +15,13 @@ export default async function StockDetailPage({
   searchParams,
 }: {
   params: Promise<{ symbol: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; entry_price?: string; stop_loss?: string }>;
 }) {
   const { symbol } = await params;
-  const { tab } = await searchParams;
+  const { tab, entry_price, stop_loss } = await searchParams;
   let data;
   try {
-    data = await api.analysis(symbol);
+    data = await api.analysis(symbol, { entry_price, stop_loss });
   } catch {
     return (
       <div className="rounded-2xl border border-line-soft bg-panel/70 p-10 text-center text-ink-dim">
@@ -111,6 +111,13 @@ export default async function StockDetailPage({
                 {risk.rr != null ? risk.rr.toFixed(2) : "—"}
               </span>
             </div>
+            <PositionForm
+              tab={tab}
+              entryPrice={entry_price}
+              stopLoss={stop_loss}
+              inPosition={data.in_position}
+              symbol={data.symbol}
+            />
           </div>
         </Card>
       </div>
@@ -272,5 +279,67 @@ function MarketBadge({ market }: { market: string | null }) {
     <span className="rounded-md border border-line-soft bg-panel-2/50 px-2 py-0.5 font-mono text-[10px] tracking-wider text-ink-dim">
       {MARKET_ZH[market] ?? market}
     </span>
+  );
+}
+
+/** 持倉上下文（系統不保存持倉）：帶成本/停損重新分析 → 出場邏輯 HOLD/REDUCE/EXIT。 */
+function PositionForm({
+  symbol,
+  tab,
+  entryPrice,
+  stopLoss,
+  inPosition,
+}: {
+  symbol: string;
+  tab?: string;
+  entryPrice?: string;
+  stopLoss?: string;
+  inPosition: boolean;
+}) {
+  const input =
+    "w-full rounded-lg border border-line-soft bg-transparent px-2.5 py-1.5 font-mono text-sm tnum text-ink outline-none focus:border-gold";
+  return (
+    <form
+      method="get"
+      className="space-y-2 border-t border-line-soft pt-4"
+      aria-label="持倉分析"
+    >
+      {tab && <input type="hidden" name="tab" value={tab} />}
+      <div className="flex items-center justify-between text-sm text-ink-dim">
+        <span>{inPosition ? "持倉管理建議（出場邏輯）" : "我持有這檔？"}</span>
+        {inPosition && (
+          <Link href={`/stocks/${symbol}`} className="text-gold hover:underline">
+            清除
+          </Link>
+        )}
+      </div>
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+        <input
+          name="entry_price"
+          type="number"
+          step="0.01"
+          min="0.01"
+          required
+          placeholder="成本"
+          defaultValue={entryPrice}
+          className={input}
+        />
+        <input
+          name="stop_loss"
+          type="number"
+          step="0.01"
+          min="0.01"
+          placeholder="停損（選填）"
+          defaultValue={stopLoss}
+          className={input}
+        />
+        <button
+          type="submit"
+          className="rounded-lg border border-gold/60 px-3 text-sm text-gold transition-colors hover:bg-gold/10"
+        >
+          分析
+        </button>
+      </div>
+    </form>
   );
 }
