@@ -44,23 +44,28 @@ async def run_eod(target: dt.date | None = None) -> None:
     try:
         # 1) 行情 + 法人 + 融資 + 當週 TDCC + TAIEX + 特徵(暫不落地,待步驟 3 一次算四維)
         runner._state["step"] = f"{target}:匯入 + 特徵"
-        await daily.run(
+        import_res = await daily.run(
             target, do_import=True, do_features=True, do_signals=False,
             do_tdcc=True, do_index=True,
         )
         # 2) 逐筆(Shioaji simulation);失敗/無資料不中斷整體
         runner._state["step"] = f"{target}:逐筆匯入"
         try:
-            await import_ticks.run(
+            tick_res = await import_ticks.run(
                 target, on_progress=lambda p: runner._state.update(progress=p)
             )
-        except Exception as e:  # noqa: BLE001 — 逐筆非必要,intraday 缺則中性
-            logger.warning("import_ticks 失敗,intraday 將為中性:%s", e)
+        except Exception as e:  # noqa: BLE001 — 逐筆非必要,intraday 缺則排除該成分
+            logger.warning("import_ticks 失敗,intraday 將排除:%s", e)
+            tick_res = {"error": str(e)}
         # 3) 重建特徵(有逐筆則含 intraday z)+ composite 分數落地
         runner._state["step"] = f"{target}:重建特徵 + 落地"
         runner._state["progress"] = None
         await daily.run(target, do_import=False, do_features=True, do_signals=True)
-        runner._state["result"] = {"date": str(target), "mode": "scheduled_eod"}
+        runner._state["result"] = {
+            "date": str(target), "mode": "scheduled_eod",
+            "degraded": import_res["degraded"], "sources": import_res["sources"],
+            "ticks": tick_res,
+        }
         runner.finish(ok=True)
         logger.info("EOD 完成 %s", target)
     except Exception as e:  # noqa: BLE001

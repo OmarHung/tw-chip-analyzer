@@ -4,7 +4,8 @@
 - 只抓 turnover >= min_turnover 的前 max_symbols 檔（避免 Shioaji 資料配額爆量）。
 - 每檔之間節流 throttle_ms；單檔失敗只記錄不中斷。
 - 監看 api.usage()，用量達 usage_stop_pct% 即停止並記錄已處理/剩餘。
-- get_ticks 本身 DB 快取優先，已抓過的當日不會重打 Shioaji（可續跑）。
+- 抓取結果分 cached/fetched/empty/failed；連續失敗達門檻即停（token 過期時別燒配額）。
+- fetch_ticks 本身 DB 快取優先，已抓過的當日不會重打 Shioaji（可續跑）。
 
 用法：
   APP_ENV=dev python -m app.jobs.import_ticks 2026-09-04
@@ -25,7 +26,7 @@ from app.core.config import get_thresholds
 from app.core.logging import get_logger
 from app.db.models.market import DailyPrice
 from app.db.session import get_sessionmaker
-from app.services.ticks import get_ticks
+from app.services import ticks as ticks_svc
 
 logger = get_logger("jobs.import_ticks")
 
@@ -58,14 +59,15 @@ async def run(
     max_symbols = max_symbols or int(cfg.get("max_symbols", 200))
     throttle = float(cfg.get("throttle_ms", 200)) / 1000.0
     stop_pct = float(cfg.get("usage_stop_pct", 95))
+    max_consec_fail = int(cfg.get("max_consecutive_failures", 10))
 
     sm = get_sessionmaker()
     async with sm() as session:
         symbols = await _target_symbols(session, target, min_turnover, max_symbols)
     if not symbols:
         logger.warning("當日無符合條件標的（date=%s min_turnover=%s）", target, min_turnover)
-        return {"target": 0, "done": 0, "fetched": 0, "failed": 0,
-                "skipped": 0, "stopped": False, "usage_pct": None}
+        return {"target": 0, "done": 0, "fetched": 0, "empty": 0, "failed": 0,
+                "skipped": 0, "stopped": False, "stop_reason": None, "usage_pct": None}
     logger.info(
         "批次逐筆匯入 %s：目標 %d 檔（turnover>=%s，上限 %d）",
         target, len(symbols), min_turnover, max_symbols,
@@ -75,37 +77,56 @@ async def run(
     if u0 and u0["used_pct"] is not None:
         logger.info("Shioaji 起始用量：%.1f%%", u0["used_pct"])
 
-    done = fetched = failed = 0
+    # done=已處理檔數；fetched=有逐筆（含 DB 快取）；empty=Shioaji 正常回應但無逐筆；
+    # failed=抓取或寫入失敗。done = fetched + empty + failed。
+    done = fetched = empty = failed = consec_fail = 0
     stopped = False
+    stop_reason: str | None = None
     last_pct: float | None = None
     async with sm() as session:
         for i, sym in enumerate(symbols):
+            done += 1
             try:
-                ticks = await get_ticks(session, sym, target)
-                done += 1
-                if ticks:
-                    fetched += 1
-            except Exception as e:  # noqa: BLE001 — 單檔失敗不中斷批次
-                failed += 1
+                res = await ticks_svc.fetch_ticks(session, sym, target)
+                status = res.status
+            except Exception as e:  # noqa: BLE001 — 寫入等非抓取錯誤，單檔不中斷批次
+                await session.rollback()
+                status = "failed"
                 logger.warning("逐筆匯入失敗 %s：%s", sym, e)
+            if status == "failed":
+                failed += 1
+                consec_fail += 1
+            else:
+                consec_fail = 0
+                if status == "empty":
+                    empty += 1
+                else:
+                    fetched += 1
+            if consec_fail >= max_consec_fail:
+                stopped = True
+                stop_reason = f"連續 {consec_fail} 檔抓取失敗（疑似 token 過期或斷線）"
+                logger.error("%s，停止批次。", stop_reason)
+                break
 
             if (i + 1) % 25 == 0:
                 u = usage_sync()
                 pct = u["used_pct"] if u else None
                 last_pct = pct if pct is not None else last_pct
                 logger.info(
-                    "進度 %d/%d（fetched=%d failed=%d）用量=%s",
-                    i + 1, len(symbols), fetched, failed,
+                    "進度 %d/%d（fetched=%d empty=%d failed=%d）用量=%s",
+                    i + 1, len(symbols), fetched, empty, failed,
                     f"{pct:.1f}%" if pct is not None else "n/a",
                 )
                 if on_progress is not None:
                     on_progress({
                         "done": i + 1, "total": len(symbols),
-                        "fetched": fetched, "failed": failed, "usage_pct": pct,
+                        "fetched": fetched, "empty": empty, "failed": failed,
+                        "usage_pct": pct,
                     })
                 if pct is not None and pct >= stop_pct:
                     logger.warning("Shioaji 用量達 %.1f%% >= %s%%，停止批次。", pct, stop_pct)
                     stopped = True
+                    stop_reason = f"Shioaji 用量達 {pct:.1f}%"
                     break
 
             if throttle:
@@ -113,12 +134,13 @@ async def run(
 
     skipped = len(symbols) - done
     logger.info(
-        "批次完成%s：處理=%d 有逐筆=%d 失敗=%d 略過=%d（目標 %d）",
-        "（提前停止）" if stopped else "", done, fetched, failed, skipped, len(symbols),
+        "批次完成%s：處理=%d 有逐筆=%d 無逐筆=%d 失敗=%d 略過=%d（目標 %d）",
+        "（提前停止）" if stopped else "", done, fetched, empty, failed, skipped,
+        len(symbols),
     )
-    return {"target": len(symbols), "done": done, "fetched": fetched,
+    return {"target": len(symbols), "done": done, "fetched": fetched, "empty": empty,
             "failed": failed, "skipped": skipped, "stopped": stopped,
-            "usage_pct": last_pct}
+            "stop_reason": stop_reason, "usage_pct": last_pct}
 
 
 def main() -> None:

@@ -62,6 +62,7 @@ intraday_batch:
   min_turnover: 20000000    # 成交金額下限（TWD），低於此不抓逐筆
   throttle_ms: 200          # 每檔之間的節流（毫秒），降低配額/連線壓力
   usage_stop_pct: 95        # api.usage() 用量達此百分比即停止批次
+  max_consecutive_failures: 10  # 連續抓取失敗達此檔數即停(token 過期/斷線時別繼續燒配額)
 
 tdcc:
   retail_max_lots: 50

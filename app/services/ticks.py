@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+from dataclasses import dataclass, field
+from typing import Literal
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.connectors.shioaji_market import fetch_ticks_sync
+from app.connectors.shioaji_market import fetch_ticks_sync, reset_api
 from app.core.logging import get_logger
 from app.db.models.intraday import RawTick
 from app.db.models.market import Stock
@@ -33,7 +35,21 @@ def _row_to_api(ts: dt.datetime, price, volume, bid, ask, side) -> dict:
     }
 
 
-async def get_ticks(session: AsyncSession, symbol: str, date: dt.date) -> list[dict]:
+TickStatus = Literal["cached", "fetched", "empty", "failed"]
+
+
+@dataclass(frozen=True)
+class TickFetch:
+    """逐筆抓取結果。status 區分「真的沒逐筆」與「抓取失敗」(docs/09 BUG-09):
+    兩者都回空 ticks,但失敗代表 token 過期/斷線/API 錯誤,不可當成該檔當日無成交。
+    """
+
+    status: TickStatus
+    ticks: list[dict] = field(default_factory=list)
+    error: str | None = None
+
+
+async def fetch_ticks(session: AsyncSession, symbol: str, date: dt.date) -> TickFetch:
     # 1) DB 快取
     cached = (
         await session.execute(
@@ -43,19 +59,24 @@ async def get_ticks(session: AsyncSession, symbol: str, date: dt.date) -> list[d
         )
     ).scalars().all()
     if cached:
-        return [
-            _row_to_api(r.ts, r.price, r.volume, r.bid_price, r.ask_price, r.aggressor_side)
-            for r in cached
-        ]
+        return TickFetch(
+            "cached",
+            [
+                _row_to_api(r.ts, r.price, r.volume, r.bid_price, r.ask_price, r.aggressor_side)
+                for r in cached
+            ],
+        )
 
     # 2) 向 Shioaji 抓取（同步 API 於 thread 執行，避免阻塞事件迴圈）
     try:
         ticks = await asyncio.to_thread(fetch_ticks_sync, symbol, date)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — 轉成 failed 狀態交由呼叫端決定
         logger.warning("Shioaji 逐筆抓取失敗 %s %s: %s", symbol, date, e)
-        return []
+        # session 可能已失效(token 過期/斷線)且不會自行復原;丟棄以便下次重新登入
+        reset_api()
+        return TickFetch("failed", error=str(e))
     if not ticks:
-        return []
+        return TickFetch("empty")
 
     # 3) 存入 raw_tick（FK 保護 + 先清當日再插，維持冪等）
     await upsert_ignore(
@@ -81,7 +102,10 @@ async def get_ticks(session: AsyncSession, symbol: str, date: dt.date) -> list[d
     )
     await session.commit()
 
-    return [
-        _row_to_api(t["ts"], t["price"], t["volume"], t["bid"], t["ask"], t["side"])
-        for t in ticks
-    ]
+    return TickFetch(
+        "fetched",
+        [
+            _row_to_api(t["ts"], t["price"], t["volume"], t["bid"], t["ask"], t["side"])
+            for t in ticks
+        ],
+    )

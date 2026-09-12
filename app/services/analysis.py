@@ -55,12 +55,13 @@ class AnalysisService:
 
     def _daily(self, fd: FeatureDaily) -> DailyFeatures:
         return DailyFeatures(
-            foreign_5d_z=_f(fd.foreign_5d_z),
-            trust_5d_z=_f(fd.trust_5d_z),
-            dealer_5d_z=_f(fd.dealer_5d_z),
-            margin_balance_change_z=_f(fd.margin_balance_change_z),
-            short_balance_change_z=_f(fd.short_balance_change_z),
-            sbl_change_z=_f(fd.sbl_change_z),
+            # 缺值保留 None：institutional_score 據此重分配或排除成分（docs/09 BUG-11）
+            foreign_5d_z=_opt(fd.foreign_5d_z),
+            trust_5d_z=_opt(fd.trust_5d_z),
+            dealer_5d_z=_opt(fd.dealer_5d_z),
+            margin_balance_change_z=_opt(fd.margin_balance_change_z),
+            short_balance_change_z=_opt(fd.short_balance_change_z),
+            sbl_change_z=_opt(fd.sbl_change_z),
             close_vs_vwap_pct=_f(fd.close_vs_vwap_pct),
         )
 
@@ -97,6 +98,7 @@ class AnalysisService:
         # holder 同理:無 TDCC 快照的標的(新上市/集保未收錄)不以中性值灌水,
         # 排除該成分並重分配權重;分數再依成分組合分組做百分位(見 analyze_market)。
         has_holder = fd.large_holder_ratio_change_z is not None
+        # institutional 是否有資料由 ChipScorer 依子項判定（全缺即排除）
         active = {"institutional", "market"}
         if has_holder:
             active.add("holder")

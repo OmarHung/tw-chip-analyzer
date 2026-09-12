@@ -34,6 +34,10 @@ from app.services.price_adjust import back_adjust
 
 LOTS_TO_SHARES = 1000  # 融資融券單位為張
 SBL_LOOKBACK = 20  # 借券餘額百分比變化的回看交易日數（OOS 上 20D > 5D）
+FLOW_WINDOW = 5  # 法人淨額 / 融資券餘額變化的交易日窗
+# 固定視窗特徵的最低觀測數（docs/09 BUG-10）：不足即 NULL，不以較短資料冒充 N 日值
+MA_BARS = 20
+ATR_BARS = 15  # 14 個 TR 需要 15 根（含前一根收盤）
 _MIN_INDUSTRY_MEMBERS = 5  # 產業成分股門檻：不足者不給趨勢分（樣本太少不成趨勢）
 
 
@@ -102,9 +106,13 @@ async def _intraday_signals(
 
 
 def _zscore_map(strength: dict[str, float]) -> dict[str, float]:
-    """對一組 {symbol: value} 做橫斷面 Z-score。樣本不足回全 0。"""
+    """對一組 {symbol: value} 做橫斷面 Z-score。
+
+    樣本不足（<2）時 z 無定義 → 回空（呼叫端存 NULL），不可給中性 0 冒充有資料；
+    全部同值才是真的中性（z=0）。
+    """
     if len(strength) < 2:
-        return {s: 0.0 for s in strength}
+        return {}
     vals = np.array(list(strength.values()), dtype=float)
     mean, std = float(vals.mean()), float(vals.std(ddof=0))
     if std == 0:
@@ -173,13 +181,14 @@ def _price_features(
     if not np.isfinite(last_close) or last_close <= 0:
         return None
 
-    ma20 = close.tail(20).mean()
+    n = len(close)
+    ma20 = close.tail(MA_BARS).mean() if n >= MA_BARS else np.nan
     # ATR14
     prev_close = close.shift(1)
     tr = pd.concat(
         [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
     ).max(axis=1)
-    atr14 = tr.tail(14).mean()
+    atr14 = tr.tail(ATR_BARS - 1).mean() if n >= ATR_BARS else np.nan
     last_vol = vol.iloc[-1]  # vwap 是同日 turnover/volume 比值，須用原始量
     last_turn = turn.iloc[-1]
     vwap = (last_turn / last_vol) if last_vol and last_vol > 0 else last_close
@@ -192,12 +201,12 @@ def _price_features(
         if len(high) >= rk["resistance_min_bars"]
         else None
     )
-    avg_vol20 = adj_vol.tail(20).mean()
-    # 近 5 日報酬（後復權價，故跨除權息連續）→ 產業趨勢用
-    base5 = close.iloc[-6] if len(close) >= 6 else close.iloc[0]
+    avg_vol20 = adj_vol.tail(MA_BARS).mean() if n >= MA_BARS else np.nan
+    # 近 5 日報酬（後復權價，故跨除權息連續）→ 產業趨勢用；不足 6 根 → NULL
+    base5 = close.iloc[-(FLOW_WINDOW + 1)] if n >= FLOW_WINDOW + 1 else np.nan
     ret5 = (
         float((last_close - base5) / base5)
-        if np.isfinite(base5) and base5 > 0 and len(close) >= 2
+        if np.isfinite(base5) and base5 > 0
         else None
     )
     prev_close = close.iloc[-2] if len(close) >= 2 else None
@@ -226,7 +235,9 @@ def _price_features(
         "vwap": round(float(vwap), 4),
         "recent_swing_low": round(float(swing_low), 4) if np.isfinite(swing_low) else None,
         "turnover": round(float(last_turn), 2) if np.isfinite(last_turn) else None,
-        "close_vs_ma20_pct": float((last_close - ma20) / ma20) if ma20 else None,
+        "close_vs_ma20_pct": (
+            float((last_close - ma20) / ma20) if np.isfinite(ma20) and ma20 else None
+        ),
         "close_vs_vwap_pct": float((last_close - vwap) / vwap) if vwap else None,
         "resistance_high": round(resistance, 4) if resistance is not None and np.isfinite(resistance) else None,
         "is_limit_locked": is_limit_locked,
@@ -235,34 +246,52 @@ def _price_features(
     }
 
 
-def _net_5d(g: pd.DataFrame, col: str) -> float:
-    return float(g.sort_values("data_date")[col].tail(5).fillna(0).sum())
+def _net_window(
+    g: pd.DataFrame, col: str, window_dates: list[dt.date]
+) -> float | None:
+    """市場最近 N 個交易日（window_dates）內的淨額加總。
 
-
-def _balance_pct_change(g: pd.DataFrame, col: str, lookback: int = 20) -> float | None:
-    """餘額的 lookback 日**百分比**變化（相對自身餘額，非除以成交量）。
-
-    借券 OOS 實測（2026-09-09，N=130／test 35 天）：百分比版本 train/test 同號且
-    test t 顯著（20D t=-3.81、5D t=-2.39），而「絕對變化 ÷ avg_vol20」版本 t=-0.02
-    形同無訊號——因為借券餘額的絕對變動量與該檔成交量幾乎無關，除以均量反而把
-    「相對自己借券部位增加多少」這個訊息洗掉。故借券改用此函式。
+    只看市場交易日窗，不取「該檔自己的最後 N 筆」——來源對無交易的標的會漏列，
+    後者會一路往回撈到數週前（docs/09 BUG-10）。窗內漏列的日子視為 0（來源不列
+    無成交者）；窗內完全沒有列 → 無資料（NULL），不冒充中性。
     """
-    s_ = g.sort_values("data_date")[col].dropna()
-    if len(s_) < 2:
+    in_win = g[g["data_date"].isin(set(window_dates))]
+    if in_win.empty:
         return None
-    base = s_.iloc[-(lookback + 1)] if len(s_) >= lookback + 1 else s_.iloc[0]
-    base = float(base)
+    return float(in_win[col].fillna(0).sum())
+
+
+def _asof_change(
+    g: pd.DataFrame,
+    col: str,
+    market_dates: list[dt.date],
+    lookback: int,
+    pct: bool = False,
+) -> float | None:
+    """餘額相對 lookback 個市場交易日前的變化（pct=True 為百分比）。
+
+    - 最新值必須落在目標日（market_dates[-1]），否則是舊資料。
+    - 基期取「lookback 個交易日前當日或更早」的最後一筆；沒有 → 歷史不足 → NULL。
+      不再用最早一筆湊出名義上的 N 日變化（docs/09 BUG-10）。
+
+    借券用 pct=True（OOS 2026-09-09：百分比版本 train/test 同號且 test 顯著，
+    絕對變化 ÷ 均量版本 t≈0，因借券部位變動與成交量無關）。
+    """
+    if len(market_dates) < lookback + 1:
+        return None
+    s_ = g.sort_values("data_date").dropna(subset=[col])
+    if s_.empty or s_["data_date"].iloc[-1] != market_dates[-1]:
+        return None
+    base_rows = s_[s_["data_date"] <= market_dates[-(lookback + 1)]]
+    if base_rows.empty:
+        return None
+    base = float(base_rows[col].iloc[-1])
+    latest = float(s_[col].iloc[-1])
+    if not pct:
+        return latest - base
     if base <= 0:
         return None
-    return float(s_.iloc[-1] - base) / base
-
-
-def _balance_change_5d(g: pd.DataFrame, col: str) -> float | None:
-    s = g.sort_values("data_date")[col].dropna()
-    if len(s) < 2:
-        return None
-    lookback = s.iloc[-6] if len(s) >= 6 else s.iloc[0]
-    return float(s.iloc[-1] - lookback)
+    return (latest - base) / base
 
 
 async def _industry_trend(
@@ -360,16 +389,25 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
         if feat:
             pf[sym] = feat
 
+    # 市場交易日曆（視窗內有行情的日子）：5/20 日窗一律以此為準，不看個股自己的列數
+    market_dates = sorted(d for d in prices["data_date"].unique() if d <= target)
+    flow_window = market_dates[-FLOW_WINDOW:] if len(market_dates) >= FLOW_WINDOW else []
+
     # 個股層強度（除以 20 日均量做流動性正規化）
     foreign_str, trust_str, dealer_str = {}, {}, {}
-    if not inst.empty:
+    if not inst.empty and flow_window:
         for sym, g in inst.groupby("symbol"):
             av = pf.get(sym, {}).get("_avg_vol20")
             if not av:
                 continue
-            foreign_str[sym] = _net_5d(g, "foreign_net") / av
-            trust_str[sym] = _net_5d(g, "trust_net") / av
-            dealer = _net_5d(g, "dealer_self_net") + _net_5d(g, "dealer_hedge_net")
+            f_net = _net_window(g, "foreign_net", flow_window)
+            if f_net is None:
+                continue
+            foreign_str[sym] = f_net / av
+            trust_str[sym] = (_net_window(g, "trust_net", flow_window) or 0.0) / av
+            dealer = (_net_window(g, "dealer_self_net", flow_window) or 0.0) + (
+                _net_window(g, "dealer_hedge_net", flow_window) or 0.0
+            )
             dealer_str[sym] = dealer / av
 
     margin_chg, short_chg = {}, {}
@@ -378,8 +416,8 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
             av = pf.get(sym, {}).get("_avg_vol20")
             if not av:
                 continue
-            mc = _balance_change_5d(g, "margin_balance")
-            sc = _balance_change_5d(g, "short_balance")
+            mc = _asof_change(g, "margin_balance", market_dates, FLOW_WINDOW)
+            sc = _asof_change(g, "short_balance", market_dates, FLOW_WINDOW)
             if mc is not None:
                 margin_chg[sym] = mc * LOTS_TO_SHARES / av
             if sc is not None:
@@ -390,7 +428,7 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     sbl_chg: dict[str, float] = {}
     if not sbl.empty:
         for sym, g in sbl.groupby("symbol"):
-            pc = _balance_pct_change(g, "sbl_balance", SBL_LOOKBACK)
+            pc = _asof_change(g, "sbl_balance", market_dates, SBL_LOOKBACK, pct=True)
             if pc is not None:
                 sbl_chg[sym] = pc
 
@@ -458,12 +496,14 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
                 "data_date": target,
                 "available_at": av_at,
                 **feat,
-                "foreign_5d_z": z_foreign.get(sym, 0.0),
-                "trust_5d_z": z_trust.get(sym, 0.0),
-                "dealer_5d_z": z_dealer.get(sym, 0.0),
-                "margin_balance_change_z": z_margin.get(sym, 0.0),
-                "short_balance_change_z": z_short.get(sym, 0.0),
-                "sbl_change_z": z_sbl.get(sym, 0.0),
+                # 法人/信用/借券：缺資料或窗不足 → NULL（docs/09 BUG-11），由 analysis
+                # 在 institutional 成分內重分配權重，全缺則排除整個成分
+                "foreign_5d_z": z_foreign.get(sym),
+                "trust_5d_z": z_trust.get(sym),
+                "dealer_5d_z": z_dealer.get(sym),
+                "margin_balance_change_z": z_margin.get(sym),
+                "short_balance_change_z": z_short.get(sym),
+                "sbl_change_z": z_sbl.get(sym),
                 # 產業趨勢：無產業別/成分股不足 → NULL（market_score 視為中性）
                 "industry_trend_score": industry_trend.get(sym),
                 # TDCC:>=2 週快照時為真實 week-over-week change,否則 level proxy。

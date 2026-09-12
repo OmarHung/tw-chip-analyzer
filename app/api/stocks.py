@@ -17,7 +17,7 @@ from app.repositories.features import FeatureDailyRepository, SignalRepository
 from app.repositories.market import load_daily_prices, load_market_context
 from app.services.analysis import AnalysisService, Position
 from app.services.orderflow_intraday import compute_orderflow
-from app.services.ticks import get_ticks
+from app.services.ticks import fetch_ticks, TickFetch
 
 logger = get_logger("api.stocks")
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
@@ -591,6 +591,13 @@ async def get_flows(
     )
 
 
+def _ticks_or_502(res: TickFetch) -> list[dict]:
+    """抓取失敗回 502(上游 Shioaji 錯誤),不把失敗偽裝成「當日無逐筆」。"""
+    if res.status == "failed":
+        raise HTTPException(status_code=502, detail=f"逐筆抓取失敗：{res.error}")
+    return res.ticks
+
+
 async def _resolve_date(session: AsyncSession, date: str | None) -> dt.date:
     if date:
         return dt.date.fromisoformat(date)
@@ -612,7 +619,7 @@ async def get_stock_ticks(
     session: AsyncSession = Depends(get_session),
 ) -> TicksResponse:
     target = await _resolve_date(session, date)
-    ticks = await get_ticks(session, symbol, target)
+    ticks = _ticks_or_502(await fetch_ticks(session, symbol, target))
     return TicksResponse(
         symbol=symbol,
         date=str(target),
@@ -628,7 +635,7 @@ async def get_stock_orderflow(
     session: AsyncSession = Depends(get_session),
 ) -> OrderFlowResponse:
     target = await _resolve_date(session, date)
-    ticks = await get_ticks(session, symbol, target)
+    ticks = _ticks_or_502(await fetch_ticks(session, symbol, target))
     r = compute_orderflow(ticks)
     return OrderFlowResponse(
         symbol=symbol,

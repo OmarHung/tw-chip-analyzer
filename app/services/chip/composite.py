@@ -20,6 +20,14 @@ from app.services.chip.market_score import market_score
 from app.services.normalize import clamp
 
 
+def _ge(v: float | None, th: float) -> bool:
+    return v is not None and v >= th
+
+
+def _le(v: float | None, th: float) -> bool:
+    return v is not None and v <= th
+
+
 def to_0_100(sub: float) -> float:
     """把 -1..1 的分項轉成 0..100（50 為中性）。"""
     return round(50 + 50 * clamp(sub), 1)
@@ -60,7 +68,8 @@ class ChipScorer:
         """
         w = self.t.weights
         s_intra = intraday_score(intraday, w["intraday"])
-        s_inst = institutional_score(daily, w["institutional"])
+        s_inst_raw = institutional_score(daily, w["institutional"])
+        s_inst = 0.0 if s_inst_raw is None else s_inst_raw
         s_hold = holder_score(weekly, w["holder"])
         s_mkt = market_score(market, w["market"])
 
@@ -70,7 +79,9 @@ class ChipScorer:
             "holder": s_hold,
             "market": s_mkt,
         }
-        active = active_components or set(subscores)
+        active = set(active_components or subscores)
+        if s_inst_raw is None:
+            active.discard("institutional")  # 有效子項全缺 → 排除成分，不以中性灌水
         cw = w["composite"]
         active_weight = sum(cw[k] for k in active) or 1.0
         composite = sum(
@@ -99,13 +110,13 @@ class ChipScorer:
             r.append("CVD 顯示主動買盤持續累積")
         if intraday.absorption_z >= 1.2:
             r.append("低檔承接/賣壓吸收訊號偏強")
-        if daily.trust_5d_z >= 1.0:
+        if _ge(daily.trust_5d_z, 1.0):
             r.append("投信近5日買超強度偏高")
-        if daily.foreign_5d_z >= 1.0:
+        if _ge(daily.foreign_5d_z, 1.0):
             r.append("外資近5日買超強度偏高")
-        if daily.margin_balance_change_z <= -1.0:
+        if _le(daily.margin_balance_change_z, -1.0):
             r.append("融資下降，有利籌碼沉澱")
-        if daily.sbl_change_z >= 1.2:
+        if _ge(daily.sbl_change_z, 1.2):
             r.append("借券賣出增加，存在偏空壓力")
         if weekly.large_holder_ratio_change_z >= 1.0:
             r.append("TDCC 大戶持股比週增幅偏強")

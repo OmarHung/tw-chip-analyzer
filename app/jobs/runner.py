@@ -88,9 +88,10 @@ async def _do_single(target: dt.date, mode: str) -> None:
     def _prog(p: dict) -> None:
         _state["progress"] = p
 
+    import_res: dict = {}
     if mode == "eod":
         _state["step"] = f"{target}:匯入行情/法人/融資/TDCC/TAIEX + 特徵"
-        await daily.run(
+        import_res = await daily.run(
             target, do_import=True, do_features=True, do_signals=False,
             do_tdcc=True, do_index=True,
         )
@@ -106,7 +107,10 @@ async def _do_single(target: dt.date, mode: str) -> None:
     _state["progress"] = None
     await daily.run(target, do_import=False, do_features=True, do_signals=True)
 
-    _state["result"] = {"date": str(target), "mode": mode, "ticks": tick_res}
+    _state["result"] = {
+        "date": str(target), "mode": mode, "ticks": tick_res,
+        "degraded": import_res.get("degraded", []),
+    }
 
 
 async def _do_range(start: dt.date, end: dt.date) -> None:
@@ -114,16 +118,19 @@ async def _do_range(start: dt.date, end: dt.date) -> None:
     days = _weekdays(start, end)
     total = len(days)
     done = 0
+    degraded: dict[str, list[str]] = {}
     for d in days:
         _state["step"] = f"回補 {d}(日線/法人,{done + 1}/{total})"
         _state["progress"] = {"done": done, "total": total}
-        await daily.run(
+        res = await daily.run(
             d, do_import=True, do_features=True, do_signals=True,
             do_tdcc=False, do_index=False,
         )
+        if res["degraded"]:
+            degraded[str(d)] = res["degraded"]
         done += 1
     _state["progress"] = {"done": done, "total": total}
-    _state["result"] = {"range": f"{start}~{end}", "days": done}
+    _state["result"] = {"range": f"{start}~{end}", "days": done, "degraded": degraded}
 
 
 async def _do_days(days: list[dt.date], label: str) -> None:
@@ -132,16 +139,19 @@ async def _do_days(days: list[dt.date], label: str) -> None:
     + 特徵 + 落地,不含逐筆(逐筆受 Shioaji 配額限制,只走單日)。"""
     total = len(days)
     done = 0
+    degraded: dict[str, list[str]] = {}
     for d in days:
         _state["step"] = f"補齊 {d}({done + 1}/{total})"
         _state["progress"] = {"done": done, "total": total}
-        await daily.run(
+        res = await daily.run(
             d, do_import=True, do_features=True, do_signals=True,
             do_tdcc=False, do_index=False,
         )
+        if res["degraded"]:
+            degraded[str(d)] = res["degraded"]
         done += 1
     _state["progress"] = {"done": done, "total": total}
-    _state["result"] = {"missing": label, "days": done}
+    _state["result"] = {"missing": label, "days": done, "degraded": degraded}
 
 
 def start_days(days: list[dt.date]) -> bool:

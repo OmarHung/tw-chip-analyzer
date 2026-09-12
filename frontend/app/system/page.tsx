@@ -428,20 +428,46 @@ function JobStatus({ job }: { job: OpsJob }) {
 }
 
 function renderResult(r: Record<string, unknown>): string {
+  const parts: string[] = [];
   const t = r.ticks as
-    | { fetched?: number; target?: number; failed?: number; usage_pct?: number | null; stopped?: boolean }
+    | {
+        fetched?: number;
+        empty?: number;
+        target?: number;
+        failed?: number;
+        usage_pct?: number | null;
+        stopped?: boolean;
+        stop_reason?: string | null;
+        error?: string;
+      }
     | undefined;
   if (t && typeof t === "object" && "fetched" in t) {
-    return `逐筆:成功 ${t.fetched ?? 0} / 目標 ${t.target ?? 0}(失敗 ${
-      t.failed ?? 0
-    }${t.stopped ? "，配額中止" : ""}${
-      t.usage_pct != null ? `，配額 ${t.usage_pct}%` : ""
-    })`;
+    parts.push(
+      `逐筆:有資料 ${t.fetched ?? 0}、無資料 ${t.empty ?? 0}、失敗 ${
+        t.failed ?? 0
+      } / 目標 ${t.target ?? 0}${t.stopped ? `（中止:${t.stop_reason ?? "配額"}）` : ""}${
+        t.usage_pct != null ? `，配額 ${t.usage_pct}%` : ""
+      }`,
+    );
+  } else if (t && typeof t === "object" && t.error) {
+    parts.push(`逐筆失敗:${t.error}`);
   }
   if (typeof r.days === "number") {
-    return `回補完成:${r.days} 個交易日(${String(r.range ?? "")})`;
+    parts.push(`回補完成:${r.days} 個交易日(${String(r.range ?? r.missing ?? "")})`);
   }
-  return JSON.stringify(r);
+  // 降級來源:單日為 string[]，區間為 {日期: string[]}
+  const d = r.degraded;
+  if (Array.isArray(d) && d.length) {
+    parts.push(`降級來源:${d.join("、")}`);
+  } else if (d && typeof d === "object" && !Array.isArray(d)) {
+    const entries = Object.entries(d as Record<string, string[]>);
+    if (entries.length) {
+      parts.push(
+        `降級:${entries.map(([day, srcs]) => `${day} ${srcs.join("、")}`).join("；")}`,
+      );
+    }
+  }
+  return parts.length ? parts.join(" ｜ ") : JSON.stringify(r);
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
