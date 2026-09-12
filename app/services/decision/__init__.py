@@ -48,10 +48,19 @@ def decide(
             risk = max(ectx.entry_price - ectx.stop_loss, 0.0)
             tp1 = round(ectx.entry_price + t.risk["tp1_r"] * risk, 2)
             tp2 = round(ectx.entry_price + t.risk["tp2_r"] * risk, 2)
+        # 現價已越過的 TP 不再是「目標」：欄位留空、改以原因說明，避免顯示低於現價的停利價
+        reached: list[str] = []
+        if has_plan:
+            if last_price >= tp1:
+                reached.append(f"現價已達 TP1（{tp1:g}）")
+                tp1 = None
+            if last_price >= tp2:
+                reached.append(f"現價已達 TP2（{tp2:g}）")
+                tp2 = None
         return SignalResult(
             score=score,
             action=action,
-            reasons=reasons + gate,
+            reasons=reasons + gate + reached,
             entry_zone=None,
             stop_loss=ectx.stop_loss if has_plan else None,
             take_profit_1=tp1 if has_plan else None,

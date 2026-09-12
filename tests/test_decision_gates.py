@@ -183,3 +183,20 @@ class TestPositionContext:
         sig = res[-1].signal
         assert sig.action == Action.HOLD
         assert sig.stop_loss is not None and sig.stop_loss < 100
+
+
+class TestPositionTakeProfitReached:
+    def test_reached_tp_hidden_with_reason(self):
+        from app.services.decision import ExitContext, decide
+
+        # 成本 2000、停損 1900 → TP1 2200、TP2 2300；現價 2250 已過 TP1、未達 TP2
+        res = decide(
+            score=80, reasons=[], last_price=2250, atr14=30, recent_swing_low=2100,
+            already_in_position=True,
+            exit_ctx=ExitContext(price=2250, stop_loss=1900, entry_price=2000),
+        )
+        assert res.action == Action.HOLD
+        assert res.take_profit_1 is None
+        assert res.take_profit_2 == 2300
+        assert any("已達 TP1" in r and "2200" in r for r in res.reasons)
+        assert not any("TP2" in r for r in res.reasons)
