@@ -229,7 +229,8 @@ export default async function DashboardPage() {
       )}
 
       <p className="text-[11px] leading-relaxed text-ink-faint">
-        盤中(intraday)分項於 Phase 1 尚無即時資料源，暫不計入加權；產業趨勢待接入。
+        盤中(intraday)分項僅在當日有盤後逐筆資料的標的計入加權；產業趨勢已接入但權重為 0（未經 OOS 驗證）。
+        法人／集保／盤中皆無資料的標的不評分、不列入統計。
         價格漲跌以台股慣例顯示（<span className="text-up">紅漲</span> /{" "}
         <span className="text-down">綠跌</span>）。
       </p>
