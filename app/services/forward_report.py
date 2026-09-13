@@ -30,7 +30,11 @@ from app.backtest.runner import load_bars, market_calendar
 from app.core.config import get_thresholds
 
 _cache: dict[tuple, dict] = {}
-_MIN_IC_NAMES = 20  # 當日橫斷面至少幾檔才算 rank IC
+
+
+def _min_ic_names(t) -> int:
+    """當日橫斷面至少幾檔才算 rank IC（validation.min_ic_names）。"""
+    return int(t.get("validation", "min_ic_names", default=20))
 
 
 def _bucket_label(score: float, buckets: list[list[int]]) -> str | None:
@@ -99,7 +103,9 @@ def _price_frame(bars_by_sym: dict, horizons: list[int]) -> pd.DataFrame:
 
 
 async def build_forward_report(session: AsyncSession) -> dict:
-    bt = get_thresholds().backtest
+    thresholds = get_thresholds()
+    bt = thresholds.backtest
+    min_names = _min_ic_names(thresholds)
     key = await _cache_key(session, bt)
     latest = key[0]
     if latest is None:
@@ -169,7 +175,7 @@ async def build_forward_report(session: AsyncSession) -> dict:
             })
         ics = []
         for _, day in sub.groupby("data_date"):
-            if len(day) < _MIN_IC_NAMES or day["score"].nunique() <= 1:
+            if len(day) < min_names or day["score"].nunique() <= 1:
                 continue
             ics.append(float(np.corrcoef(day["score"].rank(), day["net"].rank())[0, 1]))
         out_h.append({

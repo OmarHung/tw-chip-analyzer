@@ -34,6 +34,13 @@ risk:
 # feature_builder 價格載入視窗(日曆日);須涵蓋 resistance_lookback_bars 根交易日
 features:
   price_window_days: 100
+  # 固定視窗(交易日根數)。不足即 NULL,不以較短資料冒充(docs/09 BUG-10、docs/12 Phase 6)
+  flow_window_bars: 5          # 法人淨額 / 融資券餘額變化 / 5 日報酬
+  ma_bars: 20                  # MA20、20 日均量
+  atr_period: 14               # ATR 期數(所需 bar = period + 1)
+  swing_low_bars: 10           # 近期波段低點
+  sbl_lookback_bars: 20        # 借券餘額百分比變化(OOS 上 20D > 5D)
+  industry_min_members: 5      # 產業成分股不足此數不給產業趨勢分
   # 橫斷面 z 的離群值處理:先把原始值截在 [q, 1-q] 分位,再 z,最後 z 夾在 ±z_clip。
   # 實測 2026-09-08 單一標的外資 z=44.1,把其餘 1900 檔壓在 |z|<0.3,因子形同失效。
   winsorize_quantile: 0.01
@@ -137,6 +144,10 @@ backtest:
     min_mfe: 0.06
     max_mae: 0.04
 
+# 前瞻驗證(/validation)統計口徑
+validation:
+  min_ic_names: 20        # 當日橫斷面至少幾檔才計入 rank IC
+
 # Composite Chip Score 權重 — 對應 docs/03 §10
 weights:
   composite:
@@ -178,6 +189,10 @@ weights:
 
 # 大盤 regime 計算（market_trend_score，見 docs/03 §10）
 market_regime:
+  ma_short_bars: 20      # 短均線(MA20)
+  ma_long_bars: 60       # 長均線(MA60)
+  slope_lookback_bars: 5 # 短均線斜率回看根數
+  volatility_bars: 20    # 報酬波動回看根數
   above_ma20: 0.25       # TAIEX > MA20
   above_ma60: 0.20       # TAIEX > MA60
   ma20_slope: 0.20       # MA20 斜率（正規化）

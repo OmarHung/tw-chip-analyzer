@@ -79,6 +79,32 @@ def _trend_score(
     return clamp(score)
 
 
+def _regime_inputs(
+    close_series: pd.Series, t: Thresholds
+) -> tuple[float | None, float | None, float | None, float | None]:
+    """TAIEX 收盤序列 → (短均線, 長均線, 短均線斜率, 報酬波動)。視窗皆讀 market_regime.*。
+
+    bar 數不足回 None（不以較短資料冒充）。預設值與修正前相同（20/60/5/20）。
+    """
+    w = t.market_regime
+    short_n = int(w.get("ma_short_bars", 20))
+    long_n = int(w.get("ma_long_bars", 60))
+    slope_n = int(w.get("slope_lookback_bars", 5))
+    vol_n = int(w.get("volatility_bars", 20))
+    n = len(close_series)
+    ma_short = float(close_series.tail(short_n).mean()) if n >= short_n else None
+    ma_long = float(close_series.tail(long_n).mean()) if n >= long_n else None
+    slope = None
+    if n >= short_n + slope_n:
+        ma_series = close_series.rolling(short_n).mean().dropna()
+        if len(ma_series) >= slope_n:
+            slope = float(np.polyfit(range(slope_n), ma_series.tail(slope_n), 1)[0])
+    vol = None
+    if n >= vol_n + 1:
+        vol = float(close_series.pct_change().dropna().tail(vol_n).std())
+    return ma_short, ma_long, slope, vol
+
+
 async def build_market_daily(
     session: AsyncSession, target: dt.date, thresholds: Thresholds | None = None
 ) -> bool:
@@ -99,19 +125,7 @@ async def build_market_daily(
 
     close_series = idx["taiex_close"].astype(float)
     close = float(close_series.iloc[-1])
-    ma20 = float(close_series.tail(20).mean()) if len(close_series) >= 20 else None
-    ma60 = float(close_series.tail(60).mean()) if len(close_series) >= 60 else None
-    # MA20 斜率：近 5 日 MA20 的變化
-    slope = None
-    if len(close_series) >= 25:
-        ma20_series = close_series.rolling(20).mean().dropna()
-        if len(ma20_series) >= 5:
-            slope = float(np.polyfit(range(5), ma20_series.tail(5), 1)[0])
-    # 波動：近 20 日報酬標準差
-    vol = None
-    if len(close_series) >= 21:
-        rets = close_series.pct_change().dropna().tail(20)
-        vol = float(rets.std())
+    ma20, ma60, slope, vol = _regime_inputs(close_series, t)
 
     adv, dec = await _breadth(session, target)
     breadth = (adv - dec) / (adv + dec) if (adv + dec) > 0 else 0.0

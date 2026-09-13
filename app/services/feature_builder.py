@@ -32,13 +32,12 @@ from app.services.orderflow_intraday import INTRADAY_SIGNAL_KEYS, compute_orderf
 from app.services.normalize import squash_z
 from app.services.price_adjust import back_adjust
 
-LOTS_TO_SHARES = 1000  # 融資融券單位為張
-SBL_LOOKBACK = 20  # 借券餘額百分比變化的回看交易日數（OOS 上 20D > 5D）
-FLOW_WINDOW = 5  # 法人淨額 / 融資券餘額變化的交易日窗
-# 固定視窗特徵的最低觀測數（docs/09 BUG-10）：不足即 NULL，不以較短資料冒充 N 日值
-MA_BARS = 20
-ATR_BARS = 15  # 14 個 TR 需要 15 根（含前一根收盤）
-_MIN_INDUSTRY_MEMBERS = 5  # 產業成分股門檻：不足者不給趨勢分（樣本太少不成趨勢）
+LOTS_TO_SHARES = 1000  # 融資融券單位為張（市場單位，非門檻）
+
+
+def _win(t, key: str, default: int) -> int:
+    """features.* 視窗設定（docs/12 Phase 6）。缺鍵沿用與修正前相同的預設值。"""
+    return int(t.get("features", key, default=default))
 
 
 def _tick_epoch(ts: dt.datetime) -> int:
@@ -181,19 +180,24 @@ def _price_features(
     if not np.isfinite(last_close) or last_close <= 0:
         return None
 
+    t = thresholds or get_thresholds()
+    # 固定視窗特徵的最低觀測數（docs/09 BUG-10）：不足即 NULL，不以較短資料冒充 N 日值
+    ma_bars = _win(t, "ma_bars", 20)
+    atr_period = _win(t, "atr_period", 14)
+    flow_bars = _win(t, "flow_window_bars", 5)
     n = len(close)
-    ma20 = close.tail(MA_BARS).mean() if n >= MA_BARS else np.nan
+    ma20 = close.tail(ma_bars).mean() if n >= ma_bars else np.nan
     # ATR14
     prev_close = close.shift(1)
     tr = pd.concat(
         [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
     ).max(axis=1)
-    atr14 = tr.tail(ATR_BARS - 1).mean() if n >= ATR_BARS else np.nan
+    # ATR(period) 需 period+1 根（第一個 TR 要前一根收盤）
+    atr14 = tr.tail(atr_period).mean() if n >= atr_period + 1 else np.nan
     last_vol = vol.iloc[-1]  # vwap 是同日 turnover/volume 比值，須用原始量
     last_turn = turn.iloc[-1]
     vwap = (last_turn / last_vol) if last_vol and last_vol > 0 else last_close
-    swing_low = low.tail(10).min()
-    t = thresholds or get_thresholds()
+    swing_low = low.tail(_win(t, "swing_low_bars", 10)).min()
     # 壓力位（RR 目標，docs/09 BUG-01）：近 N 根後復權最高價；bar 數不足 → NULL
     rk = t.risk
     resistance = (
@@ -201,9 +205,9 @@ def _price_features(
         if len(high) >= rk["resistance_min_bars"]
         else None
     )
-    avg_vol20 = adj_vol.tail(MA_BARS).mean() if n >= MA_BARS else np.nan
+    avg_vol20 = adj_vol.tail(ma_bars).mean() if n >= ma_bars else np.nan
     # 近 5 日報酬（後復權價，故跨除權息連續）→ 產業趨勢用；不足 6 根 → NULL
-    base5 = close.iloc[-(FLOW_WINDOW + 1)] if n >= FLOW_WINDOW + 1 else np.nan
+    base5 = close.iloc[-(flow_bars + 1)] if n >= flow_bars + 1 else np.nan
     ret5 = (
         float((last_close - base5) / base5)
         if np.isfinite(base5) and base5 > 0
@@ -295,13 +299,13 @@ def _asof_change(
 
 
 async def _industry_trend(
-    session: AsyncSession, pf: dict[str, dict]
+    session: AsyncSession, pf: dict[str, dict], min_members: int
 ) -> dict[str, float]:
     """各股所屬產業的趨勢分數（-1..1）。
 
     產業分數 = 成分股近 5 日報酬的**中位數**（中位數避開單一大漲股拉抬整個產業），
     再對「產業」做橫斷面 z + squash → -1..1，最後展開回個股。成分股不足
-    `_MIN_INDUSTRY_MEMBERS` 的產業不給分（樣本太少不成趨勢），該股維持 NULL 中性。
+    `features.industry_min_members` 的產業不給分（樣本太少不成趨勢），該股維持 NULL 中性。
 
     產業別取自 `stock.industry`（中文名稱，上市/上櫃同名同組）。importer 尚未帶
     產業別的個股（或 ETF/下市 stub）自然落在 NULL，不參與。
@@ -323,7 +327,7 @@ async def _industry_trend(
     ind_score = {
         ind: float(np.median([rets[s] for s in syms]))
         for ind, syms in members.items()
-        if len(syms) >= _MIN_INDUSTRY_MEMBERS
+        if len(syms) >= min_members
     }
     z = _zscore_map(ind_score)
     return {
@@ -391,7 +395,8 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
 
     # 市場交易日曆（視窗內有行情的日子）：5/20 日窗一律以此為準，不看個股自己的列數
     market_dates = sorted(d for d in prices["data_date"].unique() if d <= target)
-    flow_window = market_dates[-FLOW_WINDOW:] if len(market_dates) >= FLOW_WINDOW else []
+    flow_bars = _win(t, "flow_window_bars", 5)
+    flow_window = market_dates[-flow_bars:] if len(market_dates) >= flow_bars else []
 
     # 個股層強度（除以 20 日均量做流動性正規化）
     foreign_str, trust_str, dealer_str = {}, {}, {}
@@ -416,8 +421,8 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
             av = pf.get(sym, {}).get("_avg_vol20")
             if not av:
                 continue
-            mc = _asof_change(g, "margin_balance", market_dates, FLOW_WINDOW)
-            sc = _asof_change(g, "short_balance", market_dates, FLOW_WINDOW)
+            mc = _asof_change(g, "margin_balance", market_dates, flow_bars)
+            sc = _asof_change(g, "short_balance", market_dates, flow_bars)
             if mc is not None:
                 margin_chg[sym] = mc * LOTS_TO_SHARES / av
             if sc is not None:
@@ -428,7 +433,9 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     sbl_chg: dict[str, float] = {}
     if not sbl.empty:
         for sym, g in sbl.groupby("symbol"):
-            pc = _asof_change(g, "sbl_balance", market_dates, SBL_LOOKBACK, pct=True)
+            pc = _asof_change(
+                g, "sbl_balance", market_dates, _win(t, "sbl_lookback_bars", 20), pct=True
+            )
             if pc is not None:
                 sbl_chg[sym] = pc
 
@@ -480,7 +487,7 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
     z_retail_holder = _zscore_map(retail_conc)
     z_holder_cnt = _zscore_map(holder_cnt_chg)
 
-    industry_trend = await _industry_trend(session, pf)
+    industry_trend = await _industry_trend(session, pf, _win(t, "industry_min_members", 5))
 
     # 盤中 order flow 橫斷面 z（僅當日有逐筆的標的；其餘維持 NULL）
     intraday = await _intraday_signals(session, target)
