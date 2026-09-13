@@ -39,12 +39,6 @@ def test_signal_exposes_basis_and_target():
     assert res.rr_basis == "resistance" and res.rr_target == 115
 
 
-def test_breakout_projection_is_flagged_in_reasons():
-    res = _decide(99)
-    assert res.rr_basis == "breakout_atr"
-    assert any("突破後 ATR 推估" in r and "未經 OOS 驗證" in r for r in res.reasons)
-
-
 def test_missing_resistance_is_explained():
     res = _decide(None)
     assert res.action == Action.WATCH
@@ -77,3 +71,36 @@ async def test_api_analysis_exposes_rr_basis(db_session):
     finally:
         app.dependency_overrides.clear()
     assert risk["rr_basis"] == "resistance" and risk["rr_target"] == 120
+
+
+class TestBreakoutPolicy:
+    """突破股處理為產品決策：預設 watch（無獨立壓力位目標就不給 BUY）。"""
+
+    def test_default_policy_is_watch(self):
+        from app.core.config import get_thresholds
+
+        assert get_thresholds().risk["breakout_policy"] == "watch"
+
+    def test_breakout_is_watch_under_watch_policy(self):
+        res = _decide(99)
+        assert res.action == Action.WATCH
+        assert res.rr_basis == "breakout_atr"
+        assert any("已突破前高" in r and "不給 BUY" in r for r in res.reasons)
+
+    def test_atr_projection_policy_allows_buy(self, monkeypatch):
+        from app.core.config import get_thresholds
+
+        monkeypatch.setitem(get_thresholds().risk, "breakout_policy", "atr_projection")
+        # 波段低點貼近 → 停損取 ATR 停損 97、風險 3.3 → 推估 RR = 8 / 3.3 ≈ 2.4
+        res = decide(score=82, reasons=[], last_price=100, atr14=2.0, recent_swing_low=99,
+                     price_ctx=CTX, resistance=99)
+        assert res.action == Action.BUY
+        assert any("突破後 ATR 推估" in r and "未經 OOS 驗證" in r for r in res.reasons)
+
+    def test_non_breakout_unaffected(self):
+        assert _decide(115).action == Action.BUY
+
+    def test_resistance_lookback_default_is_20(self):
+        from app.core.config import get_thresholds
+
+        assert get_thresholds().risk["resistance_lookback_bars"] == 20

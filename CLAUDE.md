@@ -39,7 +39,7 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 **公司行動還原（價 + 量）已完成**：`corporate_action` 收 除權息 TWT49U／面額變更 TWTB8U／減資 TWTAUU／**除權息預告 TWT48U**／**減資預告 TWTAVU**，以「後復權」還原。**價因子 `adj_factor`（參考價/前收）與量因子 `share_factor`（1 舊股→幾新股）是兩件事，不可互推**——除權息把現金股利與配股混在同一個 `adj_factor` 裡（已實證：無償配股 7.1% 的 2442 比值為 1.0、純現增的 6533 卻是 1.032），故配股率只能取自 TWT48U 的「無償配股率」（`share_factor = 1 + 無償配股率`）；面額與「彌補虧損」減資才可用 `1/adj_factor`。**現金減資（減資原因「退還股款」）同樣不可互推**——TWTAUU 自載公式 `參考價 =（前收 − 息值 − 每股退還股款）/ 減資換股率`，參考價已扣掉退還的現金，1/adj 會高估留存股數（實測 6176 瑞儀 0.774 vs 真值 0.75、1459 聯發 0.951 vs 0.75），故換股率只取自 TWTAVU 減資預告表的「減資換股率」。價因子套 close/high/low，量因子只套 `avg_vol20`（法人/融資/借券強度的分母），**`vwap` 是同日 turnover/volume 比值，一律用原始量**。還原值可用 `GET /api/stocks/{symbol}/features?date=` 核對（個股頁「還原後價格結構」卡）。
 
 **2026-09-13 審閱修正（docs/09 + 複查 docs/12，重大行為變更，部署後需全量重建）**：
-- Entry Filter：RR 改以前高壓力位（或突破後 ATR 推估，標 `rr_basis`）計、Strong Bear 用原始趨勢、鎖死漲停接線；**無當日 MarketDaily → 大盤未知 → WATCH**，不再沿用前一日。
+- Entry Filter：RR 改以近 20 根前高壓力位計（`rr_basis`）；**已突破前高者預設一律 WATCH**（`risk.breakout_policy: watch`，ATR 推估 RR 近乎常數、無鑑別力）；Strong Bear 用原始趨勢、鎖死漲停接線；**無當日 MarketDaily → 大盤未知 → WATCH**，不再沿用前一日。
 - 缺資料一律 NULL/排除成分（視窗不足、法人子項、market）；百分位依 `(components, availability_signature)` 分組；橫斷面 z 截尾。**舊算法外資因子被單一離群值（z=44）壓扁而失效**——歷史 IC≈0 可能部分源於此，重建後需重驗。
 - 出貨警示預設關閉（無真實單股時序訊號）；`obi` 改名 `cvd_slope`（無五檔量＝無 OBI）；逐筆同 ts 以 id 排序（原非決定性）。
 - 驗證頁：後復權價、市場次一交易日進場、NW t（樸素 t 高估，舊 20D 2.31→1.50）、快取依 updated_at 失效。

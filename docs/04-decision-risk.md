@@ -20,8 +20,10 @@ AND 非鎖死漲停等不可合理成交狀況
 實作要點（2026-09-13，docs/09、docs/12）：
 
 - **RR** = (目標 − 進場區上緣) ÷ (進場區上緣 − 停損)。目標取近 `risk.resistance_lookback_bars` 根後復權
-  最高價；已突破則用 `進場區上緣 + breakout_target_atr × ATR`（未經 OOS 驗證，原因會加註）；
-  無壓力位資料 RR=0。API `risk.rr_basis` = `resistance` / `breakout_atr` / `unavailable`。TP1/TP2 不再拿來反算 RR。
+  最高價（預設 20 根，與最長持有期同尺度）；無壓力位資料 RR=0。
+- **已突破前高**：沒有獨立的價格結構目標，且風險約 1.65 ATR 使 ATR 推估的 RR 近乎常數（對 gate 無鑑別力）。
+  產品決策 `risk.breakout_policy: watch`（預設）→ 輸出 WATCH「已突破前高、無獨立壓力位目標，保守不給 BUY」；
+  `atr_projection` 則以 `進場區上緣 + breakout_target_atr × ATR` 推估（未經 OOS 驗證，原因加註）。API `risk.rr_basis` = `resistance` / `breakout_atr` / `unavailable`。TP1/TP2 不再拿來反算 RR。
 - **Strong Bear** 用原始 `market_trend_score`（不是加權後的市場子分數）。**無當日大盤資料 → WATCH**
   （「無當日大盤資料，無法排除 Strong Bear」）。
 - **鎖死漲停**：`feature_daily.is_limit_locked`（漲幅 ≥ `limit_lock_min_change_pct` 且 high=low=close）；

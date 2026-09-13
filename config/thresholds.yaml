@@ -25,11 +25,17 @@ risk:
   min_risk_pct: 0.01     # 風險分母下限(佔進場價比例),避免停損貼近時 RR 爆大
   # RR 目標(docs/09 BUG-01):TP1/TP2 是 R 倍數風控目標,不可同時當 RR gate 的證據
   # (RR 會恆等於 tp1_r)。RR = (壓力位 − 進場區上緣) ÷ (進場區上緣 − 停損)。
-  resistance_lookback_bars: 60   # 壓力位 = 近 N 根(後復權)最高價
+  # 壓力位 = 近 N 根(後復權)最高價。取 20:與最長持有期(20D)、MA20 同尺度——60 日前高常在
+  # 持有期內不可達,讓 RR gate 偏寬(2026-09-08 實測 >=75 分者 RR 中位數 3.23)。結構性選擇,非回測挑選。
+  resistance_lookback_bars: 20
   resistance_min_bars: 20        # 不足此數無壓力位 → RR=0(保守,不給 BUY)
-  # 已突破壓力位(壓力 <= 進場區上緣)時的目標 = 進場區上緣 + k × ATR。
-  # 未經回測驗證的初始值,之後以 backtest 檢視。
-  breakout_target_atr: 4.0
+  # 已突破壓力位(壓力 <= 進場區上緣)時沒有獨立的價格結構目標。
+  # 風險約 1.65 ATR,故突破股 RR ≈ breakout_target_atr ÷ 1.65 幾乎是常數——任何固定值都讓 gate
+  # 對突破股失去鑑別力(>=3.3 恆過、<3.3 恆擋)。處理方式屬產品決策:
+  #   watch          :突破股不給 BUY(輸出 WATCH 並說明),保守預設
+  #   atr_projection :以 進場區上緣 + breakout_target_atr × ATR 推估目標(未經 OOS 驗證)
+  breakout_policy: watch
+  breakout_target_atr: 4.0   # 僅 atr_projection 用於 RR;watch 時只作顯示參考
 
 # feature_builder 價格載入視窗(日曆日);須涵蓋 resistance_lookback_bars 根交易日
 features:

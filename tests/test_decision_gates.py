@@ -97,7 +97,7 @@ class TestLockedLimit:
         from app.services.feature_builder import _price_features
 
         g = self._bars(30, 98, 100, 95)
-        g.loc[5, "high"] = 130.0
+        g.loc[15, "high"] = 130.0  # 位於最近 resistance_lookback_bars(20) 根內
         assert _price_features(g)["resistance_high"] == 130.0
         # 不足最低 bar 數 → NULL
         assert _price_features(g.tail(5))["resistance_high"] is None

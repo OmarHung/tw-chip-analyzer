@@ -82,8 +82,16 @@ def decide(
     has_plan = action in (Action.BUY, Action.WATCH, Action.HOLD)
     # RR 依據說明（docs/12 §10）：壓力位為常態不另加註；推估或無資料時讓使用者知道
     basis_notes: list[str] = []
+    breakout_watch = (
+        plan.rr_basis == "breakout_atr" and t.risk.get("breakout_policy", "watch") == "watch"
+    )
+    if breakout_watch and action == Action.BUY:
+        # 突破股 RR 只能靠 ATR 推估、對 gate 沒有鑑別力 → 產品決策：不給 BUY
+        action = Action.WATCH
     if action in (Action.BUY, Action.WATCH):
-        if plan.rr_basis == "breakout_atr":
+        if breakout_watch:
+            basis_notes.append("已突破前高、無獨立壓力位目標，保守不給 BUY")
+        elif plan.rr_basis == "breakout_atr":
             basis_notes.append(
                 f"RR 目標為突破後 ATR 推估（{plan.target:g}），未經 OOS 驗證"
             )
