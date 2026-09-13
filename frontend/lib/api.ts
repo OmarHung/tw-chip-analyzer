@@ -392,10 +392,24 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+/** 帶 HTTP 狀態碼的 API 錯誤（前端據此判斷是否需要 ops 金鑰）。 */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+async function post<T>(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
     cache: "no-store",
   });
@@ -408,7 +422,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     } catch {
       /* 忽略非 JSON 錯誤體 */
     }
-    throw new Error(detail);
+    throw new ApiError(detail, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -462,6 +476,11 @@ export const api = {
   },
   opsStatus: () => get<OpsStatusResponse>("/api/ops/status"),
   forwardReport: () => get<ForwardReport>("/api/validation/forward"),
-  backfill: (body: BackfillRequest) =>
-    post<OpsStatusResponse>("/api/ops/backfill", body),
+  // 回補需管理者認證（RISK-01）：opsKey 由使用者在系統頁輸入，只存 sessionStorage
+  backfill: (body: BackfillRequest, opsKey?: string) =>
+    post<OpsStatusResponse>(
+      "/api/ops/backfill",
+      body,
+      opsKey ? { "X-Ops-Key": opsKey } : {},
+    ),
 };

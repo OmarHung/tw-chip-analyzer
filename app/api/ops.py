@@ -10,17 +10,19 @@ import datetime as dt
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.core.config import get_thresholds
 from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
+from app.api.ops_auth import client_desc, require_ops_auth
 from app.jobs import runner
 from app.jobs.scheduler import scheduler_status
 from app.repositories.ops import load_coverage
 
 logger = get_logger("api.ops")
+audit = get_logger("api.ops.audit")
 
 router = APIRouter(prefix="/api/ops", tags=["ops"])
 
@@ -192,8 +194,19 @@ def _parse_date(s: str | None, label: str) -> dt.date:
 
 
 @router.post("/backfill", response_model=OpsStatus)
-async def backfill(req: BackfillRequest) -> OpsStatus:
-    """觸發回補(背景執行)。單日可選完整 EOD / 只逐筆;區間只補日線/法人。"""
+async def backfill(
+    req: BackfillRequest,
+    request: Request,
+    auth: str = Depends(require_ops_auth),
+) -> OpsStatus:
+    """觸發回補(背景執行)。單日可選完整 EOD / 只逐筆;區間只補日線/法人。
+
+    需管理者認證(docs/09 RISK-01):會跑數分鐘並消耗 Shioaji 配額。
+    """
+    audit.info(
+        "ops 稽核 允許 backfill %s auth=%s kind=%s date=%s mode=%s start=%s end=%s",
+        client_desc(request), auth, req.kind, req.date, req.mode, req.start, req.end,
+    )
     if runner.is_busy():
         raise HTTPException(status_code=409, detail="已有回補/EOD 工作進行中,請稍候")
 

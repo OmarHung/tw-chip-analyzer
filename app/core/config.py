@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     sj_ca_path: str = ""
     sj_ca_passwd: str = ""
 
+    # ops 寫入型端點（回補等會耗時/耗 Shioaji 配額）的管理金鑰，前端以 X-Ops-Key 帶入。
+    # 留空 = 只接受本機直連（無反向代理）；經 nginx / tailscale 對外開放時務必設定。
+    ops_api_key: str = ""
+
     thresholds_path: Path = Field(default=DEFAULT_THRESHOLDS_PATH)
 
     @property

@@ -9,7 +9,10 @@ import {
   type OpsJob,
   type OpsStatusResponse,
   type OpsTickDay,
+  ApiError,
 } from "@/lib/api";
+
+const OPS_KEY_STORAGE = "twchip.opsKey";
 
 /* 位元組 → 人類可讀(GB/MB/KB)。 */
 function fmtBytes(v: number | null): string {
@@ -65,6 +68,9 @@ export default function SystemPage() {
   const [bfEnd, setBfEnd] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [bfError, setBfError] = useState<string | null>(null);
+  // ops 金鑰：後端設了 OPS_API_KEY 時回補需要。只存本分頁 sessionStorage，不進 bundle。
+  const [opsKey, setOpsKey] = useState("");
+  const [needKey, setNeedKey] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -118,9 +124,16 @@ export default function SystemPage() {
   const sendBackfill = async (body: BackfillRequest) => {
     setSubmitting(true);
     setBfError(null);
+    const key = opsKey || sessionStorage.getItem(OPS_KEY_STORAGE) || undefined;
     try {
-      setData(await api.backfill(body));
+      setData(await api.backfill(body, key));
+      if (key) sessionStorage.setItem(OPS_KEY_STORAGE, key);
+      setNeedKey(false);
     } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        sessionStorage.removeItem(OPS_KEY_STORAGE);
+        setNeedKey(true);
+      }
       setBfError(e instanceof Error ? e.message : "觸發失敗");
     } finally {
       setSubmitting(false);
@@ -243,6 +256,18 @@ export default function SystemPage() {
                   配額已達 {q?.used_pct}%(≥{QUOTA_STOP}%),逐筆回補會立即中止 —
                   請等每日配額回補後再試,或改用「完整 EOD」。
                 </p>
+              )}
+              {needKey && (
+                <Field label="管理金鑰 OPS_API_KEY">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={opsKey}
+                    onChange={(e) => setOpsKey(e.target.value)}
+                    placeholder="輸入後再按一次觸發"
+                    className="rounded-lg border border-line-soft bg-panel-2/50 px-3 py-1.5 font-mono text-sm text-ink outline-none focus:border-gold/40"
+                  />
+                </Field>
               )}
               {bfError && <p className="text-xs text-up">{bfError}</p>}
 

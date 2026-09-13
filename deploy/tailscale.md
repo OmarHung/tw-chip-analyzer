@@ -98,6 +98,13 @@ curl -s https://<主機>.<tailnet>.ts.net/api/dashboard | head -c 200
 
 ---
 
+## 回補端點金鑰（必設）
+
+tailscale serve / nginx 轉發進來的請求在後端看來也是 127.0.0.1，所以**沒設
+`OPS_API_KEY` 時系統頁的「回補」會回 403**（只有主機本機直連 API 可觸發）。
+在 `.env` 設 `OPS_API_KEY=<隨機字串>` 並重啟 API，之後在系統頁第一次觸發回補時
+輸入金鑰即可（只存在該分頁 sessionStorage）。唯讀的 `/api/ops/status` 不需金鑰。
+
 ## 重點與眉角
 
 1. **同源免 CORS 照舊**：瀏覽器與 SSR 都走同一個 `https://<主機>.ts.net`，nginx 同源

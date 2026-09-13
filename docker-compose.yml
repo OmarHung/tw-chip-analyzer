@@ -43,6 +43,9 @@ services:
       # 改由 PGPASSWORD 傳給 psycopg/libpq,任意特殊字元皆安全。
       DATABASE_URL: postgresql+psycopg://twchip@db:5432/twchip
       PGPASSWORD: ${POSTGRES_PASSWORD}
+      # ops 回補管理金鑰(docs/09 RISK-01)。容器內 client 不是 loopback,
+      # 未設定時回補端點一律 403 —— Docker 部署要從系統頁回補就必須設定。
+      OPS_API_KEY: ${OPS_API_KEY:-}
       # Shioaji 逐筆(選用);留空則 intraday 中性
       SJ_API_KEY: ${SJ_API_KEY:-}
       SJ_SEC_KEY: ${SJ_SEC_KEY:-}
