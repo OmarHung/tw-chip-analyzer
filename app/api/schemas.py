@@ -88,5 +88,6 @@ class ScannerRow(BaseModel):
 
 class ScannerResponse(BaseModel):
     as_of: str | None = None
-    count: int
+    count: int  # 本頁筆數
+    total: int  # 符合篩選條件的總數（分頁前）
     rows: list[ScannerRow]

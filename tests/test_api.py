@@ -412,3 +412,27 @@ class TestCoverageGaps:
         cal = [dt.date(2026, 3, d) for d in (2, 3, 4)]
         got = _with_gaps([], cal)
         assert got["missing"] == 0 and got["starts_late"] == 0
+
+
+async def test_scanner_max_score_filter(client):
+    """雙向分數篩選：max_score 為含上界。"""
+    r = await client.get("/api/scanner", params={"min_score": 0, "max_score": 55})
+    body = r.json()
+    assert [row["symbol"] for row in body["rows"]] == ["2317"]
+    assert all(row["chip_score"] <= 55 for row in body["rows"])
+
+
+async def test_scanner_rejects_inverted_score_range(client):
+    r = await client.get("/api/scanner", params={"min_score": 80, "max_score": 20})
+    assert r.status_code == 422
+
+
+async def test_scanner_total_and_offset_pagination(client):
+    """total 為符合條件的總數（非截斷後筆數），offset/limit 分頁。"""
+    first = (await client.get("/api/scanner", params={"limit": 1})).json()
+    assert first["total"] == 2 and first["count"] == 1
+    assert [row["symbol"] for row in first["rows"]] == ["2330"]
+
+    second = (await client.get("/api/scanner", params={"limit": 1, "offset": 1})).json()
+    assert second["total"] == 2 and second["count"] == 1
+    assert [row["symbol"] for row in second["rows"]] == ["2317"]

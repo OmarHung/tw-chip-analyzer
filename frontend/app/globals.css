@@ -110,3 +110,43 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* 雙向區間滑桿（ScoreRangeSlider）：軌道透明、只有把手可點，兩個 range 才能疊放 */
+.range-thumb {
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+.range-thumb::-webkit-slider-runnable-track {
+  background: transparent;
+}
+.range-thumb::-webkit-slider-thumb {
+  appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--color-gold);
+  border: 2px solid var(--color-panel);
+  cursor: pointer;
+}
+.range-thumb::-moz-range-track {
+  background: transparent;
+}
+.range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--color-gold);
+  border: 2px solid var(--color-panel);
+  cursor: pointer;
+}
+.range-thumb:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--color-gold-bright);
+  outline-offset: 2px;
+}
+.range-thumb:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--color-gold-bright);
+  outline-offset: 2px;
+}

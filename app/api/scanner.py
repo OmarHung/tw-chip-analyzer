@@ -1,10 +1,11 @@
 """全市場掃描 API（見 docs/05 §15）。
 
-query：q（代號/名稱搜尋）/ min_score / action / min_turnover / industry / limit，依 chip_score 排序。
+query：q（代號/名稱搜尋）/ min_score / max_score / action / min_turnover / industry / offset / limit，
+依 chip_score 排序；total 為符合條件的總數（分頁前）。
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,20 +22,24 @@ async def scan(
     session: AsyncSession = Depends(get_session),
     q: str | None = Query(None),
     min_score: float = Query(0, ge=0, le=100),
+    max_score: float = Query(100, ge=0, le=100),
     action: str | None = Query(None),
     min_turnover: float = Query(0, ge=0),
     industry: str | None = Query(None),
+    offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
 ) -> ScannerResponse:
+    if min_score > max_score:
+        raise HTTPException(status_code=422, detail="min_score 不可大於 max_score")
     as_of, rows = await scan_all(session)
     if as_of is None:
-        return ScannerResponse(as_of=None, count=0, rows=[])
+        return ScannerResponse(as_of=None, count=0, total=0, rows=[])
 
     keyword = q.strip().lower() if q else ""
     filtered = [
         r
         for r in rows
-        if r.chip_score >= min_score
+        if min_score <= r.chip_score <= max_score
         and (not min_turnover or r.turnover >= min_turnover)
         and (not action or r.action == action.upper())
         and (not industry or r.industry == industry)
@@ -48,9 +53,9 @@ async def scan(
             institutional=r.institutional, holder=r.holder,
             action=r.action, turnover=r.turnover, rr=r.rr,
         )
-        for r in filtered[:limit]
+        for r in filtered[offset:offset + limit]
     ]
-    return ScannerResponse(as_of=str(as_of), count=len(out), rows=out)
+    return ScannerResponse(as_of=str(as_of), count=len(out), total=len(filtered), rows=out)
 
 
 class DivergenceRow(BaseModel):

@@ -1,21 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActionBadge } from "@/components/ActionBadge";
 import { ActionSelect } from "@/components/ActionSelect";
 import { Change } from "@/components/Change";
+import { ScoreRangeSlider } from "@/components/ScoreRangeSlider";
 import { api, type Action, type ScannerRow } from "@/lib/api";
 import { fmtPrice, fmtTurnover, scoreColor } from "@/lib/format";
 
 const ACTIONS: (Action | "")[] = ["", "BUY", "WATCH", "HOLD", "REDUCE", "EXIT", "AVOID"];
+// 每頁筆數：一次渲染全市場近 2000 列在手機上會卡，改「載入更多」分頁
+const PAGE_SIZE = 200;
 
 export default function ScannerPage() {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [minScore, setMinScore] = useState(0);
+  const [[minScore, maxScore], setScoreRange] = useState<[number, number]>([0, 100]);
   const [action, setAction] = useState<Action | "">("");
   const [rows, setRows] = useState<ScannerRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [asOf, setAsOf] = useState<string | null>(null);
   // 已完成載入的查詢條件；與目前條件不同即為載入中（不在 effect 內同步 setState）
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
@@ -27,21 +32,34 @@ export default function ScannerPage() {
     return () => clearTimeout(id);
   }, [query]);
 
-  const queryKey = JSON.stringify([minScore, action, debouncedQuery]);
+  const queryKey = JSON.stringify([minScore, maxScore, action, debouncedQuery]);
   const loading = loadedKey !== queryKey;
 
+  // 最新查詢條件：「載入更多」回來時若條件已變，丟棄該頁結果
+  const latestKey = useRef(queryKey);
+  const filters = {
+    q: debouncedQuery || undefined,
+    min_score: minScore,
+    max_score: maxScore,
+    action: action || undefined,
+    limit: PAGE_SIZE,
+  };
+
   useEffect(() => {
+    latestKey.current = queryKey;
     let cancelled = false;
     api
       .scanner({
         q: debouncedQuery || undefined,
         min_score: minScore,
+        max_score: maxScore,
         action: action || undefined,
-        limit: 200,
+        limit: PAGE_SIZE,
       })
       .then((res) => {
         if (cancelled) return;
         setRows(res.rows);
+        setTotal(res.total);
         setAsOf(res.as_of);
         setError(null);
       })
@@ -50,7 +68,21 @@ export default function ScannerPage() {
     return () => {
       cancelled = true;
     };
-  }, [minScore, action, debouncedQuery, queryKey]);
+  }, [minScore, maxScore, action, debouncedQuery, queryKey]);
+
+  const loadMore = () => {
+    const key = queryKey;
+    setLoadingMore(true);
+    api
+      .scanner({ ...filters, offset: rows.length })
+      .then((res) => {
+        if (latestKey.current !== key) return;
+        setRows((prev) => [...prev, ...res.rows]);
+        setTotal(res.total);
+      })
+      .catch(() => setError("無法連線後端 API"))
+      .finally(() => setLoadingMore(false));
+  };
 
   return (
     <div className="space-y-6">
@@ -60,7 +92,9 @@ export default function ScannerPage() {
             選<span className="text-gold">股</span>
           </h1>
           <p className="mt-2 font-mono text-xs tracking-wider text-ink-faint">
-            {asOf ?? "—"} · {rows.length} 檔{loading && " · 載入中"}
+            {asOf ?? "—"} ·{" "}
+            {rows.length < total ? `顯示 ${rows.length} / 共 ${total} 檔` : `${total} 檔`}
+            {loading && " · 載入中"}
           </p>
         </div>
       </div>
@@ -99,21 +133,7 @@ export default function ScannerPage() {
             </button>
           )}
         </div>
-        <label className="flex items-center gap-3 text-sm">
-          <span className="font-mono text-[11px] tracking-wider text-ink-faint uppercase">
-            最低分數
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={90}
-            step={5}
-            value={minScore}
-            onChange={(e) => setMinScore(Number(e.target.value))}
-            className="accent-gold"
-          />
-          <span className="w-8 font-mono text-sm tnum text-gold">{minScore}</span>
-        </label>
+        <ScoreRangeSlider min={minScore} max={maxScore} onChange={setScoreRange} />
         <div className="flex items-center gap-3 text-sm">
           <span className="font-mono text-[11px] tracking-wider text-ink-faint uppercase">
             動作
@@ -186,6 +206,20 @@ export default function ScannerPage() {
               )}
             </tbody>
           </table>
+          {!loading && rows.length < total && (
+            <div className="border-t border-line-soft p-4 text-center">
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="rounded-lg border border-gold/40 px-4 py-1.5 font-mono text-xs tracking-wider text-gold transition-colors hover:bg-gold/10 disabled:opacity-50"
+              >
+                {loadingMore
+                  ? "載入中…"
+                  : `載入更多（剩 ${total - rows.length} 檔）`}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

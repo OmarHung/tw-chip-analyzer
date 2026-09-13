@@ -63,7 +63,8 @@ export interface ScannerRow {
 
 export interface ScannerResponse {
   as_of: string | null;
-  count: number;
+  count: number; // 本頁筆數
+  total: number; // 符合條件的總數（分頁前）
   rows: ScannerRow[];
 }
 
