@@ -7,6 +7,8 @@
 *.pfx
 *.p12
 *.pem
+# 公開 CA 中繼憑證（TPEx 補鏈用，非機密；缺檔會讓 tpex connector import 失敗）
+!app/connectors/certs/twca_intermediates.pem
 *.key
 *.crt
 *.cer

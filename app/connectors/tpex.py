@@ -18,14 +18,28 @@ from __future__ import annotations
 
 import datetime as dt
 import ssl
+from pathlib import Path
 
 import httpx
 
 BASE = "https://www.tpex.org.tw/www/zh-tw"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (tw-chip-analyzer)"}
 
-_ssl_ctx = ssl.create_default_context()
-_ssl_ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+# TPEx 部分節點（線上 vultr 解析到 172.65.90.x）間歇只送網站憑證、漏送 TWCA 中繼憑證 →
+# CERTIFICATE_VERIFY_FAILED。打包中繼憑證補鏈（不關閉驗證），來源與到期日見該 PEM 檔頭。
+TWCA_INTERMEDIATES = Path(__file__).parent / "certs" / "twca_intermediates.pem"
+
+
+def build_ssl_context(extra_cafiles: tuple[Path, ...] = (TWCA_INTERMEDIATES,)) -> ssl.SSLContext:
+    """系統信任庫 + 補鏈用中繼憑證；憑證缺 SKI 故關閉 strict X509（驗證本身仍開啟）。"""
+    ctx = ssl.create_default_context()
+    ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    for cafile in extra_cafiles:
+        ctx.load_verify_locations(cafile=str(cafile))
+    return ctx
+
+
+_ssl_ctx = build_ssl_context()
 
 
 def roc_date(d: dt.date) -> str:
