@@ -82,7 +82,8 @@ function HorizonCard({ h }: { h: ForwardHorizon }) {
           </span>
           <span className={icTone(h.ic, h.ic_t)}>
             IC {h.ic != null ? (h.ic > 0 ? "+" : "") + h.ic.toFixed(4) : "—"}
-            {h.ic_t != null && ` (t=${h.ic_t})`}
+            {h.ic_t != null &&
+              ` (NW t=${h.ic_t}${h.ic_t_naive != null ? `，樸素 ${h.ic_t_naive}` : ""})`}
             {sig && (h.ic! > 0 ? " ✓有效" : " ✗反向")}
           </span>
         </div>

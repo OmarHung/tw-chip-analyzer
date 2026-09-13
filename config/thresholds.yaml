@@ -34,6 +34,10 @@ risk:
 # feature_builder 價格載入視窗(日曆日);須涵蓋 resistance_lookback_bars 根交易日
 features:
   price_window_days: 100
+  # 橫斷面 z 的離群值處理:先把原始值截在 [q, 1-q] 分位,再 z,最後 z 夾在 ±z_clip。
+  # 實測 2026-09-08 單一標的外資 z=44.1,把其餘 1900 檔壓在 |z|<0.3,因子形同失效。
+  winsorize_quantile: 0.01
+  z_clip: 5.0
 
 entry_filter:
   # 鎖死漲停(docs/09 BUG-03):漲幅 >= 此值 且 最高=最低=收盤 → 無法合理成交。

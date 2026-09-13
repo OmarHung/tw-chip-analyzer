@@ -19,7 +19,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from app.backtest import BacktestEngine
-from app.backtest.engine import BacktestSignal
+from app.backtest.engine import BacktestSignal, market_calendar
 from app.backtest.runner import load_bars
 from app.db.session import get_sessionmaker
 
@@ -59,12 +59,13 @@ async def _amain() -> None:
         df = score.merge(feat, on=["symbol", "data_date"], how="inner")
         symbols = sorted(df["symbol"].unique())
         prices = await load_bars(s, symbols)
+        calendar = market_calendar(prices)  # 停牌復牌日不算進場（docs/09 BUG-15）
 
     # 每列算 forward net return(重用 engine 的 look-ahead 安全進場)
     fwd = {h: [] for h in horizons}
     for sym, d in zip(df["symbol"], df["data_date"]):
         bars = prices.get(sym)
-        oc = engine.evaluate_signal(BacktestSignal(sym, d, 0.0), list(bars)) if bars else None
+        oc = engine.evaluate_signal(BacktestSignal(sym, d, 0.0), list(bars), calendar) if bars else None
         for h in horizons:
             hr = oc.forward.horizons.get(h) if oc else None
             fwd[h].append(hr.net_return if hr else np.nan)

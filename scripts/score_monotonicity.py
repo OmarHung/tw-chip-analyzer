@@ -17,6 +17,7 @@ import math
 
 from sqlalchemy import select
 
+from app.backtest.engine import market_calendar
 from app.backtest import BacktestEngine, format_bucket_table
 from app.backtest.runner import load_bars, load_signals
 from app.db.models.market import DailyPrice
@@ -76,6 +77,7 @@ async def main() -> None:
         signals = await load_signals(s)
         symbols = sorted({sig.symbol for sig in signals})
         prices = await load_bars(s, symbols)
+        calendar = market_calendar(prices)  # 停牌復牌日不算進場（docs/09 BUG-15）
 
     if args.min_turnover > 0:
         tk = await _turnover_by_key()
@@ -100,7 +102,7 @@ async def main() -> None:
         bars = bar_cache.get(sig.symbol)
         if not bars:
             continue
-        oc = engine.evaluate_signal(sig, bars)
+        oc = engine.evaluate_signal(sig, bars, calendar)
         if oc is None:
             continue
         for h in engine.horizons:

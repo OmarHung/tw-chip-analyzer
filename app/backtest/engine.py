@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import bisect
 import datetime as dt
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -47,28 +48,56 @@ class BacktestReport:
     success_rate: float | None
 
 
+def market_calendar(prices: Mapping[str, Sequence[Bar]]) -> list[dt.date]:
+    """所有標的 bar 日期的聯集（升冪）＝市場交易日曆。"""
+    return sorted({b.date for bars in prices.values() for b in bars})
+
+
 class BacktestEngine:
     def __init__(
-        self, thresholds: Thresholds | None = None, costs: CostModel | None = None
+        self,
+        thresholds: Thresholds | None = None,
+        costs: CostModel | None = None,
+        calendar: Sequence[dt.date] | None = None,
     ):
         self.t = thresholds or get_thresholds()
         self.bt = self.t.backtest
         self.costs = costs or CostModel.from_config()
         self.horizons: list[int] = list(self.bt.get("horizons", [1, 3, 5, 10, 20]))
         self.entry_price_field: str = self.bt.get("entry_price", "open")
+        # 市場交易日曆（升冪）。有值時進場 bar 必須恰為訊號日的「市場」次一交易日——
+        # 停牌數週後的復牌日不是策略會執行的進場（docs/09 BUG-15）。
+        self.calendar: list[dt.date] | None = sorted(calendar) if calendar else None
 
     # --- 單一訊號 ---
-    def _entry_index(self, bars: Sequence[Bar], data_date: dt.date) -> int | None:
-        """data_date 之後第一根 bar（嚴格大於，確保無 look-ahead）。"""
+    def _entry_index(
+        self,
+        bars: Sequence[Bar],
+        data_date: dt.date,
+        calendar: Sequence[dt.date] | None = None,
+    ) -> int | None:
+        """data_date 之後第一根 bar（嚴格大於，確保無 look-ahead）。
+
+        給了 calendar 時，該 bar 必須落在市場次一交易日；否則（當日停牌/無成交）丟棄。
+        """
+        expected: dt.date | None = None
+        if calendar:
+            pos = bisect.bisect_right(calendar, data_date)
+            if pos >= len(calendar):
+                return None
+            expected = calendar[pos]
         for i, b in enumerate(bars):
             if b.date > data_date:
-                return i
+                return i if expected is None or b.date == expected else None
         return None
 
     def evaluate_signal(
-        self, sig: BacktestSignal, bars: Sequence[Bar]
+        self,
+        sig: BacktestSignal,
+        bars: Sequence[Bar],
+        calendar: Sequence[dt.date] | None = None,
     ) -> SignalOutcome | None:
-        idx = self._entry_index(bars, sig.data_date)
+        idx = self._entry_index(bars, sig.data_date, calendar or self.calendar)
         if idx is None:
             return None
         future = bars[idx:]
@@ -97,12 +126,14 @@ class BacktestEngine:
     ) -> BacktestReport:
         outcomes: list[SignalOutcome] = []
         dropped = 0
+        # 未指定日曆時以本批全部標的的 bar 日期為市場交易日
+        calendar = self.calendar or market_calendar(prices)
         for sig in signals:
             bars = prices.get(sig.symbol)
             if not bars:
                 dropped += 1
                 continue
-            oc = self.evaluate_signal(sig, list(bars))
+            oc = self.evaluate_signal(sig, list(bars), calendar)
             if oc is None:
                 dropped += 1
                 continue

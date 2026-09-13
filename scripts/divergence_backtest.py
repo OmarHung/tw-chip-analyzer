@@ -22,7 +22,7 @@ from collections import defaultdict
 
 from sqlalchemy import select
 
-from app.backtest.engine import BacktestEngine, BacktestSignal
+from app.backtest.engine import BacktestEngine, BacktestSignal, market_calendar
 from app.backtest.forward_returns import Bar
 from app.core.config import get_thresholds
 from app.db.models.chips import InstitutionalDaily
@@ -103,6 +103,7 @@ def run_study(
     flow_eps = float(dcfg.get("flow_eps", 0.02))
     min_points = int(dcfg.get("min_points", 10))
     engine = BacktestEngine()
+    calendar = market_calendar(bars_by_sym)  # 停牌復牌日不算進場（docs/09 BUG-15）
     horizons = engine.horizons
     max_h = max(horizons)
 
@@ -138,7 +139,7 @@ def run_study(
             if div is None:
                 continue
             sig = BacktestSignal(sym, bars[i].date, 0.0)
-            oc = engine.evaluate_signal(sig, bars)
+            oc = engine.evaluate_signal(sig, bars, calendar)
             if oc is None:
                 continue
             n_signals += 1

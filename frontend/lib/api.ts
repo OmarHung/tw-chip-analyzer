@@ -364,7 +364,8 @@ export interface ForwardHorizon {
   n: number;
   buckets: ForwardBucket[];
   ic: number | null;
-  ic_t: number | null;
+  ic_t: number | null; // Newey–West t（重疊報酬自相關修正）
+  ic_t_naive: number | null; // 樸素 t，僅供對照膨脹幅度
   ic_days: number;
 }
 

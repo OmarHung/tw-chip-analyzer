@@ -1,7 +1,11 @@
-"""由當日逐筆計算盤中資金流（CVD、大單、內外盤比）與 intraday 分項分數。
+"""由當日逐筆計算盤中資金流（CVD、大單、內外盤比）與單檔盤中資金流分數。
 
 單股即時計算（不需全市場橫斷面）：以「相對當日總量」的有界訊號組合，
-故不需 z-score 常態化，直接落在 -1..1 → 轉 0..100。見 docs/03 §8、§10。
+直接落在 -1..1 → 轉 0..100。見 docs/03 §8、§10。
+
+**與 Chip Score 的 intraday 分項不同**（docs/09 BUG-13）：後者對「當日有逐筆的
+標的集合」做橫斷面 z 後合成；此處是單檔自身的有界訊號，無法跨股比較。兩者共用同一份
+訊號對應（INTRADAY_SIGNAL_KEYS）與同一組 config 權重 `weights.intraday`，不另寫死權重。
 """
 from __future__ import annotations
 
@@ -13,6 +17,18 @@ from app.services.orderflow import absorption as abs_mod
 from app.services.orderflow import cvd as cvd_mod
 from app.services.orderflow import large_trade as lt_mod
 from app.services.orderflow.price_efficiency import price_efficiency as _price_efficiency
+
+
+# config weights.intraday 的鍵 → OrderFlowResult 上對應的有界訊號（-1..1）。
+# feature_builder 也用這份對應做橫斷面 z，確保兩處「盤中」語意一致。
+INTRADAY_SIGNAL_KEYS: dict[str, str] = {
+    "large_trade_delta": "large_net",
+    "cvd": "net_aggressor",
+    "obi": "cvd_slope_norm",
+    "absorption": "absorption_signal",
+    "trade_speed": "trade_speed_signal",
+    "price_efficiency": "price_efficiency",
+}
 
 
 @dataclass
@@ -100,8 +116,18 @@ def compute_orderflow(
     absorption_signal = _bar_absorption(bars)
     trade_speed_signal = _bar_trade_speed(bars)
 
-    # intraday 分項（權重取自 config intraday 中可算部分，重新分配）
-    signal = 0.45 * large_net + 0.35 * net_aggressor + 0.20 * cvd_slope_norm
+    # 單檔盤中資金流分數：config weights.intraday 對六項有界訊號加權（權重和正規化）
+    bounded = {
+        "large_net": large_net,
+        "net_aggressor": net_aggressor,
+        "cvd_slope_norm": cvd_slope_norm,
+        "absorption_signal": absorption_signal,
+        "trade_speed_signal": trade_speed_signal,
+        "price_efficiency": price_eff,
+    }
+    w = t.weights["intraday"]
+    w_total = sum(abs(w[k]) for k in INTRADAY_SIGNAL_KEYS) or 1.0
+    signal = sum(w[k] * bounded[attr] for k, attr in INTRADAY_SIGNAL_KEYS.items()) / w_total
     intraday_score = round(50 + 50 * clamp(signal), 1)
 
     return OrderFlowResult(

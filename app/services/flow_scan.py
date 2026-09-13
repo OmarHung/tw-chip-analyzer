@@ -13,6 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_thresholds
+from app.repositories.corporate_actions import load_factors
+from app.services.price_adjust import cumulative_factors
 from app.db.models.chips import InstitutionalDaily
 from app.db.models.market import DailyPrice, Stock
 from app.services.flows import compute_cost_basis, compute_divergence
@@ -44,8 +46,9 @@ _LABELS = {
     "neutral": "中性",
 }
 
-# as_of -> rows 快取（EOD 每日更新，當日內重用）
-_cache: dict[dt.date, list[DivergenceScanRow]] = {}
+# (as_of, window, lookback_days) -> rows 快取（EOD 每日更新，當日內重用）。
+# key 必須含視窗參數，否則先查 60 日再查 20 日會拿到 60 日結果（docs/09 BUG-06）。
+_cache: dict[tuple[dt.date, int, int], list[DivergenceScanRow]] = {}
 
 
 async def scan_divergence(
@@ -58,8 +61,9 @@ async def scan_divergence(
     ).scalar_one_or_none()
     if latest is None:
         return None, []
-    if latest in _cache:
-        return latest, _cache[latest]
+    key = (latest, window, lookback_days)
+    if key in _cache:
+        return latest, _cache[key]
 
     start = latest - dt.timedelta(days=lookback_days)
     th = get_thresholds()
@@ -112,9 +116,24 @@ async def scan_divergence(
         ).all()
     )
 
+    # 公司行動還原（與個股 /flows 同一套因子）：價/VWAP 乘價格因子、量/法人張數乘股數因子，
+    # 拆股/減資日才不會出現假的量價背離（docs/09 BUG-14）。
+    price_acts, share_acts = await load_factors(session, end=latest)
+
+    def _scaled(vals: list[float | None], factors: list[float]) -> list[float | None]:
+        return [v * f if v is not None else None for v, f in zip(vals, factors)]
+
     rows: list[DivergenceScanRow] = []
     for sym, ds in dates.items():
-        inst_arr = [inst_by_date.get(sym, {}).get(d) for d in ds]
+        # 只納入最新交易日有行情者：停牌/下市/缺資料股不可帶著舊價格出現在今日掃描
+        if ds[-1] != latest:
+            continue
+        pf = cumulative_factors(ds, price_acts.get(sym, []))
+        sf = cumulative_factors(ds, share_acts.get(sym, []))
+        closes[sym] = _scaled(closes[sym], pf)
+        vwaps[sym] = _scaled(vwaps[sym], pf)
+        vols[sym] = _scaled(vols[sym], sf)
+        inst_arr = _scaled([inst_by_date.get(sym, {}).get(d) for d in ds], sf)
         div = compute_divergence(
             closes[sym], inst_arr, vols[sym],
             window=window, price_eps=price_eps, flow_eps=flow_eps, min_points=min_points,
@@ -163,5 +182,7 @@ async def scan_divergence(
                 k = bisect.bisect_right(prs, r.price_return)
                 r.mom_pct = round(k / len(prs) * 100, 1)
 
-    _cache[latest] = rows
+    if any(k[0] != latest for k in _cache):
+        _cache.clear()  # 新交易日 → 舊日結果作廢，避免快取無限成長
+    _cache[key] = rows
     return latest, rows

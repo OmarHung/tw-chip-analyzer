@@ -20,7 +20,7 @@ from collections import defaultdict
 
 from sqlalchemy import select
 
-from app.backtest.engine import BacktestEngine, BacktestSignal
+from app.backtest.engine import BacktestEngine, BacktestSignal, market_calendar
 from app.core.config import get_thresholds
 from app.db.models.features import SignalSnapshot
 from app.db.session import get_sessionmaker
@@ -65,6 +65,7 @@ def run(bars_by_sym, inst_by_sym, vol_by_sym, med_turnover, scores, *, window, s
     flow_eps = float(dcfg.get("flow_eps", 0.02))
     min_points = int(dcfg.get("min_points", 10))
     engine = BacktestEngine()
+    calendar = market_calendar(bars_by_sym)  # 停牌復牌日不算進場（docs/09 BUG-15）
     horizons = engine.horizons
     max_h = max(horizons)
 
@@ -97,7 +98,7 @@ def run(bars_by_sym, inst_by_sym, vol_by_sym, med_turnover, scores, *, window, s
             )
             if div is None:
                 continue
-            oc = engine.evaluate_signal(BacktestSignal(sym, bars[i].date, sc), bars)
+            oc = engine.evaluate_signal(BacktestSignal(sym, bars[i].date, sc), bars, calendar)
             if oc is None or horizon not in oc.forward.horizons:
                 continue
             cell[(b, _col(div.status))].append(oc.forward.horizons[horizon].net_return)

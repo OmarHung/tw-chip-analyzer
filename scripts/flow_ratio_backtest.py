@@ -19,7 +19,7 @@ import asyncio
 import statistics as st
 from collections import defaultdict
 
-from app.backtest.engine import BacktestEngine, BacktestSignal
+from app.backtest.engine import BacktestEngine, BacktestSignal, market_calendar
 from scripts.divergence_backtest import _load
 
 DEFS = {"d1": 1, "cum5": 5, "cum20": 20, "cum60": 60}
@@ -39,6 +39,7 @@ def _ratio(inst: list[float | None], vol: list[float | None], i: int, n: int) ->
 
 def run_study(bars_by_sym, inst_by_sym, vol_by_sym, med_turnover, *, step, min_turnover, max_symbols):
     engine = BacktestEngine()
+    calendar = market_calendar(bars_by_sym)  # 停牌復牌日不算進場（docs/09 BUG-15）
     horizons = engine.horizons
     max_h = max(horizons)
     max_win = max(DEFS.values())
@@ -68,7 +69,7 @@ def run_study(bars_by_sym, inst_by_sym, vol_by_sym, med_turnover, *, step, min_t
                 if r is None:
                     continue
                 if fwd is None:
-                    oc = engine.evaluate_signal(BacktestSignal(sym, bars[i].date, 0.0), bars)
+                    oc = engine.evaluate_signal(BacktestSignal(sym, bars[i].date, 0.0), bars, calendar)
                     if oc is None:
                         break
                     fwd = {h: hr.net_return for h, hr in oc.forward.horizons.items()}

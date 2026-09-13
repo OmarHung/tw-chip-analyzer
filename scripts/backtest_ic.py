@@ -15,6 +15,7 @@ import asyncio
 import numpy as np
 import pandas as pd
 
+from app.backtest.engine import market_calendar
 from app.backtest import BacktestEngine
 from app.backtest.runner import load_bars, load_signals
 from app.db.session import get_sessionmaker
@@ -27,6 +28,7 @@ async def _amain() -> None:
         signals = await load_signals(s)
         symbols = sorted({sig.symbol for sig in signals})
         prices = await load_bars(s, symbols)
+        calendar = market_calendar(prices)  # 停牌復牌日不算進場（docs/09 BUG-15）
 
     horizons = engine.horizons
     recs: list[dict] = []
@@ -34,7 +36,7 @@ async def _amain() -> None:
         bars = prices.get(sig.symbol)
         if not bars:
             continue
-        oc = engine.evaluate_signal(sig, list(bars))
+        oc = engine.evaluate_signal(sig, list(bars), calendar)
         if oc is None:
             continue
         row = {"date": sig.data_date, "score": sig.chip_score}

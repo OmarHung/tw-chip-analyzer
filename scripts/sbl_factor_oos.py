@@ -18,7 +18,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from app.backtest import BacktestEngine
-from app.backtest.engine import BacktestSignal
+from app.backtest.engine import BacktestSignal, market_calendar
 from app.backtest.metrics import newey_west_t
 from app.backtest.runner import load_bars
 from app.db.session import get_sessionmaker
@@ -73,6 +73,7 @@ async def _amain() -> None:
             columns=["symbol", "data_date", "short_balance_change_z"],
         )
         prices = await load_bars(s, sorted(sbl["symbol"].unique()))
+        calendar = market_calendar(prices)  # 停牌復牌日不算進場（docs/09 BUG-15）
 
     if sbl.empty:
         print("sbl_daily 無資料——先回填。")
@@ -105,7 +106,7 @@ async def _amain() -> None:
     rets = []
     for sym, d in zip(df["symbol"], df["data_date"]):
         bars = prices.get(sym)
-        oc = engine.evaluate_signal(BacktestSignal(sym, d, 0.0), list(bars)) if bars else None
+        oc = engine.evaluate_signal(BacktestSignal(sym, d, 0.0), list(bars), calendar) if bars else None
         hr = oc.forward.horizons.get(HZ) if oc else None
         rets.append(hr.net_return if hr else np.nan)
     df[f"ret{HZ}"] = rets

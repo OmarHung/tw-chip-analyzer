@@ -9,7 +9,12 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.backtest.engine import BacktestEngine, BacktestReport, BacktestSignal
+from app.backtest.engine import (  # noqa: F401 — market_calendar 供腳本共用
+    BacktestEngine,
+    BacktestReport,
+    BacktestSignal,
+    market_calendar,
+)
 from app.backtest.forward_returns import Bar
 from app.db.models.features import SignalSnapshot
 from app.db.models.market import DailyPrice

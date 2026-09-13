@@ -16,12 +16,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Thresholds, get_thresholds
 from app.db.models.market import DailyPrice, MarketDaily, MarketIndex
 from app.importers.base import availability_for
+from app.repositories.corporate_actions import load_factors
 from app.repositories.upsert import upsert_many
 from app.services.normalize import clamp
 
 
 async def _breadth(session: AsyncSession, target: dt.date) -> tuple[int, int]:
-    """當日漲跌家數：以每檔 close 對前一交易日 close 比較。"""
+    """當日漲跌家數：以每檔 close 對「還原後」前一交易日 close 比較。
+
+    除息/配股/減資在 target 當日造成的機械價差不是漲跌（docs/09 BUG-12）：前收乘上
+    (prev, target] 之間的價格因子，等同交易所的參考價。
+    """
     prev_stmt = (
         select(DailyPrice.data_date)
         .where(DailyPrice.data_date < target)
@@ -43,7 +48,15 @@ async def _breadth(session: AsyncSession, target: dt.date) -> tuple[int, int]:
     piv = df.pivot_table(index="symbol", columns="data_date", values="close")
     if prev not in piv or target not in piv:
         return 0, 0
-    diff = piv[target].astype(float) - piv[prev].astype(float)
+    prev_close = piv[prev].astype(float)
+    price_factors, _ = await load_factors(
+        session, start=prev + dt.timedelta(days=1), end=target
+    )
+    for sym, acts in price_factors.items():
+        if sym in prev_close.index:
+            for _, factor in acts:
+                prev_close[sym] *= factor
+    diff = piv[target].astype(float) - prev_close
     return int((diff > 0).sum()), int((diff < 0).sum())
 
 

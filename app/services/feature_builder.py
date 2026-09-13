@@ -28,7 +28,7 @@ from app.core.config import get_thresholds
 from app.importers.base import availability_for
 from app.repositories.corporate_actions import load_factors
 from app.repositories.upsert import upsert_many
-from app.services.orderflow_intraday import compute_orderflow
+from app.services.orderflow_intraday import INTRADAY_SIGNAL_KEYS, compute_orderflow
 from app.services.normalize import squash_z
 from app.services.price_adjust import back_adjust
 
@@ -73,35 +73,27 @@ async def _intraday_signals(
              "volume": int(volume), "side": int(side) if side is not None else 0}
         )
 
-    # 各標的有界訊號（皆 turnover-neutral 比率/正規化值）
-    net_aggr, large_net, obi = {}, {}, {}
-    absorp, tspeed, peff = {}, {}, {}
+    # 各標的有界訊號（皆 turnover-neutral 比率/正規化值）；鍵對應與 /orderflow 單檔分數共用
+    signals: dict[str, dict[str, float]] = {k: {} for k in INTRADAY_SIGNAL_KEYS}
     for sym, ticks in by_symbol.items():
         of = compute_orderflow(ticks)
         if of.trade_count == 0:
             continue
-        net_aggr[sym] = of.net_aggressor
-        large_net[sym] = of.large_net
-        obi[sym] = of.cvd_slope_norm
-        absorp[sym] = of.absorption_signal
-        tspeed[sym] = of.trade_speed_signal
-        peff[sym] = of.price_efficiency
+        for key, attr in INTRADAY_SIGNAL_KEYS.items():
+            signals[key][sym] = getattr(of, attr)
 
-    z_cvd = _zscore_map(net_aggr)          # net aggressor = 正規化 CVD 方向
-    z_large = _zscore_map(large_net)       # 大單淨額方向
-    z_absorp = _zscore_map(absorp)         # 吸收（低檔承接 vs 高檔賣壓）
-    z_tspeed = _zscore_map(tspeed)         # 盤中成交加速
-    z_peff = _zscore_map(peff)             # 價格路徑效率
+    z = {key: _zscore_map(vals) for key, vals in signals.items() if key != "obi"}
     return {
         sym: {
-            "cvd_z": z_cvd.get(sym, 0.0),
-            "large_trade_delta_z": z_large.get(sym, 0.0),
-            "intraday_obi": obi.get(sym, 0.0),
-            "absorption_z": z_absorp.get(sym, 0.0),
-            "trade_speed_z": z_tspeed.get(sym, 0.0),
-            "price_efficiency_z": z_peff.get(sym, 0.0),
+            "cvd_z": z["cvd"].get(sym, 0.0),
+            "large_trade_delta_z": z["large_trade_delta"].get(sym, 0.0),
+            # obi 為 CVD 斜率的每分鐘量正規化值（已有界），不做 z
+            "intraday_obi": signals["obi"].get(sym, 0.0),
+            "absorption_z": z["absorption"].get(sym, 0.0),
+            "trade_speed_z": z["trade_speed"].get(sym, 0.0),
+            "price_efficiency_z": z["price_efficiency"].get(sym, 0.0),
         }
-        for sym in net_aggr
+        for sym in signals["cvd"]
     }
 
 
@@ -113,11 +105,19 @@ def _zscore_map(strength: dict[str, float]) -> dict[str, float]:
     """
     if len(strength) < 2:
         return {}
+    cfg = get_thresholds().get("features", default={}) or {}
+    q = float(cfg.get("winsorize_quantile", 0.0))
+    z_clip = float(cfg.get("z_clip", np.inf))
     vals = np.array(list(strength.values()), dtype=float)
+    # 單一離群值會撐大 std、把其餘標的 z 壓扁：原始值先截尾（保序），z 再夾上限
+    if q > 0:
+        lo, hi = np.quantile(vals, [q, 1 - q])
+        vals = np.clip(vals, lo, hi)
     mean, std = float(vals.mean()), float(vals.std(ddof=0))
     if std == 0:
         return {s: 0.0 for s in strength}
-    return {s: (v - mean) / std for s, v in strength.items()}
+    z = np.clip((vals - mean) / std, -z_clip, z_clip)
+    return {s: float(v) for s, v in zip(strength, z)}
 
 
 async def _load_df(

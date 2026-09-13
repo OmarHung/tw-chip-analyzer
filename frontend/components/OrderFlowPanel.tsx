@@ -56,7 +56,7 @@ export function OrderFlowPanel({ symbol }: { symbol: string }) {
         <SectionTitle>盤中資金流（逐筆計算）</SectionTitle>
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-[10px] tracking-wider text-ink-faint uppercase">
-            盤中分項
+            單檔分數·非 Chip Score
           </span>
           <span className={`font-mono text-2xl font-bold tnum ${scoreColor(d.intraday_score)}`}>
             {d.intraday_score.toFixed(1)}
