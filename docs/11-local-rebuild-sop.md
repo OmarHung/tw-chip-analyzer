@@ -100,13 +100,13 @@ order by 1 desc limit 5;
 
 ```bash
 {
-  echo "TRUNCATE feature_daily, signal_snapshot, market_daily;"
+  echo "TRUNCATE public.feature_daily, public.signal_snapshot, public.market_daily;"
   pg_dump --data-only --no-owner --no-privileges \
     -t feature_daily -t signal_snapshot -t market_daily twchip_prod \
   | grep -v '^SET transaction_timeout'
-  echo "SELECT setval(pg_get_serial_sequence('feature_daily','id'),   coalesce(max(id),1)) FROM feature_daily;"
-  echo "SELECT setval(pg_get_serial_sequence('signal_snapshot','id'), coalesce(max(id),1)) FROM signal_snapshot;"
-  echo "SELECT setval(pg_get_serial_sequence('market_daily','id'),    coalesce(max(id),1)) FROM market_daily;"
+  echo "SELECT setval(pg_get_serial_sequence('public.feature_daily','id'),   coalesce(max(id),1)) FROM public.feature_daily;"
+  echo "SELECT setval(pg_get_serial_sequence('public.signal_snapshot','id'), coalesce(max(id),1)) FROM public.signal_snapshot;"
+  echo "SELECT setval(pg_get_serial_sequence('public.market_daily','id'),    coalesce(max(id),1)) FROM public.market_daily;"
 } | gzip > ~/Downloads/rebuilt.sql.gz
 ls -lh ~/Downloads/rebuilt.sql.gz
 ```
@@ -117,6 +117,8 @@ ls -lh ~/Downloads/rebuilt.sql.gz
 - **`grep -v transaction_timeout`**：PG 17 的 dump 會帶 `SET transaction_timeout`，PG 16 不認得；單一交易中任何錯誤都會讓整批回滾。
 - **TRUNCATE 與匯入同一交易**：中途失敗整批回滾，線上不會出現「表被清空但沒匯入」的半套狀態。
 - **setval**：修正自增序號，避免之後 EOD 寫入時主鍵衝突。
+- **表名一律加 `public.`**：pg_dump 輸出開頭會 `set_config('search_path', '', false)` 清空搜尋路徑，
+  之後未加 schema 的表名會報 `relation "feature_daily" does not exist`，整批回滾（2026-09-13 實際踩到）。
 
 ### 5-2 推上線並匯入
 
