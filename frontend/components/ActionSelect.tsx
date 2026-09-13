@@ -33,10 +33,11 @@ export function ActionSelect({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  // 開啟時把 active 對齊目前值
-  useEffect(() => {
-    if (open) setActive(Math.max(0, options.indexOf(value)));
-  }, [open, value, options]);
+  // 開啟時把 active 對齊目前值（在開啟動作當下設定，不用 effect 同步 setState）
+  const openMenu = () => {
+    setActive(Math.max(0, options.indexOf(value)));
+    setOpen(true);
+  };
 
   const commit = (v: Value) => {
     onChange(v);
@@ -47,7 +48,7 @@ export function ActionSelect({
     if (!open) {
       if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        setOpen(true);
+        openMenu();
       }
       return;
     }
@@ -97,7 +98,7 @@ export function ActionSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={`${id}-list`}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={onKeyDown}
         className={`flex min-w-[7.5rem] items-center justify-between gap-3 rounded-lg border bg-panel-2 px-3 py-1.5 text-sm text-ink transition-colors outline-none ${
           open ? "border-gold/50" : "border-line hover:border-line/80"

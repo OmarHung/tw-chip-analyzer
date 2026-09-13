@@ -73,31 +73,31 @@ export default function SystemPage() {
   const [opsKey, setOpsKey] = useState("");
   const [needKey, setNeedKey] = useState(false);
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const fetchStatus = useCallback(() => {
     api
       .opsStatus()
       .then((res) => {
         setData(res);
         setError(null);
+        // 首次載入用最新資料日預填表單（使用者已填則保留）
+        const latest = res.coverage.sources.daily_price.max ?? "";
+        setBfDate((v) => v || latest);
+        setBfEnd((v) => v || latest);
+        setBfStart((v) => v || (res.coverage.sources.feature_daily.min ?? ""));
       })
       .catch(() => setError("無法連線後端 API"))
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // 手動重新整理：才需要先顯示載入中
+  const load = useCallback(() => {
+    setLoading(true);
+    fetchStatus();
+  }, [fetchStatus]);
 
-  // 首次載入後用最新資料日預填表單
   useEffect(() => {
-    if (data && !bfDate) {
-      const latest = data.coverage.sources.daily_price.max ?? "";
-      setBfDate(latest);
-      setBfEnd(latest);
-      setBfStart(data.coverage.sources.feature_daily.min ?? "");
-    }
-  }, [data, bfDate]);
+    fetchStatus();
+  }, [fetchStatus]);
 
   const running = data?.job.state === "running";
   // 涵蓋在後端背景計算中(首次快取未就緒);就緒前持續輪詢補上真實資料。

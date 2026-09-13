@@ -339,7 +339,9 @@ function AreaChart({
   const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const lastRef = useRef<number>(0);
   const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
 
   useEffect(() => {
     if (!ref.current || bars.length === 0) return;

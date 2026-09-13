@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  BaselineSeries,
   createChart,
   HistogramSeries,
   LineSeries,
@@ -73,22 +72,24 @@ function toneClass(v: number | null | undefined): string {
 
 export function FlowsPanel({ symbol }: { symbol: string }) {
   const [days, setDays] = useState(90);
-  const [data, setData] = useState<FlowsResponse | null>(null);
+  // 結果連同查詢 key 保存；key 與目前 symbol/days 不符即視為載入中（不在 effect 內同步清空）
+  const key = `${symbol}:${days}`;
+  const [result, setResult] = useState<{ key: string; data: FlowsResponse | null; err: boolean }>();
+  const current = result?.key === key ? result : undefined;
+  const data = current?.data ?? null;
+  const err = current?.err ?? false;
   const [order, setOrder] = useState<OrderFlowResponse | null>(null);
-  const [err, setErr] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setData(null);
-    setErr(false);
     api
       .flows(symbol, days)
-      .then((d) => !cancelled && setData(d))
-      .catch(() => !cancelled && setErr(true));
+      .then((d) => !cancelled && setResult({ key, data: d, err: false }))
+      .catch(() => !cancelled && setResult({ key, data: null, err: true }));
     return () => {
       cancelled = true;
     };
-  }, [symbol, days]);
+  }, [symbol, days, key]);
 
   useEffect(() => {
     let cancelled = false;

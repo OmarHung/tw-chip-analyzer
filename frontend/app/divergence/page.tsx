@@ -58,12 +58,13 @@ export default function DivergencePage() {
   const [rows, setRows] = useState<DivergenceScanRow[]>([]);
   const [asOf, setAsOf] = useState<string | null>(null);
   const [win, setWin] = useState<number>(60);
-  const [loading, setLoading] = useState(true);
+  // 已完成載入的查詢條件；與目前 side 不同即為載入中（不在 effect 內同步 setState）
+  const [loadedSide, setLoadedSide] = useState<Side | null>(null);
+  const loading = loadedSide !== side;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     api
       .divergenceScan({ status: side, limit: 100 })
       .then((res) => {
@@ -74,7 +75,7 @@ export default function DivergencePage() {
         setError(null);
       })
       .catch(() => !cancelled && setError("無法連線後端 API"))
-      .finally(() => !cancelled && setLoading(false));
+      .finally(() => !cancelled && setLoadedSide(side));
     return () => {
       cancelled = true;
     };

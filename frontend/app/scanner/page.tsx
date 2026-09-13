@@ -17,7 +17,8 @@ export default function ScannerPage() {
   const [action, setAction] = useState<Action | "">("");
   const [rows, setRows] = useState<ScannerRow[]>([]);
   const [asOf, setAsOf] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 已完成載入的查詢條件；與目前條件不同即為載入中（不在 effect 內同步 setState）
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // 查詢輸入 debounce，避免每個按鍵都打 API
@@ -26,9 +27,11 @@ export default function ScannerPage() {
     return () => clearTimeout(id);
   }, [query]);
 
+  const queryKey = JSON.stringify([minScore, action, debouncedQuery]);
+  const loading = loadedKey !== queryKey;
+
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     api
       .scanner({
         q: debouncedQuery || undefined,
@@ -43,11 +46,11 @@ export default function ScannerPage() {
         setError(null);
       })
       .catch(() => !cancelled && setError("無法連線後端 API"))
-      .finally(() => !cancelled && setLoading(false));
+      .finally(() => !cancelled && setLoadedKey(queryKey));
     return () => {
       cancelled = true;
     };
-  }, [minScore, action, debouncedQuery]);
+  }, [minScore, action, debouncedQuery, queryKey]);
 
   return (
     <div className="space-y-6">
