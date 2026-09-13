@@ -73,21 +73,26 @@ export default function SystemPage() {
   const [opsKey, setOpsKey] = useState("");
   const [needKey, setNeedKey] = useState(false);
 
+  // 套用狀態；表單日期空白時以最新資料日預填（涵蓋在背景計算中時日期為空，
+  // 需在後續輪詢拿到真實日期時補填；使用者已填則保留）
+  const applyStatus = useCallback((res: OpsStatusResponse) => {
+    setData(res);
+    const latest = res.coverage.sources.daily_price.max ?? "";
+    setBfDate((v) => v || latest);
+    setBfEnd((v) => v || latest);
+    setBfStart((v) => v || (res.coverage.sources.feature_daily.min ?? ""));
+  }, []);
+
   const fetchStatus = useCallback(() => {
     api
       .opsStatus()
       .then((res) => {
-        setData(res);
+        applyStatus(res);
         setError(null);
-        // 首次載入用最新資料日預填表單（使用者已填則保留）
-        const latest = res.coverage.sources.daily_price.max ?? "";
-        setBfDate((v) => v || latest);
-        setBfEnd((v) => v || latest);
-        setBfStart((v) => v || (res.coverage.sources.feature_daily.min ?? ""));
       })
       .catch(() => setError("無法連線後端 API"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [applyStatus]);
 
   // 手動重新整理：才需要先顯示載入中
   const load = useCallback(() => {
@@ -108,12 +113,12 @@ export default function SystemPage() {
     if (!running && !coverageLoading) return;
     const id = setInterval(
       () => {
-        api.opsStatus().then(setData).catch(() => {});
+        api.opsStatus().then(applyStatus).catch(() => {});
       },
       running ? 3000 : 2000,
     );
     return () => clearInterval(id);
-  }, [running, coverageLoading]);
+  }, [running, coverageLoading, applyStatus]);
 
   const q = data?.quota;
   const tone = quotaTone(q?.used_pct ?? null);
