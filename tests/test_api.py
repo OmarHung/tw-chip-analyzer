@@ -94,6 +94,7 @@ async def test_analysis_exposes_market(client, db_session):
             symbol="8069", data_date=d, available_at=dt.datetime(2026, 9, 5, 15, 0),
             close=148.5, atr14=3, ma20=150, vwap=149, recent_swing_low=140,
             turnover=800_000_000, close_vs_ma20_pct=-0.01, close_vs_vwap_pct=-0.003,
+            foreign_5d_z=0.5,  # 需有籌碼成分才評分（無籌碼資料者回 404）
         )
     )
     await db_session.commit()

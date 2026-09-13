@@ -50,6 +50,8 @@ async def scan_all(session: AsyncSession) -> tuple[dt.date | None, list[ScanRow]
     results = analyze_market(service, [(fd, name) for fd, name, _ in pairs], market)
     rows: list[ScanRow] = []
     for (fd, name, industry), r in zip(pairs, results):
+        if not r.chip.has_chip_data:  # 無個股籌碼成分，不給分數（見 ChipScoreResult.has_chip_data）
+            continue
         rows.append(
             ScanRow(
                 symbol=r.symbol,

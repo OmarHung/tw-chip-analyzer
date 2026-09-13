@@ -116,6 +116,11 @@ async def get_analysis(
     positions = {symbol: position} if position else None
     results = analyze_market(AnalysisService(), items, market, positions)
     result = next(r for r in results if r.symbol == symbol)
+    if not result.chip.has_chip_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{symbol} 籌碼資料不足（法人/集保/盤中皆無有效資料），暫不評分",
+        )
     resp = AnalysisResponse.from_result(result)
     resp.in_position = position is not None
     # 市場別/產業別只在 stock 主檔，AnalysisResult 不帶，於此補上供前端標示。

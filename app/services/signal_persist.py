@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 
-from sqlalchemy import inspect, select
+from sqlalchemy import delete, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.features import FeatureDaily, SignalSnapshot
@@ -93,7 +93,14 @@ async def persist_signals(session: AsyncSession, target: dt.date) -> int:
     rows = [
         _snapshot_row(r, target, av_at, {**_feature_payload(fd), **market_meta}, version)
         for (fd, _), r in zip(pairs, results)
+        if r.chip.has_chip_data
     ]
+    # 無籌碼成分者不落地；重建時一併清掉舊版以中性 50 分寫入的列（upsert 不會刪）
+    unscorable = [r.symbol for r in results if not r.chip.has_chip_data]
+    if unscorable:
+        await session.execute(delete(SignalSnapshot).where(
+            SignalSnapshot.data_date == target, SignalSnapshot.symbol.in_(unscorable)
+        ))
     n = await upsert_many(session, SignalSnapshot, rows, ["symbol", "data_date"])
     await session.commit()
     return n

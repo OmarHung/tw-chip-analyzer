@@ -20,6 +20,11 @@ from app.services.chip.market_score import market_score
 from app.services.normalize import clamp
 
 
+# 個股層籌碼成分。market 是全市場共用（產業趨勢權重為 0），單靠它無法區分個股，
+# 只剩它的標的不評分，不以中性值冒充有籌碼資料。
+CHIP_COMPONENTS = frozenset({"intraday", "institutional", "holder"})
+
+
 def _ge(v: float | None, th: float) -> bool:
     return v is not None and v >= th
 
@@ -50,6 +55,11 @@ class ChipScoreResult:
     # 子項缺失會在成分內重分配權重、改變 raw 尺度，覆蓋率不同者不可混排（docs/12 Phase 2）。
     # 注意 components 仍只代表 composite 權重鍵，不可放入 "institutional:*"。
     availability_signature: frozenset[str] = frozenset()
+
+    @property
+    def has_chip_data(self) -> bool:
+        """至少一個個股籌碼成分有資料才可評分（上市櫃初期視窗不足、無 TDCC、無逐筆者為否）。"""
+        return bool(self.components & CHIP_COMPONENTS)
 
 
 class ChipScorer:
