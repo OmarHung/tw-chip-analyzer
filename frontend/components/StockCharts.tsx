@@ -282,7 +282,7 @@ function CandleChart({ bars, scores }: { bars: Bar[]; scores: ScorePoint[] }) {
   return (
     <div className="relative">
       {info && (
-        <div className="pointer-events-none absolute left-2 top-2 z-10 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-lg border border-line-soft bg-panel/85 px-3 py-1.5 font-mono text-xs tnum backdrop-blur-sm">
+        <div className="mb-2 flex flex-wrap sm:pointer-events-none sm:absolute sm:left-2 sm:top-2 sm:z-10 sm:mb-0 items-baseline gap-x-3 gap-y-0.5 rounded-lg border border-line-soft bg-panel/85 px-3 py-1.5 font-mono text-xs tnum backdrop-blur-sm">
           <span className="text-ink-dim">{info.time}</span>
           <OHLCItem label="開" value={info.o} />
           <OHLCItem label="高" value={info.h} />
@@ -496,7 +496,7 @@ function ScoreChart({ points }: { points: ScorePoint[] }) {
   return (
     <div className="relative">
       {info && (
-        <div className="pointer-events-none absolute left-2 top-2 z-10 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-lg border border-line-soft bg-panel/85 px-3 py-1.5 font-mono text-xs tnum backdrop-blur-sm">
+        <div className="mb-2 flex flex-wrap sm:pointer-events-none sm:absolute sm:left-2 sm:top-2 sm:z-10 sm:mb-0 items-baseline gap-x-3 gap-y-0.5 rounded-lg border border-line-soft bg-panel/85 px-3 py-1.5 font-mono text-xs tnum backdrop-blur-sm">
           <span className="text-ink-dim">{info.time}</span>
           {SCORE_LINES.map((ln) => (
             <span key={ln.key} className="text-ink-faint">
