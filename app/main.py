@@ -24,6 +24,14 @@ async def lifespan(app: FastAPI):
     from app.jobs.scheduler import shutdown_scheduler, start_scheduler
 
     start_scheduler()
+    if not settings.is_test:
+        # 上次 process 結束時仍在跑的腳本工作 → 標為 interrupted（子行程已隨之失聯）
+        from app.jobs.task_runner import mark_interrupted
+
+        try:
+            await mark_interrupted()
+        except Exception as e:  # noqa: BLE001 — 表未 migrate 等不應阻擋啟動
+            logger.warning("標記中斷工作失敗：%s", e)
     yield
     shutdown_scheduler()
     from app.db.session import reset_engine
@@ -56,6 +64,7 @@ def create_app() -> FastAPI:
     from app.api.ops import router as ops_router
     from app.api.scanner import router as scanner_router
     from app.api.settings import router as settings_router
+    from app.api.tasks import router as tasks_router
     from app.api.stocks import router as stocks_router
     from app.api.validation import router as validation_router
 
@@ -64,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router)
     app.include_router(ops_router)
     app.include_router(settings_router)
+    app.include_router(tasks_router)
     app.include_router(validation_router)
 
     return app

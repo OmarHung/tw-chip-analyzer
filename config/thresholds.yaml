@@ -68,6 +68,13 @@ intraday_batch:
   usage_stop_pct: 95        # api.usage() 用量達此百分比即停止批次
   max_consecutive_failures: 10  # 連續抓取失敗達此檔數即停(token 過期/斷線時別繼續燒配額)
 
+# 系統頁「工作」按鈕執行的腳本（app/jobs/tasks.py 白名單，子行程執行）
+jobs:
+  # 子行程 nice 值(0~19,越大越讓出 CPU)。線上 1 vCPU:重建期間 API/網頁仍需回應
+  nice: 10
+  output_max_chars: 200000   # 存入 job_run 的輸出上限(保留尾端)
+  cancel_grace_sec: 5        # 取消時 SIGTERM 後等待秒數,逾時 SIGKILL
+
 tdcc:
   retail_max_lots: 50
   large_min_lots: 400
