@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.features import FeatureDaily, SignalSnapshot
 from app.db.models.market import Stock
+from app.core.config import get_thresholds
+from app.core.threshold_registry import data_version
 from app.importers.base import availability_for
 from app.repositories.market import load_market_context
 from app.repositories.upsert import upsert_many
@@ -36,7 +38,9 @@ def _feature_payload(fd: FeatureDaily) -> dict:
     return out
 
 
-def _snapshot_row(r, t: dt.date, av_at: dt.datetime, payload: dict) -> dict:
+def _snapshot_row(
+    r, t: dt.date, av_at: dt.datetime, payload: dict, version: str
+) -> dict:
     chip, sig = r.chip, r.signal
     ez = sig.entry_zone
     return {
@@ -57,6 +61,7 @@ def _snapshot_row(r, t: dt.date, av_at: dt.datetime, payload: dict) -> dict:
         "risk_reward": sig.risk_reward,
         "reasons": sig.reasons,
         "payload": payload,
+        "config_version": version,
     }
 
 
@@ -79,8 +84,9 @@ async def persist_signals(session: AsyncSession, target: dt.date) -> int:
     av_at = availability_for(target)
     # 橫斷面分析(percentile mapping 需整日一起算,見 analyze_market)
     results = analyze_market(service, [(fd, name) for fd, name in pairs], market)
+    version = data_version(service.t.raw)
     rows = [
-        _snapshot_row(r, target, av_at, _feature_payload(fd))
+        _snapshot_row(r, target, av_at, _feature_payload(fd), version)
         for (fd, _), r in zip(pairs, results)
     ]
     n = await upsert_many(session, SignalSnapshot, rows, ["symbol", "data_date"])

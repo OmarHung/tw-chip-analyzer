@@ -100,3 +100,6 @@ class SignalSnapshot(Base, AvailabilityMixin, TimestampMixin):
     risk_reward: Mapped[float | None] = mapped_column()
     reasons: Mapped[list | None] = mapped_column(JSON)
     payload: Mapped[dict | None] = mapped_column(JSON)  # 完整 feature 快照
+    # 產生此分數時「影響落地資料的設定」指紋（threshold_registry.data_version）。
+    # 與目前設定不同 → 歷史分數是舊設定算的，需重建才能與新資料同口徑比較。
+    config_version: Mapped[str | None] = mapped_column(String(32), index=True)

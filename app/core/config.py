@@ -60,6 +60,11 @@ class Thresholds:
     def __init__(self, data: dict[str, Any]):
         self._data = data
 
+    @property
+    def raw(self) -> dict[str, Any]:
+        """合併覆寫後的完整設定 dict（供 data_version / 設定頁顯示）。"""
+        return self._data
+
     def get(self, *keys: str, default: Any = None) -> Any:
         node: Any = self._data
         for k in keys:
@@ -130,9 +135,53 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def load_yaml_thresholds() -> dict[str, Any]:
+    """只讀 YAML（預設值與完整結構），不含 DB 覆寫。"""
+    with open(get_settings().thresholds_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _overrides_enabled() -> bool:
+    # 測試環境一律只用 YAML：每個 test 重建 schema，且測試不應受 DB 殘留覆寫影響
+    return not get_settings().is_test
+
+
+def _load_overrides_sync() -> dict[str, Any]:
+    """同步讀 DB 覆寫值（get_thresholds 是同步 API，腳本/子行程也走這裡）。
+
+    表不存在（尚未 migrate）或 DB 連不上時退回純 YAML 並記 log，不讓設定讀取拖垮啟動。
+    """
+    from sqlalchemy import create_engine, text
+
+    from app.core.logging import get_logger
+
+    engine = create_engine(get_settings().active_database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text("select key, value from threshold_override")).all()
+        return {k: v for k, v in rows}
+    except Exception as e:  # noqa: BLE001 — 設定讀取失敗必須降級到 YAML
+        get_logger("core.config").warning("讀取 DB 門檻覆寫失敗，改用 YAML 預設：%s", e)
+        return {}
+    finally:
+        engine.dispose()
+
+
 @lru_cache
 def get_thresholds() -> Thresholds:
-    path = get_settings().thresholds_path
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    return Thresholds(data or {})
+    """YAML 預設 + DB 覆寫（僅登錄表中的鍵）。修改覆寫後呼叫 reload_thresholds()。"""
+    from app.core.threshold_registry import apply_overrides
+
+    data = load_yaml_thresholds()
+    if _overrides_enabled():
+        data = apply_overrides(data, _load_overrides_sync())
+    return Thresholds(data)
+
+
+def reload_thresholds() -> None:
+    """清掉本 process 的設定快取；下次 get_thresholds() 重新讀 YAML + DB。
+
+    API 與排程在同一 process（單 worker），UI 改設定後呼叫即全域生效；
+    子行程（腳本按鈕）每次啟動都重新讀取，不需通知。
+    """
+    get_thresholds.cache_clear()
