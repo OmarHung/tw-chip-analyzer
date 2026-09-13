@@ -53,6 +53,11 @@ OBI = (Sum(Bid1~5) - Sum(Ask1~5)) / (Sum(Bid1~5) + Sum(Ask1~5))
 
 只能當輔助訊號，因為掛單可撤。
 
+> **現況（2026-09-13，docs/12 Phase 3B）**：`raw_tick` 只有 bid/ask 價格、沒有五檔委託量，
+> **目前不計算 OBI**。原本權重名為 `obi` 的其實是 CVD 斜率（每分鐘量正規化），已正式改名為
+> `weights.intraday.cvd_slope` / `feature_daily.cvd_slope_norm`。`app/services/orderflow/obi.py`
+> 的純函式保留給日後 realtime order book 使用。
+
 ### Absorption
 
 - Sell Absorption：大量主動 SELL，但價格跌不下去。
@@ -87,13 +92,20 @@ Foreign5DStrength = ForeignNet5D / AvgVolume20D
 
 ## 10. Score 設計
 
+> **成分可用性（2026-09-13 docs/09、docs/12）**：缺資料的成分一律排除並重分配權重，不以中性 0 灌水。
+> - market：只有「目標日」MarketDaily 存在才啟用；缺當日不沿用前一日（未知）。
+> - institutional：子項缺值在成分內依 |權重| 重分配；有效子項（權重非 0）全缺則排除整個成分。
+> - 百分位映射依 `(components, availability_signature)` 分組；signature 含 institutional 實際參與子項，
+>   子項覆蓋率不同（例如 TPEx 融資來源失敗）不混排。零權重的 SBL 不切組；單檔小組退回 linear 映射。
+> - 橫斷面 z 先截尾（`features.winsorize_quantile`）再夾 `features.z_clip`，單一離群值不壓扁因子。
+
 ### Intraday Score
 
 ```text
 Large Trade Delta       30%
 CVD                     25%
 Absorption              20%
-OBI                     10%
+CVD Slope（原誤稱 OBI） 10%
 Trade Speed             10%
 Price Efficiency         5%
 ```

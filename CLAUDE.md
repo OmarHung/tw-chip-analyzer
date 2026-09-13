@@ -38,6 +38,14 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 
 **公司行動還原（價 + 量）已完成**：`corporate_action` 收 除權息 TWT49U／面額變更 TWTB8U／減資 TWTAUU／**除權息預告 TWT48U**／**減資預告 TWTAVU**，以「後復權」還原。**價因子 `adj_factor`（參考價/前收）與量因子 `share_factor`（1 舊股→幾新股）是兩件事，不可互推**——除權息把現金股利與配股混在同一個 `adj_factor` 裡（已實證：無償配股 7.1% 的 2442 比值為 1.0、純現增的 6533 卻是 1.032），故配股率只能取自 TWT48U 的「無償配股率」（`share_factor = 1 + 無償配股率`）；面額與「彌補虧損」減資才可用 `1/adj_factor`。**現金減資（減資原因「退還股款」）同樣不可互推**——TWTAUU 自載公式 `參考價 =（前收 − 息值 − 每股退還股款）/ 減資換股率`，參考價已扣掉退還的現金，1/adj 會高估留存股數（實測 6176 瑞儀 0.774 vs 真值 0.75、1459 聯發 0.951 vs 0.75），故換股率只取自 TWTAVU 減資預告表的「減資換股率」。價因子套 close/high/low，量因子只套 `avg_vol20`（法人/融資/借券強度的分母），**`vwap` 是同日 turnover/volume 比值，一律用原始量**。還原值可用 `GET /api/stocks/{symbol}/features?date=` 核對（個股頁「還原後價格結構」卡）。
 
+**2026-09-13 審閱修正（docs/09 + 複查 docs/12，重大行為變更，部署後需全量重建）**：
+- Entry Filter：RR 改以前高壓力位（或突破後 ATR 推估，標 `rr_basis`）計、Strong Bear 用原始趨勢、鎖死漲停接線；**無當日 MarketDaily → 大盤未知 → WATCH**，不再沿用前一日。
+- 缺資料一律 NULL/排除成分（視窗不足、法人子項、market）；百分位依 `(components, availability_signature)` 分組；橫斷面 z 截尾。**舊算法外資因子被單一離群值（z=44）壓扁而失效**——歷史 IC≈0 可能部分源於此，重建後需重驗。
+- 出貨警示預設關閉（無真實單股時序訊號）；`obi` 改名 `cvd_slope`（無五檔量＝無 OBI）；逐筆同 ts 以 id 排序（原非決定性）。
+- 驗證頁：後復權價、市場次一交易日進場、NW t（樸素 t 高估，舊 20D 2.31→1.50）、快取依 updated_at 失效。
+- 設定可從 `/settings` 覆寫（DB），腳本可從 `/system` 工作面板觸發；寫入需 `OPS_API_KEY`（線上必設）。
+- 修正後 dev 重建的 `score_monotonicity`（修 docs/12 前）：各 horizon IC 仍 ≈ +0.006～0.008、bucket 報酬不單調，**§28 仍未達成**；唯高分組 MAE 較小（可能是大型股效應，未控制市值）。
+
 **已知限制 / 待辦（會影響決策，讀不出來的部分）**：
 - **歷史除權息的配股率補不回來**：TWT48U 是預告表，只回「未來尚未執行」的事件（區間參數無效）——只能靠每日 EOD 往前累積。（註：SBL TWT93U 歷史其實可回補，勿再以它類比。）故 2026-09-09 以前的 `權`/`權息` 事件 `share_factor` 為 NULL（只還原價、不還原量）；`面額`與「彌補虧損」減資不受影響（用 `1/adj_factor`，精確且可回補）。
 - **歷史現金減資的換股率也補不回來**（2026-09-09 修正）：TWTAVU 與 TWT48U 同性質、只回未來事件，故已執行的現金減資 `share_factor` 一律 NULL（只還原價、不還原量），舊有由 `1/adj_factor` 寫入的錯值已由 `scripts/backfill_corporate_actions.py` 清除（dev 庫 1414/1459/6176/1563 四筆）。TPEx 減資不受影響（revivt 詳細資料同表即有換股率，歷史可回補）。
@@ -80,7 +88,7 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 - `app/importers/`：TWSE/TPEx/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
 - `app/jobs/`：`tasks.py`（UI 可觸發腳本白名單，參數驗證後 exec，不經 shell）、`task_runner.py`（子行程 + nice、與 EOD/回補共用單飛鎖、`job_run` 紀錄）、`daily.py`（抓取→匯入 TWSE+TPEx+SBL→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）、`scheduler.py`（APScheduler EOD）、`runner.py`（手動回補，與 EOD 共用單飛鎖）
 - `frontend/`：Next.js 16 + TS + Tailwind v4。設計約束見下節。UI 規格見 `docs/05-api-ui.md §16`。
-- `tests/`：164 passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
+- `tests/`：312 passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
 
 **逐筆特別注意**：Shioaji tick ts 為 ns，以 UTC 解讀即台北牆鐘（用 `utcfromtimestamp`）。批次逐筆要先跑 `import_ticks` 再跑 `daily --skip-import`，intraday z 才會進 `feature_daily`。
 

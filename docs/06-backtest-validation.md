@@ -27,6 +27,21 @@ Backtest Metrics：Signal Count、Win Rate、Avg / Median Return、Profit Factor
 
 > 理想現象是 Score 越高，forward return 越好，MAE 不惡化。
 
+### 17.1 實作口徑（2026-09-13，docs/09、docs/12）
+
+- **價格**：一律用 `app.backtest.runner.load_bars` 的後復權 OHLC（拆股/除權息日不出現假報酬）。
+- **進場**：訊號日的**市場次一交易日** open；該檔當日停牌則丟棄訊號（不以數週後復牌日進場）。
+  市場交易日曆 = 全部標的 bar 日期聯集（`market_calendar`）。
+- **前瞻驗證頁** `/validation` 與離線 backtest 同口徑（測試保證逐 bucket 一致）。
+- **統計**：逐日 rank IC 的 t 值用 **Newey–West**（lag = horizon − 1），樸素 t 另列 `ic_t_naive` 僅供對照。
+  重疊的 k 日報酬會讓樸素 t 高估顯著性（實測舊分數 20D：樸素 2.31 → NW 1.50）。
+- **快取**：key = `signal_snapshot` / `daily_price` / `corporate_action` 的 `max(updated_at)` + 筆數 +
+  backtest 設定 hash；重建覆寫同日期同筆數也會失效，不需重啟 API。
+- **pending**：`pending_entry` = 最新交易日訊號（尚無下一交易日）；`pending_exit_min_horizon` = 已進場但
+  最短 horizon 出場價未出現。
+- **重建後的歷史分數屬樣本內**（算法看過這段資料後修正）；誠實 OOS 從修正部署後每日 EOD 新寫入的
+  snapshot 開始累積。`signal_snapshot.config_version` 記錄產生當下的設定版本。
+
 ## 18. Look-ahead Bias 防護
 
 每筆資料保存：
