@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, SectionTitle } from "@/components/Card";
 import { OpsKeyField } from "@/components/OpsKeyField";
 import {
@@ -14,6 +14,8 @@ import {
 import { useOpsKey } from "@/lib/useOpsKey";
 
 const POLL_MS = 2000;
+// 距底部多少 px 內視為「在底部」（使用者捲回底部即恢復跟隨）
+const FOLLOW_THRESHOLD_PX = 24;
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   running: "執行中",
@@ -30,6 +32,9 @@ export function TaskPanel({ busy }: { busy: boolean }) {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [viewRun, setViewRun] = useState<TaskRun | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 輸出跟隨最新（IDE 終端機式）：開啟時新輸出自動捲到底；使用者往上捲即暫停
+  const [follow, setFollow] = useState(true);
+  const outputRef = useRef<HTMLPreElement>(null);
   const ops = useOpsKey();
 
   const refresh = useCallback(() => {
@@ -56,6 +61,19 @@ export function TaskPanel({ busy }: { busy: boolean }) {
     }, POLL_MS);
     return () => clearInterval(id);
   }, [viewId, viewRunning, refresh]);
+
+  const output = viewRun?.output;
+  useEffect(() => {
+    const el = outputRef.current;
+    if (follow && el) el.scrollTop = el.scrollHeight;
+  }, [output, follow]);
+
+  const onOutputScroll = () => {
+    const el = outputRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD_PX;
+    if (atBottom !== follow) setFollow(atBottom);
+  };
 
   const spec = data?.tasks.find((t) => t.id === selected);
 
@@ -180,6 +198,18 @@ export function TaskPanel({ busy }: { busy: boolean }) {
                 {viewRun.exit_code !== null && ` · exit ${viewRun.exit_code}`}
               </span>
               <div className="flex gap-2">
+                <button
+                  onClick={() => setFollow((f) => !f)}
+                  title="新輸出時自動捲到最底（往上捲會暫停）"
+                  aria-pressed={follow}
+                  className={`rounded-md border px-3 py-1 font-mono text-[11px] transition-colors ${
+                    follow
+                      ? "border-gold/40 bg-gold/10 text-gold"
+                      : "border-line-soft text-ink-dim hover:text-ink"
+                  }`}
+                >
+                  ↓ 跟隨最新{follow ? "" : "（已暫停）"}
+                </button>
                 {viewRun.status === "running" && (
                   <button
                     onClick={() => cancel(viewRun.id)}
@@ -196,7 +226,10 @@ export function TaskPanel({ busy }: { busy: boolean }) {
                 </button>
               </div>
             </div>
-            <pre className="max-h-96 overflow-auto rounded-lg border border-line-soft bg-bg/60 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink-dim">
+            <pre
+              ref={outputRef}
+              onScroll={onOutputScroll}
+              className="max-h-96 overflow-auto rounded-lg border border-line-soft bg-bg/60 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink-dim">
               {viewRun.output || "（尚無輸出）"}
             </pre>
           </div>
