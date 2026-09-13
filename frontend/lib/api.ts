@@ -40,6 +40,8 @@ export interface AnalysisResponse {
     tp1: number | null;
     tp2: number | null;
     rr: number | null;
+    rr_basis?: "resistance" | "breakout_atr" | "unavailable" | null;
+    rr_target?: number | null;
   };
   reasons: string[];
   in_position: boolean; // 以持倉上下文分析（走出場邏輯 HOLD/REDUCE/EXIT）

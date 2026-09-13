@@ -21,6 +21,9 @@ class RiskPlan:
     tp2: float
     rr: float
     target: float  # RR 所用的可達目標價（壓力位或突破後 ATR 目標）
+    # RR 目標依據：resistance（前高壓力位）/ breakout_atr（已突破，ATR 推估，未經 OOS 驗證）
+    # / unavailable（無壓力位資料，RR 以 0 計）
+    rr_basis: str = "unavailable"
 
 
 def stop_for(
@@ -56,12 +59,12 @@ def build_risk_plan(
 
     # RR：以最差成交（進場區上緣）計成本；無壓力位資料 → 保守給 0（不放行 BUY）
     if resistance is None:
-        target = entry_high
+        target, basis = entry_high, "unavailable"
     elif resistance > entry_high:
-        target = resistance
+        target, basis = resistance, "resistance"
     else:
-        target = entry_high + r["breakout_target_atr"] * atr14
+        target, basis = entry_high + r["breakout_target_atr"] * atr14, "breakout_atr"
     entry_risk = max(entry_high - stop, entry_high * r["min_risk_pct"])
     rr = round(max(target - entry_high, 0.0) / entry_risk, 2)
 
-    return RiskPlan(entry_low, entry_high, stop, tp1, tp2, rr, round(target, 2))
+    return RiskPlan(entry_low, entry_high, stop, tp1, tp2, rr, round(target, 2), basis)

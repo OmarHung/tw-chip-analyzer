@@ -80,10 +80,21 @@ def decide(
     decision = decide_entry(score, plan.rr, ctx, t)
     action = decision.action
     has_plan = action in (Action.BUY, Action.WATCH, Action.HOLD)
+    # RR 依據說明（docs/12 §10）：壓力位為常態不另加註；推估或無資料時讓使用者知道
+    basis_notes: list[str] = []
+    if action in (Action.BUY, Action.WATCH):
+        if plan.rr_basis == "breakout_atr":
+            basis_notes.append(
+                f"RR 目標為突破後 ATR 推估（{plan.target:g}），未經 OOS 驗證"
+            )
+        elif plan.rr_basis == "unavailable":
+            basis_notes.append("無壓力位資料（歷史 bar 不足），RR 以 0 計")
     return SignalResult(
         score=score,
         action=action,
-        reasons=reasons + decision.gate_reasons,
+        reasons=reasons + decision.gate_reasons + basis_notes,
+        rr_basis=plan.rr_basis if has_plan else None,
+        rr_target=plan.target if has_plan else None,
         entry_zone=entry_zone_for(action, plan),
         stop_loss=plan.stop_loss if has_plan else None,
         take_profit_1=plan.tp1 if has_plan else None,

@@ -23,6 +23,8 @@ class RiskInfo(BaseModel):
     tp1: float | None = None
     tp2: float | None = None
     rr: float | None = None
+    rr_basis: str | None = None   # resistance / breakout_atr / unavailable
+    rr_target: float | None = None
 
 
 class AnalysisResponse(BaseModel):
@@ -63,7 +65,8 @@ class AnalysisResponse(BaseModel):
             action=s.action.value,
             entry=entry,
             risk=RiskInfo(
-                stop_loss=s.stop_loss, tp1=s.take_profit_1, tp2=s.take_profit_2, rr=s.risk_reward
+                stop_loss=s.stop_loss, tp1=s.take_profit_1, tp2=s.take_profit_2, rr=s.risk_reward,
+                rr_basis=s.rr_basis, rr_target=s.rr_target,
             ),
             reasons=s.reasons,
         )

@@ -55,3 +55,5 @@ class SignalResult:
     take_profit_1: Optional[float]
     take_profit_2: Optional[float]
     risk_reward: Optional[float]
+    rr_basis: Optional[str] = None   # resistance / breakout_atr / unavailable
+    rr_target: Optional[float] = None

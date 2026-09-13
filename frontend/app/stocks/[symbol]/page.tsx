@@ -106,7 +106,18 @@ export default async function StockDetailPage({
               <PriceStat label="TP2" value={risk.tp2} tone="up" />
             </div>
             <div className="flex items-center justify-between border-t border-line-soft pt-4">
-              <span className="text-sm text-ink-dim">風險報酬比 RR</span>
+              <span className="text-sm text-ink-dim">
+                風險報酬比 RR
+                {risk.rr_basis && (
+                  <span className="ml-2 font-mono text-[11px] text-ink-faint">
+                    {risk.rr_basis === "resistance"
+                      ? `目標：前高壓力 ${(risk.rr_target != null ? fmtPrice(risk.rr_target) : "—")}`
+                      : risk.rr_basis === "breakout_atr"
+                        ? `目標：突破後 ATR 推估 ${(risk.rr_target != null ? fmtPrice(risk.rr_target) : "—")}（未驗證）`
+                        : "無壓力位資料"}
+                  </span>
+                )}
+              </span>
               <span className="font-mono text-2xl font-bold tnum text-gold">
                 {risk.rr != null ? risk.rr.toFixed(2) : "—"}
               </span>
