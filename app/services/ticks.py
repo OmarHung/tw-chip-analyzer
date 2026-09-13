@@ -55,7 +55,7 @@ async def fetch_ticks(session: AsyncSession, symbol: str, date: dt.date) -> Tick
         await session.execute(
             select(RawTick)
             .where(RawTick.symbol == symbol, RawTick.data_date == date)
-            .order_by(RawTick.ts)
+            .order_by(RawTick.ts, RawTick.id)  # 同 ts 依原始成交序，結果可重現
         )
     ).scalars().all()
     if cached:

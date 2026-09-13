@@ -59,7 +59,10 @@ async def _intraday_signals(
             select(
                 RawTick.symbol, RawTick.ts, RawTick.price,
                 RawTick.volume, RawTick.aggressor_side,
-            ).where(RawTick.data_date == target).order_by(RawTick.symbol, RawTick.ts)
+            ).where(RawTick.data_date == target)
+            # 同一 ts 常有多筆成交：以寫入序 id（Shioaji 原始成交序）打破平手，
+            # 否則吸收/價格效率等依序列順序的訊號每次執行結果不同
+            .order_by(RawTick.symbol, RawTick.ts, RawTick.id)
         )
     ).all()
     if not rows:
