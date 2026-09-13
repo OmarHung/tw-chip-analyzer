@@ -47,7 +47,7 @@ def _tick_epoch(ts: dt.datetime) -> int:
 
 async def _intraday_signals(
     session: AsyncSession, target: dt.date
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, float | None]]:
     """對「當日有逐筆的標的」用 compute_orderflow 取有界訊號，做橫斷面 Z-score。
 
     只讀 data_date == target 的 raw_tick（look-ahead：盤中資料收盤後才可用，
@@ -85,15 +85,17 @@ async def _intraday_signals(
             signals[key][sym] = getattr(of, attr)
 
     z = {key: _zscore_map(vals) for key, vals in signals.items() if key != "cvd_slope"}
+    # 橫斷面 z 不給預設值：當日有效逐筆 <2 檔時 z 無定義 → NULL（排除 intraday 成分），
+    # 不可以 0 冒充中性（docs/13 Phase 1）
     return {
         sym: {
-            "cvd_z": z["cvd"].get(sym, 0.0),
-            "large_trade_delta_z": z["large_trade_delta"].get(sym, 0.0),
+            "cvd_z": z["cvd"].get(sym),
+            "large_trade_delta_z": z["large_trade_delta"].get(sym),
             # CVD 斜率的每分鐘量正規化值（已有界），不做 z
             "cvd_slope_norm": signals["cvd_slope"].get(sym, 0.0),
-            "absorption_z": z["absorption"].get(sym, 0.0),
-            "trade_speed_z": z["trade_speed"].get(sym, 0.0),
-            "price_efficiency_z": z["price_efficiency"].get(sym, 0.0),
+            "absorption_z": z["absorption"].get(sym),
+            "trade_speed_z": z["trade_speed"].get(sym),
+            "price_efficiency_z": z["price_efficiency"].get(sym),
         }
         for sym in signals["cvd"]
     }

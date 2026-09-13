@@ -88,3 +88,63 @@ async def test_analyze_includes_intraday_when_present(db_session):
     assert r_with.chip.intraday > 50
     assert r_without.chip.intraday == 50  # 排除時以中性值顯示
     assert r_with.chip.chip_score > r_without.chip.chip_score
+
+
+# ---- docs/13 Phase 1：singleton 的橫斷面 z 無定義 → NULL；兩檔同值才是有效 0 ----
+
+_Z_FIELDS = (
+    "cvd_z", "large_trade_delta_z", "absorption_z", "trade_speed_z", "price_efficiency_z",
+)
+
+
+async def test_singleton_intraday_z_stays_null_and_excludes_component(db_session):
+    await _seed_prices(db_session)
+    # 當日只有 AAA 有逐筆
+    for i in range(20):
+        db_session.add(_tick("AAA", i, 1 if i % 5 else -1, 100 + i * 0.1))
+    await db_session.commit()
+
+    await build_features(db_session, TARGET)
+    a = await FeatureDailyRepository(db_session).get_latest("AAA")
+
+    for f in _Z_FIELDS:
+        assert getattr(a, f) is None, f
+    # cvd_slope_norm 是單股自身有界值，不是橫斷面 z，可保留
+    assert a.cvd_slope_norm is not None
+    # 不可因保留 cvd_slope_norm 而強制啟用 intraday
+    assert "intraday" not in AnalysisService().score_features(a).components
+
+
+async def test_two_identical_symbols_give_valid_zero_z(db_session):
+    await _seed_prices(db_session)
+    # AAA、BBB 逐筆完全相同（含 UNKNOWN aggressor）→ 樣本足夠且全同值 → z 為有效 0
+    for i in range(20):
+        side = 0 if i % 4 == 0 else (1 if i % 3 else -1)
+        db_session.add(_tick("AAA", i, side, 100 + i * 0.1))
+        db_session.add(_tick("BBB", i, side, 100 + i * 0.1))
+    await db_session.commit()
+
+    await build_features(db_session, TARGET)
+    repo = FeatureDailyRepository(db_session)
+    for sym in ("AAA", "BBB"):
+        fd = await repo.get_latest(sym)
+        for f in _Z_FIELDS:
+            assert getattr(fd, f) == 0.0, (sym, f)
+        assert "intraday" in AnalysisService().score_features(fd).components
+
+
+async def test_unknown_aggressor_still_neutral_side(db_session):
+    await _seed_prices(db_session)
+    # 全部 UNKNOWN 的標的不得被歸為買或賣：CVD 應與「無淨主動量」一致
+    for i in range(20):
+        db_session.add(_tick("AAA", i, 0, 100.0))
+        db_session.add(_tick("BBB", i, 1, 50 + i * 0.1))
+    await db_session.commit()
+
+    await build_features(db_session, TARGET)
+    repo = FeatureDailyRepository(db_session)
+    a = await repo.get_latest("AAA")
+    b = await repo.get_latest("BBB")
+    # 兩檔 → z 有定義；UNKNOWN 標的 cvd 相對全買方標的必為較低
+    assert a.cvd_z is not None and b.cvd_z is not None
+    assert a.cvd_z < b.cvd_z
