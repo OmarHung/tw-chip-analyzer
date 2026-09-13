@@ -55,16 +55,22 @@ async def rebuild_day(t: dt.date) -> int:
 async def rebuild(
     start: dt.date | None, end: dt.date | None, min_lookback: int
 ) -> None:
-    days = await _trading_days(start, end)
-    if len(days) <= min_lookback:
+    # 回看視窗以「全部交易日曆」計算：是否足夠取決於資料起點，與重建區間無關。
+    # 舊版在區間內再跳過前 N 天，只重建最近幾天時會一天都不做卻回報成功。
+    calendar = await _trading_days(None, None)
+    eligible = [
+        d for d in calendar[min_lookback:]
+        if (start is None or d >= start) and (end is None or d <= end)
+    ]
+    if not eligible:
         logger.warning(
-            "交易日僅 %d 天 <= min_lookback %d,無足夠回看視窗", len(days), min_lookback
+            "無可重建交易日:全部 %d 天中前 %d 天為回看視窗,區間 %s～%s 內無符合日期",
+            len(calendar), min_lookback, start or "起點", end or "最新",
         )
         return
-    eligible = days[min_lookback:]
     logger.info(
-        "交易日共 %d 天,跳過前 %d 天回看視窗,重建 %d 天分數",
-        len(days), min_lookback, len(eligible),
+        "交易日曆共 %d 天,跳過前 %d 天回看視窗,區間內重建 %d 天分數",
+        len(calendar), min_lookback, len(eligible),
     )
     for i, t in enumerate(eligible, 1):
         n = await rebuild_day(t)
