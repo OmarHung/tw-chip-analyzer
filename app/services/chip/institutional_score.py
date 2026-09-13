@@ -23,6 +23,14 @@ def _items(f: DailyFeatures, w: dict) -> list[tuple[float, float | None]]:
     ]
 
 
+def institutional_items(f: DailyFeatures, w: dict) -> frozenset[str]:
+    """實際參與計算（有值且權重非 0）的子項名稱。零權重子項（如 SBL）有無不影響。"""
+    names = ("trust", "foreign", "dealer", "margin_change", "sbl_change", "short_change")
+    return frozenset(
+        n for n, (wt, z) in zip(names, _items(f, w)) if z is not None and wt != 0
+    )
+
+
 def institutional_score(f: DailyFeatures, w: dict) -> float | None:
     items = _items(f, w)
     total = sum(abs(wt) for wt, _ in items)

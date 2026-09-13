@@ -9,6 +9,6 @@ from app.services.normalize import clamp
 
 
 def market_score(m: MarketContext, w: dict) -> float:
-    return w["market_trend"] * clamp(m.market_trend_score) + w[
-        "industry_trend"
-    ] * clamp(m.industry_trend_score)
+    """大盤未知時僅以 0 參與計算；是否把 market 列為有效成分由 analysis 依可用性決定。"""
+    trend = 0.0 if m.market_trend_score is None else m.market_trend_score
+    return w["market_trend"] * clamp(trend) + w["industry_trend"] * clamp(m.industry_trend_score)

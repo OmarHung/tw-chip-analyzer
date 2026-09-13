@@ -20,7 +20,8 @@ class PriceContext:
     turnover: float = 0.0            # 當日成交金額 TWD
     # 原始大盤趨勢 -1..1（MarketContext.market_trend_score）。不可從 Chip Score 的
     # 市場子分數反推——那已乘上 weights.market，會讓 Strong Bear 門檻變寬（docs/09 BUG-02）
-    market_trend_score: float = 0.0
+    # None = 無當日大盤資料 → 無法排除 Strong Bear，保守不放行 BUY（docs/12 Phase 1）
+    market_trend_score: float | None = None
     # 鎖死漲停等不可合理成交；None = 資料不足無法判斷，保守視同不可成交
     is_locked_limit: bool | None = False
 
@@ -57,7 +58,9 @@ def decide_entry(
         gates.append("價格過度偏離 VWAP")
     if ctx.close_vs_ma20_pct > ef["max_ma20_deviation_pct"]:
         gates.append("價格過度偏離 MA20")
-    if ctx.market_trend_score <= ef["strong_bear_market_score"]:
+    if ctx.market_trend_score is None:
+        gates.append("無當日大盤資料，無法排除 Strong Bear")
+    elif ctx.market_trend_score <= ef["strong_bear_market_score"]:
         gates.append("市場處於 Strong Bear")
     if ctx.turnover < ef["min_turnover"]:
         gates.append("流動性不足")

@@ -147,9 +147,11 @@ class TestLockedLimitWiredIntoAnalysis:
 class TestPositionContext:
     def test_same_data_differs_by_position(self):
         svc = AnalysisService()
-        flat = analyze_market(svc, _items(FIVE))
+        # 明確帶「已知中性大盤」：未知大盤不放行 BUY（docs/12 Phase 1）
+        known = MarketContext(0.0)
+        flat = analyze_market(svc, _items(FIVE), known)
         held = analyze_market(
-            svc, _items(FIVE), positions={"S4": Position(entry_price=95, stop_loss=90)}
+            svc, _items(FIVE), known, positions={"S4": Position(entry_price=95, stop_loss=90)}
         )
         assert flat[-1].signal.action == Action.BUY
         assert held[-1].signal.action == Action.HOLD

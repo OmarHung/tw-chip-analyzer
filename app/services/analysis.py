@@ -99,7 +99,10 @@ class AnalysisService:
         # 排除該成分並重分配權重;分數再依成分組合分組做百分位(見 analyze_market)。
         has_holder = fd.large_holder_ratio_change_z is not None
         # institutional 是否有資料由 ChipScorer 依子項判定（全缺即排除）
-        active = {"institutional", "market"}
+        active = {"institutional"}
+        # 大盤只在「目標日」有值時才是有效成分；未知不以 0 灌水（docs/12 Phase 1）
+        if market.market_trend_score is not None:
+            active.add("market")
         if has_holder:
             active.add("holder")
         if has_intraday:
@@ -220,9 +223,9 @@ def analyze_market(
     chips = [service.score_features(fd, market) for fd, _ in items]
     overrides: list[float | None] = [None] * len(chips)
     if mapping == "percentile" and len(chips) > 1:
-        groups: dict[frozenset[str], list[int]] = {}
+        groups: dict[tuple[frozenset[str], frozenset[str]], list[int]] = {}
         for i, c in enumerate(chips):
-            groups.setdefault(c.components, []).append(i)
+            groups.setdefault((c.components, c.availability_signature), []).append(i)
         for idxs in groups.values():
             # 單一標的的組無法排名(百分位無意義),退回 linear 映射避免給出假的 0/100
             if len(idxs) < 2:

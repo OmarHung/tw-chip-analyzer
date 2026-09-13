@@ -14,7 +14,7 @@ from app.models.signal import (
     WeeklyFeatures,
 )
 from app.services.chip.holder_score import holder_score
-from app.services.chip.institutional_score import institutional_score
+from app.services.chip.institutional_score import institutional_items, institutional_score
 from app.services.chip.intraday_score import intraday_score
 from app.services.chip.market_score import market_score
 from app.services.normalize import clamp
@@ -46,6 +46,10 @@ class ChipScoreResult:
     # 本次實際參與合成的成分(缺成分會被排除並重分配權重)。不同成分組合的
     # composite_raw 尺度不同,百分位映射必須分組進行,見 analysis.analyze_market。
     components: frozenset[str] = frozenset()
+    # 百分位分組用的資料可用性指紋：頂層成分 + institutional 實際參與子項（institutional:foreign…）。
+    # 子項缺失會在成分內重分配權重、改變 raw 尺度，覆蓋率不同者不可混排（docs/12 Phase 2）。
+    # 注意 components 仍只代表 composite 權重鍵，不可放入 "institutional:*"。
+    availability_signature: frozenset[str] = frozenset()
 
 
 class ChipScorer:
@@ -97,6 +101,11 @@ class ChipScorer:
             reasons=self._reasons(intraday, daily, weekly),
             composite_raw=composite,
             components=frozenset(active),
+            availability_signature=frozenset(active) | (
+                frozenset(f"institutional:{n}" for n in institutional_items(daily, w["institutional"]))
+                if "institutional" in active
+                else frozenset()
+            ),
         )
 
     @staticmethod

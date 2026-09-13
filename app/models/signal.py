@@ -40,7 +40,8 @@ class WeeklyFeatures:
 
 @dataclass
 class MarketContext:
-    market_trend_score: float = 0.0
+    # None = 目標日無大盤資料（未知）。不可用 0 冒充已知中性，也不可沿用前一日（docs/12 Phase 1）
+    market_trend_score: Optional[float] = None
     industry_trend_score: float = 0.0
     volatility_percentile: float = 0.5
 

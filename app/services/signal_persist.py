@@ -85,8 +85,13 @@ async def persist_signals(session: AsyncSession, target: dt.date) -> int:
     # 橫斷面分析(percentile mapping 需整日一起算,見 analyze_market)
     results = analyze_market(service, [(fd, name) for fd, name in pairs], market)
     version = data_version(service.t.raw)
+    # 當日大盤可用性寫進 payload：TAIEX 失敗時的降級不可靜默（docs/12 Phase 1）
+    market_meta = {
+        "market_available": market.market_trend_score is not None,
+        "market_trend_score": market.market_trend_score,
+    }
     rows = [
-        _snapshot_row(r, target, av_at, _feature_payload(fd), version)
+        _snapshot_row(r, target, av_at, {**_feature_payload(fd), **market_meta}, version)
         for (fd, _), r in zip(pairs, results)
     ]
     n = await upsert_many(session, SignalSnapshot, rows, ["symbol", "data_date"])

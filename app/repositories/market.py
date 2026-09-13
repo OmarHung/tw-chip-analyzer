@@ -78,26 +78,20 @@ async def load_tdcc_summary_latest(
 
 
 async def load_market_daily(session: AsyncSession, as_of: dt.date) -> MarketDaily | None:
-    stmt = (
-        select(MarketDaily)
-        .where(MarketDaily.data_date <= as_of)
-        .order_by(MarketDaily.data_date.desc())
-        .limit(1)
-    )
+    """只取目標日的 MarketDaily；缺當日（例如 TAIEX 抓取失敗）回 None，不沿用前一日。"""
+    stmt = select(MarketDaily).where(MarketDaily.data_date == as_of)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def load_market_context(
     session: AsyncSession, as_of: dt.date
 ) -> MarketContext:
-    """取 data_date<=as_of 的最新 MarketDaily → MarketContext。無資料則中性。"""
-    stmt = (
-        select(MarketDaily)
-        .where(MarketDaily.data_date <= as_of)
-        .order_by(MarketDaily.data_date.desc())
-        .limit(1)
-    )
-    md = (await session.execute(stmt)).scalar_one_or_none()
+    """目標日 MarketDaily → MarketContext。無當日資料 → market_trend_score=None（未知）。
+
+    不可取 `<= as_of` 的最新一筆：TAIEX 當日失敗時會用昨天的偏多 regime 放行今天的 BUY
+    （docs/12 Phase 1）。
+    """
+    md = await load_market_daily(session, as_of)
     if md is None or md.market_trend_score is None:
         return MarketContext()
     return MarketContext(
