@@ -376,11 +376,15 @@ async def test_transfer_and_holding_coverage_coexist_same_day(db_session):
 
 # ---------------------------------------------------------------- 排程安全
 
-def test_mops_schedule_disabled_by_default():
-    assert load_yaml_thresholds()["mops"]["schedule"]["enabled"] is False
-    from app.jobs.scheduler import _build_scheduler
+def test_mops_schedule_disabled_in_config_is_not_scheduled(monkeypatch):
+    import app.jobs.scheduler as scheduler_mod
+    from app.core.config import Thresholds
 
-    assert _build_scheduler().get_job("mops") is None
+    raw = load_yaml_thresholds()
+    raw["mops"]["schedule"]["enabled"] = False
+    monkeypatch.setattr(scheduler_mod, "get_thresholds", lambda: Thresholds(raw))
+    sch = scheduler_mod._build_scheduler()
+    assert sch.get_job("mops") is None and sch.get_job("eod") is not None
 
 
 def test_local_today_uses_configured_timezone():

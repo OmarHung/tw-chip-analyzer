@@ -88,7 +88,7 @@ tdcc:
 > | `intraday_batch.max_consecutive_failures` | 逐筆批次連續失敗停止 |
 > | `jobs.nice / output_max_chars / cancel_grace_sec` | 系統頁腳本按鈕子行程 |
 > | `weights.intraday.cvd_slope` | 原 `obi`（改名，非 OBI） |
-> | `mops.http / schedule / insider_holding / transfer_declaration / backfill / research` | Phase 2 MOPS（shadow-only，docs/14）：重試節流、排程（**repo 預設 `enabled: false`**，開啟條件見 docs/14 §8）、揭露落後規則、轉讓回看窗、回補範圍、regime 分層、honest OOS 最低 test 日數（`research.min_honest_test_days`）。不在 `data_version` 區塊內，改動不觸發正式分數重建提示 |
+> | `mops.http / schedule / insider_holding / transfer_declaration / backfill / research` | Phase 2 MOPS（shadow-only，docs/14）：重試節流、排程（2026-09-14 線上 smoke 驗收後 `enabled: true`；某日轉讓網頁失敗應以 `app.jobs.mops <該日> --skip-holdings` 補跑，勿用回補腳本）、揭露落後規則、轉讓回看窗、回補範圍、regime 分層、honest OOS 最低 test 日數（`research.min_honest_test_days`）。不在 `data_version` 區塊內，改動不觸發正式分數重建提示 |
 >
 > **UI 覆寫**：`/settings` 頁可調整 `app/core/threshold_registry.py` 登錄的鍵，覆寫值存 DB
 > `threshold_override`（YAML 仍是預設與結構），修改歷史存 `threshold_change`。每鍵標示「即時生效」或

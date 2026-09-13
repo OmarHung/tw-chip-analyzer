@@ -71,7 +71,8 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
   SBL 紀律不進分數。`market_trend` 維持 0.65 不補到 1.0，以保持與歷史分數同尺度。
   實測影響（若開回 0.35）：分數 Spearman 0.993、建議變動 145/1950 檔、BUY 115 vs 122。
 - **Phase 2 MOPS 基礎建設已開工（2026-09-13，shadow-only）**：不是 Phase 1 通過的訊號——§28 仍未達成。董監/大股東持股、質押、內部人轉讓事前申報已有 raw 表、揭露時點規則、`mops_shadow_feature_daily` 與 `scripts/mops_factor_oos.py`，**正式評分不讀、`weights` 無任何 Phase 2 鍵**（測試保證前後 chip_score/breakdown/action 一致）。語意陷阱與 blocker 全在 `docs/14`：MOPS 舊申報會被**事後回寫**「已變更」（用 `superseded_on` 的揭露時點才生效）、網頁持股回補含事後更正（修正版 look-ahead，標 `mops_web`）、`(職稱,姓名)` 非唯一鍵、TPEx OpenAPI 常被重置。啟用權重前須累積跨 regime OOS。
-  **2026-09-14 審查修正（docs/15，migration `d4f7a2c9e1b3`）**：MOPS `market` 必須同 `stock.market`（`TPEx` 非 `TPEX`，舊拼法曾讓上櫃全數失效）；forward job 不重抓舊申報日，故由新申報的 `amends_report_date` 主動取代舊申報（歧義 → NULL）；部分 NULL 一律傳遞成 NULL；raw/coverage 存首次觀測 `ingestion_mode`（forward/backfill），**只有 `point_in_time_safe` 特徵進 honest OOS，backfill 永不標 robust**；MOPS 排程 repo 預設關閉。
+  **2026-09-14 審查修正（docs/15，migration `d4f7a2c9e1b3`）**：MOPS `market` 必須同 `stock.market`（`TPEx` 非 `TPEX`，舊拼法曾讓上櫃全數失效）；forward job 不重抓舊申報日，故由新申報的 `amends_report_date` 主動取代舊申報（歧義 → NULL）；部分 NULL 一律傳遞成 NULL；raw/coverage 存首次觀測 `ingestion_mode`（forward/backfill），**只有 `point_in_time_safe` 特徵進 honest OOS，backfill 永不標 robust**；MOPS 排程 2026-09-14 線上 smoke（migration、TWSE/TPEx、forward provenance）通過後開啟（每週一至六 08:10 抓前一日），某日轉讓網頁 degraded 應以 `app.jobs.mops <該日> --skip-holdings` 補跑（仍標 forward），勿用 `backfill_mops_transfers`。
+  **TPEx 憑證鏈**：vultr 解析到的 TPEx 節點間歇漏送 TWCA 中繼憑證，已打包於 `app/connectors/certs/twca_intermediates.pem`（`.gitignore` 對此檔例外），到期前需更新。
 - 尚未做：TPEx 的 SBL、Shioaji realtime、intraday 併入 backtest 驗證單調性（需累積多日 tick；Shioaji simulation 配額僅 500MB，backfill 逐筆會燒穿，逐筆只靠每日 EOD 累積）。
 
 ## 頂層地圖
@@ -90,7 +91,7 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 - `app/importers/`：TWSE/TPEx/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
 - `app/jobs/`：`tasks.py`（UI 可觸發腳本白名單，參數驗證後 exec，不經 shell）、`task_runner.py`（子行程 + nice、與 EOD/回補共用單飛鎖、`job_run` 紀錄）、`daily.py`（抓取→匯入 TWSE+TPEx+SBL→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）、`scheduler.py`（APScheduler EOD）、`runner.py`（手動回補，與 EOD 共用單飛鎖）
 - `frontend/`：Next.js 16 + TS + Tailwind v4。設計約束見下節。UI 規格見 `docs/05-api-ui.md §16`。
-- `tests/`：448 passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
+- `tests/`：453 passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
 
 **逐筆特別注意**：Shioaji tick ts 為 ns，以 UTC 解讀即台北牆鐘（用 `utcfromtimestamp`）。批次逐筆要先跑 `import_ticks` 再跑 `daily --skip-import`，intraday z 才會進 `feature_daily`。
 

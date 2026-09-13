@@ -164,9 +164,10 @@ mops:
     backoff_sec: 2.0      # 第 n 次重試前等待 backoff_sec * n 秒
     throttle_sec: 1.5     # 回補時每次請求間隔(公務網站,保守)
   schedule:
-    # repo 預設關閉(docs/15 排程安全):部署環境須先完成 migration、TWSE+TPEx 單日 smoke、
-    # forward provenance 正確、無未處理 amendment 歧義、degraded 可觀測,才明確開啟
-    enabled: false        # 開啟後隨 API 啟動;test env 一律不啟動;日期依 schedule.timezone
+    # 2026-09-14 線上驗收後開啟:migration、TWSE+TPEx 單日 smoke、forward provenance、
+    # 無 amendment 歧義皆通過。某日轉讓網頁失敗(degraded)→ 盡快以 app.jobs.mops <該日> --skip-holdings
+    # 補跑(仍標 forward);勿用 backfill_mops_transfers(標 backfill,該窗轉讓特徵進不了 honest OOS)
+    enabled: true         # 隨 API 啟動;test env 一律不啟動;日期依 schedule.timezone
     day_of_week: "mon-sat"
     hour: 8               # 抓前一日的轉讓申報(依揭露規則 T 日申報於 T+1 08:00 才可用)
     minute: 10

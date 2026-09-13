@@ -47,7 +47,7 @@ def test_mops_job_scheduled_from_config(monkeypatch):
     from app.core.config import Thresholds, load_yaml_thresholds
 
     raw = load_yaml_thresholds()
-    raw["mops"]["schedule"]["enabled"] = True  # repo 預設關閉；部署環境明確開啟時才排入
+    raw["mops"]["schedule"]["enabled"] = True  # 明確開啟才排入（關閉情境見 test_mops_review_fixes）
     monkeypatch.setattr(scheduler_mod, "get_thresholds", lambda: Thresholds(raw))
     sch = _build_scheduler()
     job = sch.get_job("mops")
