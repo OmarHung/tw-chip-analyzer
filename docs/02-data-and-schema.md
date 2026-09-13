@@ -16,6 +16,7 @@
 
 ### MOPS（Phase 2）
 董監持股、大股東、質押、持股轉讓。
+> 端點查證、`available_at` 規則、表結構與 shadow feature 見 `docs/14-phase2-mops-data-sources.md`（shadow-only，不進正式分數）。
 
 ### 券商分點（Phase 3）
 Phase 3 才加入。**不可假設存在免費完整歷史 API。**

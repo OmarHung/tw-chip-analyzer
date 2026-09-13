@@ -90,6 +90,21 @@ def _build_scheduler() -> AsyncIOScheduler:
         coalesce=True,            # 多次錯過只補跑一次
         max_instances=1,
     )
+    # Phase 2 MOPS(shadow-only,docs/14):時間讀 config mops.schedule,與 EOD 共用單飛鎖
+    mops = get_thresholds().get("mops", "schedule", default={}) or {}
+    if mops.get("enabled", False):
+        from app.jobs.mops import run_scheduled as run_mops
+
+        scheduler.add_job(
+            run_mops,
+            CronTrigger(
+                day_of_week=mops.get("day_of_week", "mon-sat"),
+                hour=mops.get("hour", 8),
+                minute=mops.get("minute", 10),
+                timezone=tz,
+            ),
+            id="mops", misfire_grace_time=3600, coalesce=True, max_instances=1,
+        )
     return scheduler
 
 

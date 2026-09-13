@@ -110,6 +110,35 @@ _TASKS: tuple[TaskSpec, ...] = (
                       label="最低成交金額"),
         ),
     ),
+    # --- Phase 2 MOPS（shadow-only，不影響正式分數與建議；docs/14）---
+    TaskSpec(
+        "backfill_mops_transfers", "scripts.backfill_mops_transfers", "回補 MOPS 轉讓申報",
+        "maintenance",
+        params=(
+            ParamSpec("start", "date", flag="--start", required=True, label="起始日"),
+            _date("end", "結束日"),
+            ParamSpec("dry_run", "bool", flag="--dry-run", label="只列待抓組數"),
+        ),
+        help="內部人持股轉讓事前申報，每交易日×上市/上櫃各一次請求，已涵蓋日期略過。",
+    ),
+    TaskSpec(
+        "backfill_mops_holdings", "scripts.backfill_mops_holdings", "回補 MOPS 董監持股/質押",
+        "maintenance",
+        params=(
+            ParamSpec("top", "int", flag="--top", min=1, max=3000, label="成交值前 N 檔"),
+            ParamSpec("months", "int", flag="--months", min=1, max=60, label="最近 N 月"),
+            ParamSpec("dry_run", "bool", flag="--dry-run", label="只預估不抓"),
+        ),
+        help="逐公司逐月抓網頁，耗時長；回補值可能含事後更正（標 mops_web）。",
+    ),
+    TaskSpec(
+        "rebuild_mops_features", "scripts.rebuild_mops_features", "重建 MOPS shadow 特徵",
+        "maintenance",
+        params=(_date("start", "起始日"), _date("end", "結束日")),
+        help="只寫 mops_shadow_feature_daily，不影響 Chip Score 與建議。",
+    ),
+    TaskSpec("mops_factor_oos", "scripts.mops_factor_oos", "MOPS 因子 OOS", "research",
+             help="單因子 IC（NW t、regime、coverage、對 chip_score 增量）。只出報告，不改權重。"),
 )
 
 TASKS: dict[str, TaskSpec] = {t.id: t for t in _TASKS}

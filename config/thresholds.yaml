@@ -154,6 +154,41 @@ backtest:
 validation:
   min_ic_names: 20        # 當日橫斷面至少幾檔才計入 rank IC
 
+# Phase 2 MOPS（內部人持股/質押/大股東/持股轉讓）— 見 docs/14。
+# **shadow-only**:不進 Chip Score、不影響建議,weights 不新增任何鍵。
+# 不在 threshold_registry._DATA_SECTIONS 內,改這裡不會觸發正式分數重建提示。
+mops:
+  http:
+    timeout_sec: 60
+    retries: 3            # 暫時性錯誤(逾時/連線重置/5xx)重試次數;安全性阻擋頁不重試
+    backoff_sec: 2.0      # 第 n 次重試前等待 backoff_sec * n 秒
+    throttle_sec: 1.5     # 回補時每次請求間隔(公務網站,保守)
+  schedule:
+    # repo 預設關閉(docs/15 排程安全):部署環境須先完成 migration、TWSE+TPEx 單日 smoke、
+    # forward provenance 正確、無未處理 amendment 歧義、degraded 可觀測,才明確開啟
+    enabled: false        # 開啟後隨 API 啟動;test env 一律不啟動;日期依 schedule.timezone
+    day_of_week: "mon-sat"
+    hour: 8               # 抓前一日的轉讓申報(依揭露規則 T 日申報於 T+1 08:00 才可用)
+    minute: 10
+  insider_holding:
+    # available_at = 資料年月之次月第 N 日 hour:00(台北)。證交法第 25 條次月 15 日前申報,
+    # OpenAPI 實測 11507 出表日期 1150820(隔夜批次)→ 取 21 日 08:00 保守側。
+    available_day_of_next_month: 21
+    available_hour: 8
+    publish_lag_days: 1   # OpenAPI 列另與「出表日期 + 此天數 hour:00」取較晚者
+    max_stale_months: 2   # 最近可用持股月距目標日超過此月數 → NULL(停止申報/下市)
+  transfer_declaration:
+    # available_at = 申報日期 + lag 天 hour:00(台北)。官方無申報時點,T 日申報最早 T+1 盤前可用。
+    available_lag_days: 1
+    available_hour: 8
+    window_bars: 20       # transfer_market_sale_ratio 回看市場交易日數;窗內任一日缺涵蓋 → NULL
+  backfill:
+    holdings_top: 300     # 持股回補預設成交值前 N 檔(逐公司逐月請求)
+    holdings_months: 12
+  research:
+    bull_min_trend: 0.3   # market_trend_score > 此值視為多頭(regime 分層,非決策門檻)
+    min_honest_test_days: 20  # honest OOS test 段有效橫斷面日數 < 此值 → 「樣本不足,不可判斷」
+
 # Composite Chip Score 權重 — 對應 docs/03 §10
 weights:
   composite:

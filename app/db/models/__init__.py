@@ -9,6 +9,12 @@ from app.db.models.chips import (
 from app.db.models.features import FeatureDaily, SignalSnapshot
 from app.db.models.intraday import RawTick
 from app.db.models.jobs import JobRun
+from app.db.models.mops import (
+    InsiderHoldingMonthly,
+    InsiderTransferDeclaration,
+    MopsFetchCoverage,
+    MopsShadowFeatureDaily,
+)
 from app.db.models.settings import ThresholdChange, ThresholdOverride
 from app.db.models.market import (
     CorporateAction,
@@ -35,4 +41,8 @@ __all__ = [
     "ThresholdOverride",
     "ThresholdChange",
     "JobRun",
+    "InsiderHoldingMonthly",
+    "InsiderTransferDeclaration",
+    "MopsFetchCoverage",
+    "MopsShadowFeatureDaily",
 ]
