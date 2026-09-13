@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card, SectionTitle, StatCard } from "@/components/Card";
 import { CoverageCard } from "@/components/CoverageCard";
+import { TaskPanel } from "@/components/TaskPanel";
 import {
   api,
   type BackfillRequest,
@@ -182,6 +183,9 @@ export default function SystemPage() {
         <>
           {/* 任務狀態(執行中/剛完成才顯示) */}
           {data.job.state !== "idle" && <JobStatus job={data.job} />}
+
+          {/* 白名單腳本（重建分數、回補、研究報告） */}
+          <TaskPanel busy={running} />
 
           {/* 資料回補 */}
           <Card>

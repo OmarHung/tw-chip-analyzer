@@ -402,15 +402,16 @@ export class ApiError extends Error {
   }
 }
 
-async function post<T>(
+async function send<T>(
+  method: "POST" | "PUT" | "DELETE",
   path: string,
   body: unknown,
   headers: Record<string, string> = {},
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json", ...headers },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
     cache: "no-store",
   });
   if (!res.ok) {
@@ -418,13 +419,105 @@ async function post<T>(
     let detail = `${res.status}`;
     try {
       const j = await res.json();
-      if (j?.detail) detail = j.detail;
+      if (j?.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
     } catch {
       /* 忽略非 JSON 錯誤體 */
     }
     throw new ApiError(detail, res.status);
   }
   return res.json() as Promise<T>;
+}
+
+function post<T>(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
+  return send<T>("POST", path, body, headers);
+}
+
+const keyHeader = (opsKey?: string): Record<string, string> =>
+  opsKey ? { "X-Ops-Key": opsKey } : {};
+
+// --- 門檻設定（YAML 預設 + DB 覆寫） ---
+export interface SettingItem {
+  key: string;
+  label: string;
+  group: string;
+  effect: "live" | "rebuild";
+  kind: "float" | "int" | "choice";
+  min: number | null;
+  max: number | null;
+  choices: string[];
+  locked: boolean;
+  help: string;
+  default: number | string | null;
+  override: number | string | null;
+  effective: number | string | null;
+}
+
+export interface SettingChange {
+  key: string;
+  old: number | string | null;
+  new: number | string | null;
+  source: string;
+  data_version: string;
+  changed_at: string | null;
+}
+
+export interface SettingsResponse {
+  items: SettingItem[];
+  orphaned: string[];
+  data_version: string;
+  running_version: string;
+  pending_rebuild: boolean;
+  history: SettingChange[];
+}
+
+// --- 腳本工作 ---
+export interface TaskParam {
+  name: string;
+  kind: "date" | "int" | "float" | "bool" | "choice";
+  required: boolean;
+  min: number | null;
+  max: number | null;
+  choices: string[];
+  label: string;
+  help: string;
+}
+
+export interface TaskSpec {
+  id: string;
+  label: string;
+  category: "maintenance" | "research";
+  help: string;
+  rebuilds_scores: boolean;
+  params: TaskParam[];
+}
+
+export type TaskStatus =
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "interrupted";
+
+export interface TaskRun {
+  id: number;
+  task_id: string;
+  params: Record<string, unknown>;
+  status: TaskStatus;
+  exit_code: number | null;
+  source: string;
+  data_version: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  output?: string;
+}
+
+export interface TasksResponse {
+  tasks: TaskSpec[];
+  runs: TaskRun[];
 }
 
 export const api = {
@@ -476,6 +569,35 @@ export const api = {
   },
   opsStatus: () => get<OpsStatusResponse>("/api/ops/status"),
   forwardReport: () => get<ForwardReport>("/api/validation/forward"),
+  settings: () => get<SettingsResponse>("/api/ops/settings"),
+  updateSetting: (key: string, value: number | string, unlock: boolean, opsKey?: string) =>
+    send<SettingsResponse>(
+      "PUT",
+      `/api/ops/settings/${encodeURIComponent(key)}`,
+      { value, unlock },
+      keyHeader(opsKey),
+    ),
+  resetSetting: (key: string, opsKey?: string) =>
+    send<SettingsResponse>(
+      "DELETE",
+      `/api/ops/settings/${encodeURIComponent(key)}`,
+      undefined,
+      keyHeader(opsKey),
+    ),
+  tasks: () => get<TasksResponse>("/api/ops/tasks"),
+  taskRun: (runId: number) => get<TaskRun>(`/api/ops/tasks/runs/${runId}`),
+  startTask: (taskId: string, params: Record<string, unknown>, opsKey?: string) =>
+    post<{ run_id: number }>(
+      `/api/ops/tasks/${encodeURIComponent(taskId)}`,
+      { params },
+      keyHeader(opsKey),
+    ),
+  cancelTask: (runId: number, opsKey?: string) =>
+    post<{ cancelled: boolean }>(
+      `/api/ops/tasks/runs/${runId}/cancel`,
+      {},
+      keyHeader(opsKey),
+    ),
   // 回補需管理者認證（RISK-01）：opsKey 由使用者在系統頁輸入，只存 sessionStorage
   backfill: (body: BackfillRequest, opsKey?: string) =>
     post<OpsStatusResponse>(

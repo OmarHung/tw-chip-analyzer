@@ -68,17 +68,17 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 
 細節用 CodeGraph 或讀碼；完整建議結構見 `docs/01-overview-architecture.md §5`。
 
-- `app/core/`：`config.py`（env 用 pydantic-settings；門檻用 `config/thresholds.yaml`）、`logging.py`
+- `app/core/`：`config.py`（env 用 pydantic-settings；門檻 = `config/thresholds.yaml` 預設 + DB `threshold_override` 覆寫，`reload_thresholds()` 失效快取）、`threshold_registry.py`（UI 可調鍵、live/rebuild、鎖定權重、`data_version`）、`logging.py`
 - `app/db/`：`models/`（10 張表，`mixins.py` 含 look-ahead `data_date`/`available_at`）；`intraday.py` 有 `RawTick`
 - `app/services/orderflow/`：aggressor / cvd / large_trade / obi / absorption / trade_speed（純函式）
 - `app/services/chip/`：intraday / institutional / holder / market 分項 + `composite.py`（config 驅動權重 + 缺成分重分配）
 - `app/services/decision/`：`risk` / `entry` / `exit` + `decide()`
 - `app/services/`：`feature_builder.py`（原始表→`feature_daily`，兩段正規化，look-ahead 只用 `data_date<=target`）、`market_score.py`、`normalize.py`（含 `cross_sectional_percentile`）、`analysis.py`（含 `analyze_market` 橫斷面兩段式）、`market_scan.py`、`flow_scan.py`、`forward_report.py`（前瞻驗證）、`price_adjust.py`（後復權純函式，價/量共用）、`orderflow_intraday.py`、`ticks.py`、`signal_persist.py`
-- `app/api/`：`stocks`（`/analysis`、`/chart`、`/ticks`、`/orderflow`、`/flows`、`/features` 還原值核對）、`scanner`（含 `/divergence`）、`dashboard`、`ops`（`/status`、`/backfill`）、`validation`（`/forward`）；CORS 允許任意 localhost 埠（見 `main.py`）
+- `app/api/`：`settings`（`/api/ops/settings` 門檻覆寫）、`tasks`（`/api/ops/tasks` 白名單腳本按鈕）、`stocks`（`/analysis`、`/chart`、`/ticks`、`/orderflow`、`/flows`、`/features` 還原值核對）、`scanner`（含 `/divergence`）、`dashboard`、`ops`（`/status`、`/backfill`）、`validation`（`/forward`）；CORS 允許任意 localhost 埠（見 `main.py`）
 - `app/backtest/`：`costs`（禁 0 成本）、`forward_returns`、`metrics`、`engine`（look-ahead 安全）、`runner`
 - `app/connectors/`：`twse`（含 SBL TWT93U、公司行動 TWT49U/TWT48U/TWTB8U/TWTAUU/TWTAVU）/ `tpex`（上櫃；憑證缺 SKI，關 strict X509）/ `tdcc` / `yahoo`（圖表用）/ `shioaji_market`（逐筆 ticks，`simulation=True` 單例；金鑰無 production 權限但模擬可取真實行情）
 - `app/importers/`：TWSE/TPEx/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
-- `app/jobs/`：`daily.py`（抓取→匯入 TWSE+TPEx+SBL→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）、`scheduler.py`（APScheduler EOD）、`runner.py`（手動回補，與 EOD 共用單飛鎖）
+- `app/jobs/`：`tasks.py`（UI 可觸發腳本白名單，參數驗證後 exec，不經 shell）、`task_runner.py`（子行程 + nice、與 EOD/回補共用單飛鎖、`job_run` 紀錄）、`daily.py`（抓取→匯入 TWSE+TPEx+SBL→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）、`scheduler.py`（APScheduler EOD）、`runner.py`（手動回補，與 EOD 共用單飛鎖）
 - `frontend/`：Next.js 16 + TS + Tailwind v4。設計約束見下節。UI 規格見 `docs/05-api-ui.md §16`。
 - `tests/`：164 passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
 

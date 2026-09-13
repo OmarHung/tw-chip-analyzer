@@ -8,6 +8,7 @@ const NAV = [
   { href: "/scanner", label: "選股" },
   { href: "/divergence", label: "主力背離" },
   { href: "/validation", label: "驗證" },
+  { href: "/settings", label: "設定" },
   { href: "/system", label: "系統" },
 ];
 
