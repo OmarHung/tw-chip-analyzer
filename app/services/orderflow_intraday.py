@@ -24,7 +24,7 @@ from app.services.orderflow.price_efficiency import price_efficiency as _price_e
 INTRADAY_SIGNAL_KEYS: dict[str, str] = {
     "large_trade_delta": "large_net",
     "cvd": "net_aggressor",
-    "obi": "cvd_slope_norm",
+    "cvd_slope": "cvd_slope_norm",
     "absorption": "absorption_signal",
     "trade_speed": "trade_speed_signal",
     "price_efficiency": "price_efficiency",

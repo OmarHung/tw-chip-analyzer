@@ -52,7 +52,7 @@ async def _intraday_signals(
     """對「當日有逐筆的標的」用 compute_orderflow 取有界訊號，做橫斷面 Z-score。
 
     只讀 data_date == target 的 raw_tick（look-ahead：盤中資料收盤後才可用，
-    available_at 已在盤後）。回傳 {symbol: {cvd_z, large_trade_delta_z, intraday_obi}}。
+    available_at 已在盤後）。回傳 {symbol: {cvd_z, large_trade_delta_z, cvd_slope_norm, ...}}。
     無逐筆時回空 dict → 該日所有標的 intraday 欄位維持 NULL。
     """
     rows = (
@@ -82,13 +82,13 @@ async def _intraday_signals(
         for key, attr in INTRADAY_SIGNAL_KEYS.items():
             signals[key][sym] = getattr(of, attr)
 
-    z = {key: _zscore_map(vals) for key, vals in signals.items() if key != "obi"}
+    z = {key: _zscore_map(vals) for key, vals in signals.items() if key != "cvd_slope"}
     return {
         sym: {
             "cvd_z": z["cvd"].get(sym, 0.0),
             "large_trade_delta_z": z["large_trade_delta"].get(sym, 0.0),
-            # obi 為 CVD 斜率的每分鐘量正規化值（已有界），不做 z
-            "intraday_obi": signals["obi"].get(sym, 0.0),
+            # CVD 斜率的每分鐘量正規化值（已有界），不做 z
+            "cvd_slope_norm": signals["cvd_slope"].get(sym, 0.0),
             "absorption_z": z["absorption"].get(sym, 0.0),
             "trade_speed_z": z["trade_speed"].get(sym, 0.0),
             "price_efficiency_z": z["price_efficiency"].get(sym, 0.0),
@@ -515,7 +515,7 @@ async def build_features(session: AsyncSession, target: dt.date) -> int:
                 # intraday：有逐筆才填，否則 NULL（composite 動態排除）
                 "cvd_z": intra["cvd_z"] if intra else None,
                 "large_trade_delta_z": intra["large_trade_delta_z"] if intra else None,
-                "intraday_obi": intra["intraday_obi"] if intra else None,
+                "cvd_slope_norm": intra["cvd_slope_norm"] if intra else None,
                 "absorption_z": intra["absorption_z"] if intra else None,
                 "trade_speed_z": intra["trade_speed_z"] if intra else None,
                 "price_efficiency_z": intra["price_efficiency_z"] if intra else None,

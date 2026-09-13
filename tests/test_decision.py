@@ -72,7 +72,11 @@ class TestExitLogic:
         action, _ = decide_exit(score=45, ctx=ExitContext(price=100, stop_loss=90))
         assert action == Action.REDUCE
 
-    def test_distribution_warning(self):
+    def test_distribution_warning(self, monkeypatch):
+        from app.core.config import get_thresholds
+
+        # 預設關閉（docs/12 Phase 3A）；此處驗證開啟且三訊號齊全時的判斷邏輯
+        monkeypatch.setitem(get_thresholds().exit_rules, "distribution_enabled", True)
         ctx = ExitContext(
             price=100, stop_loss=90, price_new_high=True,
             cvd_slope=-1.0, large_trade_delta=-500, buy_absorption_rising=True,

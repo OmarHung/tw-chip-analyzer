@@ -14,7 +14,7 @@ class Action(str, Enum):
 class IntradayFeatures:
     cvd_z: float = 0.0
     large_trade_delta_z: float = 0.0
-    obi: float = 0.0
+    cvd_slope_norm: float = 0.0  # CVD 斜率（每分鐘量正規化，-1..1）；非 OBI
     absorption_z: float = 0.0
     trade_speed_z: float = 0.0
     price_efficiency_z: float = 0.0

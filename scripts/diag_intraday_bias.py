@@ -34,7 +34,7 @@ from app.repositories.market import load_market_context
 from app.services.analysis import AnalysisService, analyze_market
 
 _INTRADAY_COLS = (
-    "cvd_z", "large_trade_delta_z", "intraday_obi",
+    "cvd_z", "large_trade_delta_z", "cvd_slope_norm",
     "absorption_z", "trade_speed_z", "price_efficiency_z",
 )
 

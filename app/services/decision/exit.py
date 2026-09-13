@@ -13,9 +13,10 @@ class ExitContext:
     stop_loss: float
     entry_price: float | None = None  # 持倉成本；有值時 TP 以成本為基準
     price_new_high: bool = False
-    cvd_slope: float = 0.0
-    large_trade_delta: float = 0.0
-    buy_absorption_rising: bool = False
+    # 出貨警示所需的「真實」單股訊號；None = 無可靠來源（不可用橫斷面 z 值替代）
+    cvd_slope: float | None = None
+    large_trade_delta: float | None = None
+    buy_absorption_rising: bool | None = None
 
 
 def decide_exit(
@@ -36,9 +37,12 @@ def decide_exit(
     if score < sig["reduce_score"]:
         return Action.REDUCE, ["籌碼分數轉弱，建議減碼"]
 
-    # 3) Distribution Warning（出貨警示）
+    # 3) Distribution Warning（出貨警示）：預設關閉，且三個真實訊號都有值才判斷（docs/12 Phase 3A）
+    signals_known = None not in (ctx.cvd_slope, ctx.large_trade_delta, ctx.buy_absorption_rising)
     if (
-        ctx.price_new_high
+        ex.get("distribution_enabled", False)
+        and signals_known
+        and ctx.price_new_high
         and ctx.cvd_slope <= ex["distribution_cvd_slope_max"]
         and ctx.large_trade_delta <= ex["distribution_large_delta_max"]
         and ctx.buy_absorption_rising

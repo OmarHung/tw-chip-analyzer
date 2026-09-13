@@ -28,7 +28,7 @@ FEAT_COLS = [
     "foreign_5d_z", "trust_5d_z", "dealer_5d_z",
     "margin_balance_change_z", "short_balance_change_z",
     "large_holder_ratio_change_z", "retail_holder_ratio_change_z",
-    "cvd_z", "large_trade_delta_z", "intraday_obi",
+    "cvd_z", "large_trade_delta_z", "cvd_slope_norm",
 ]
 # signal_snapshot 分項分數 + 總分
 SCORE_COLS = [

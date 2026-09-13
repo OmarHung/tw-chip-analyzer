@@ -10,7 +10,7 @@ def intraday_score(f: IntradayFeatures, w: dict) -> float:
         w["large_trade_delta"] * squash_z(f.large_trade_delta_z)
         + w["cvd"] * squash_z(f.cvd_z)
         + w["absorption"] * squash_z(f.absorption_z)
-        + w["obi"] * clamp(f.obi)
+        + w["cvd_slope"] * clamp(f.cvd_slope_norm)
         + w["trade_speed"] * squash_z(f.trade_speed_z)
         + w["price_efficiency"] * squash_z(f.price_efficiency_z)
     )

@@ -65,7 +65,7 @@ async def test_intraday_cross_sectional_z_and_null(db_session):
     assert a.cvd_z > b.cvd_z
     assert a.cvd_z > 0 > b.cvd_z
     # 無逐筆的標的維持 NULL
-    assert c.cvd_z is None and c.large_trade_delta_z is None and c.intraday_obi is None
+    assert c.cvd_z is None and c.large_trade_delta_z is None and c.cvd_slope_norm is None
 
 
 async def test_analyze_includes_intraday_when_present(db_session):
@@ -74,11 +74,11 @@ async def test_analyze_includes_intraday_when_present(db_session):
     # 有 intraday 資料（強買） vs 無 intraday（NULL）
     with_intra = FeatureDaily(
         symbol="AAA", data_date=TARGET, available_at=availability_for(TARGET),
-        close=100, cvd_z=2.0, large_trade_delta_z=2.0, intraday_obi=0.8,
+        close=100, cvd_z=2.0, large_trade_delta_z=2.0, cvd_slope_norm=0.8,
     )
     without = FeatureDaily(
         symbol="BBB", data_date=TARGET, available_at=availability_for(TARGET),
-        close=100, cvd_z=None, large_trade_delta_z=None, intraday_obi=None,
+        close=100, cvd_z=None, large_trade_delta_z=None, cvd_slope_norm=None,
     )
 
     r_with = svc.analyze(with_intra)

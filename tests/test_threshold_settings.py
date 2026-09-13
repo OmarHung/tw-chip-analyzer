@@ -40,7 +40,7 @@ class TestPureHelpers:
         assert base["signal"]["buy_score"] == 75  # 原 dict 不被改
 
     def test_unknown_override_keys_are_ignored(self):
-        out = reg.apply_overrides(BASE, {"weights.intraday.obi": 0.2})
+        out = reg.apply_overrides(BASE, {"weights.intraday.removed_factor": 0.2})
         assert out == BASE
 
     def test_validate_type_and_range(self):

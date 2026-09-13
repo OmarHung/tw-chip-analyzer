@@ -99,7 +99,7 @@ _SPECS: tuple[SettingSpec, ...] = (
     _s("weights.intraday.large_trade_delta", "大單淨額", "權重：盤中", "rebuild", min=0, max=1),
     _s("weights.intraday.cvd", "主動買賣", "權重：盤中", "rebuild", min=0, max=1),
     _s("weights.intraday.absorption", "吸收", "權重：盤中", "rebuild", min=0, max=1),
-    _s("weights.intraday.obi", "CVD 斜率（obi）", "權重：盤中", "rebuild", min=0, max=1),
+    _s("weights.intraday.cvd_slope", "CVD 斜率", "權重：盤中", "rebuild", min=0, max=1),
     _s("weights.intraday.trade_speed", "成交加速", "權重：盤中", "rebuild", min=0, max=1),
     _s("weights.intraday.price_efficiency", "價格效率", "權重：盤中", "rebuild", min=0, max=1),
     # --- 逐筆批次（live，下次批次生效）---

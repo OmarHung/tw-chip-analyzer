@@ -69,7 +69,7 @@ class AnalysisService:
         return IntradayFeatures(
             cvd_z=_f(fd.cvd_z),
             large_trade_delta_z=_f(fd.large_trade_delta_z),
-            obi=_f(fd.intraday_obi),
+            cvd_slope_norm=_f(fd.cvd_slope_norm),
             absorption_z=_f(fd.absorption_z),
             trade_speed_z=_f(fd.trade_speed_z),
             price_efficiency_z=_f(fd.price_efficiency_z),
@@ -129,16 +129,13 @@ class AnalysisService:
             if position.stop_loss is not None
             else stop_for(position.entry_price, atr14, swing_low, self.t)
         )
-        # 出貨警示需逐筆訊號;無逐筆時維持預設(不觸發),不以缺值推論背離
-        has_intraday = fd.cvd_z is not None and fd.large_trade_delta_z is not None
+        # 出貨警示的 slope / raw delta / rising 目前沒有可靠的單股時序來源：一律 None。
+        # 不可用橫斷面 cvd_z、large_trade_delta_z 的正負或 absorption_z>0 冒充（docs/12 Phase 3A）。
         return ExitContext(
             price=last_price,
             stop_loss=stop,
             entry_price=position.entry_price,
             price_new_high=resistance is not None and last_price >= resistance,
-            cvd_slope=_f(fd.cvd_z) if has_intraday else 0.0,
-            large_trade_delta=_f(fd.large_trade_delta_z) if has_intraday else 0.0,
-            buy_absorption_rising=has_intraday and _f(fd.absorption_z) > 0,
         )
 
     def analyze(

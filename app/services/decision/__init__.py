@@ -43,24 +43,32 @@ def decide(
         ectx = exit_ctx or ExitContext(price=last_price, stop_loss=plan.stop_loss)
         action, gate = decide_exit(score, ectx, t)
         has_plan = action in (Action.HOLD, Action.REDUCE)
-        tp1, tp2 = plan.tp1, plan.tp2
+        tp1: float | None = plan.tp1
+        tp2: float | None = plan.tp2
+        notes: list[str] = []
         if ectx.entry_price is not None:
-            risk = max(ectx.entry_price - ectx.stop_loss, 0.0)
-            tp1 = round(ectx.entry_price + t.risk["tp1_r"] * risk, 2)
-            tp2 = round(ectx.entry_price + t.risk["tp2_r"] * risk, 2)
+            if ectx.stop_loss < ectx.entry_price:
+                risk = ectx.entry_price - ectx.stop_loss
+                tp1 = round(ectx.entry_price + t.risk["tp1_r"] * risk, 2)
+                tp2 = round(ectx.entry_price + t.risk["tp2_r"] * risk, 2)
+            else:
+                # 停損已移到成本以上（合法的移動停損）：無法從目前停損還原初始 R，
+                # 不推導 TP，避免 R=0 讓 TP1/TP2 退化成成本價（docs/12 Phase 4）
+                tp1 = tp2 = None
+                if has_plan:
+                    notes.append("停損已移至成本以上，無初始風險資料，未自動推導 TP")
         # 現價已越過的 TP 不再是「目標」：欄位留空、改以原因說明，避免顯示低於現價的停利價
-        reached: list[str] = []
         if has_plan:
-            if last_price >= tp1:
-                reached.append(f"現價已達 TP1（{tp1:g}）")
+            if tp1 is not None and last_price >= tp1:
+                notes.append(f"現價已達 TP1（{tp1:g}）")
                 tp1 = None
-            if last_price >= tp2:
-                reached.append(f"現價已達 TP2（{tp2:g}）")
+            if tp2 is not None and last_price >= tp2:
+                notes.append(f"現價已達 TP2（{tp2:g}）")
                 tp2 = None
         return SignalResult(
             score=score,
             action=action,
-            reasons=reasons + gate + reached,
+            reasons=reasons + gate + notes,
             entry_zone=None,
             stop_loss=ectx.stop_loss if has_plan else None,
             take_profit_1=tp1 if has_plan else None,

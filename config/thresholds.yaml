@@ -51,7 +51,10 @@ entry_filter:
   strong_bear_market_score: -0.5
 
 exit:
-  # Distribution Warning：價創高但買盤/大單背離、上方賣壓增
+  # Distribution Warning：價創高但買盤/大單背離、上方賣壓增。
+  # 預設關閉(docs/12 Phase 3A):需要單股時序 CVD slope、單股 raw 大單淨額、可證明「增加中」的
+  # 買方吸收三者皆有定義並經多日逐筆驗證後才可開啟;不得以橫斷面 z 值替代。
+  distribution_enabled: false
   distribution_cvd_slope_max: 0.0
   distribution_large_delta_max: 0.0
 
@@ -145,7 +148,9 @@ weights:
     large_trade_delta: 0.30
     cvd: 0.25
     absorption: 0.20
-    obi: 0.10
+    # CVD 斜率(每分鐘量正規化)。原名 obi 但並非委買委賣量失衡——目前無五檔量資料,
+    # 真 OBI 留待 realtime order book(docs/12 Phase 3B)。權重未調整。
+    cvd_slope: 0.10
     trade_speed: 0.10
     price_efficiency: 0.05
   institutional:

@@ -14,7 +14,7 @@ from app.services.normalize import percentile_rank, rolling_zscore, squash_z
 def _bullish():
     return (
         IntradayFeatures(
-            cvd_z=1.8, large_trade_delta_z=2.1, obi=0.28,
+            cvd_z=1.8, large_trade_delta_z=2.1, cvd_slope_norm=0.28,
             absorption_z=1.3, trade_speed_z=1.0, price_efficiency_z=0.4,
         ),
         DailyFeatures(
@@ -32,7 +32,7 @@ def _bullish():
 
 def _bearish():
     return (
-        IntradayFeatures(cvd_z=-1.8, large_trade_delta_z=-2.0, obi=-0.3, absorption_z=-1.0),
+        IntradayFeatures(cvd_z=-1.8, large_trade_delta_z=-2.0, cvd_slope_norm=-0.3, absorption_z=-1.0),
         DailyFeatures(foreign_5d_z=-1.2, trust_5d_z=-1.5, margin_balance_change_z=1.5, sbl_change_z=1.5),
         WeeklyFeatures(large_holder_ratio_change_z=-1.2, retail_holder_ratio_change_z=1.2),
         MarketContext(market_trend_score=-0.6, industry_trend_score=-0.5),
@@ -155,7 +155,7 @@ class TestPercentileGroupedByComponents:
             foreign_5d_z=foreign,
             cvd_z=0.0 if with_intraday else None,
             large_trade_delta_z=0.0 if with_intraday else None,
-            intraday_obi=0.0 if with_intraday else None,
+            cvd_slope_norm=0.0 if with_intraday else None,
             absorption_z=0.0 if with_intraday else None,
             trade_speed_z=0.0 if with_intraday else None,
             price_efficiency_z=0.0 if with_intraday else None,
