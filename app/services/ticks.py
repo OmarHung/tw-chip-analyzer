@@ -6,7 +6,7 @@ import datetime as dt
 from dataclasses import dataclass, field
 from typing import Literal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.shioaji_market import fetch_ticks_sync, reset_api
@@ -49,23 +49,40 @@ class TickFetch:
     error: str | None = None
 
 
-async def fetch_ticks(session: AsyncSession, symbol: str, date: dt.date) -> TickFetch:
-    # 1) DB 快取
-    cached = (
+async def _cached(session: AsyncSession, symbol: str, date: dt.date) -> TickFetch | None:
+    rows = (
         await session.execute(
             select(RawTick)
             .where(RawTick.symbol == symbol, RawTick.data_date == date)
             .order_by(RawTick.ts, RawTick.id)  # 同 ts 依原始成交序，結果可重現
         )
     ).scalars().all()
-    if cached:
-        return TickFetch(
-            "cached",
-            [
-                _row_to_api(r.ts, r.price, r.volume, r.bid_price, r.ask_price, r.aggressor_side)
-                for r in cached
-            ],
-        )
+    if not rows:
+        return None
+    return TickFetch(
+        "cached",
+        [
+            _row_to_api(r.ts, r.price, r.volume, r.bid_price, r.ask_price, r.aggressor_side)
+            for r in rows
+        ],
+    )
+
+
+async def fetch_ticks(session: AsyncSession, symbol: str, date: dt.date) -> TickFetch:
+    # 1) DB 快取（快速路徑，不取鎖）
+    if (hit := await _cached(session, symbol, date)) is not None:
+        return hit
+
+    # 未命中：同一 symbol-date 串行化。個股頁會同時打 /ticks、/orderflow，
+    # 不加鎖時各自抓取並「刪當日再插」，READ COMMITTED 下互不可見 → 寫成 2～3 倍。
+    # 交易層級 advisory lock 於 commit/rollback 時自動釋放；取得後重查，先到者已寫入就直接用。
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"raw_tick:{symbol}:{date.isoformat()}"},
+    )
+    if (hit := await _cached(session, symbol, date)) is not None:
+        await session.commit()  # 釋放鎖
+        return hit
 
     # 2) 向 Shioaji 抓取（同步 API 於 thread 執行，避免阻塞事件迴圈）
     try:
@@ -74,8 +91,10 @@ async def fetch_ticks(session: AsyncSession, symbol: str, date: dt.date) -> Tick
         logger.warning("Shioaji 逐筆抓取失敗 %s %s: %s", symbol, date, e)
         # session 可能已失效(token 過期/斷線)且不會自行復原;丟棄以便下次重新登入
         reset_api()
+        await session.rollback()  # 釋放鎖
         return TickFetch("failed", error=str(e))
     if not ticks:
+        await session.rollback()  # 釋放鎖
         return TickFetch("empty")
 
     # 3) 存入 raw_tick（FK 保護 + 先清當日再插，維持冪等）
