@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.models.mixins import AvailabilityMixin, TimestampMixin
+from app.db.models.mixins import AvailabilityMixin, TimestampMixin, UpdatedAtMixin
 
 
 class FeatureDaily(Base, AvailabilityMixin, TimestampMixin):
@@ -75,7 +75,7 @@ class FeatureDaily(Base, AvailabilityMixin, TimestampMixin):
     price_efficiency_z: Mapped[float | None] = mapped_column()
 
 
-class SignalSnapshot(Base, AvailabilityMixin, TimestampMixin):
+class SignalSnapshot(Base, AvailabilityMixin, TimestampMixin, UpdatedAtMixin):
     """每個訊號的完整快照（含 feature payload），供回測與未來 ML。"""
 
     __tablename__ = "signal_snapshot"

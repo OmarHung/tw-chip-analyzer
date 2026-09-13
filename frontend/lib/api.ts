@@ -373,6 +373,8 @@ export interface ForwardReport {
   as_of: string | null;
   total_signals: number;
   evaluated_latest_pending?: number;
+  pending_entry?: number; // 最新交易日訊號，尚無下一交易日可進場
+  pending_exit_min_horizon?: number; // 已進場但最短 horizon 出場價未出現
   horizons: ForwardHorizon[];
 }
 

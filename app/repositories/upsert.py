@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +39,10 @@ async def upsert_many(
     for chunk in _chunks(rows, n_cols):
         stmt = insert(model).values(chunk)
         set_ = {c: getattr(stmt.excluded, c) for c in update_columns}
+        # Core upsert 不保證觸發 ORM onupdate：有 updated_at 的表在衝突更新時明確設 DB now()，
+        # 否則同筆覆寫偵測不到（前瞻驗證快取失效依賴它，docs/12 Phase 5）
+        if "updated_at" in model.__table__.columns and "updated_at" not in set_:
+            set_["updated_at"] = func.now()
         stmt = stmt.on_conflict_do_update(index_elements=index_elements, set_=set_)
         await session.execute(stmt)
     return len(rows)

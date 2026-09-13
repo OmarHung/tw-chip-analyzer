@@ -13,6 +13,17 @@ class TimestampMixin:
     )
 
 
+class UpdatedAtMixin:
+    """資料版本戳：新增用 DB now()；ORM/Core update 由 onupdate、PG upsert 由 upsert_many 明確設定。
+
+    供「同筆覆寫」的快取失效判斷（例如 rebuild_signals 覆寫同日期同筆數，count/max(date) 不變）。
+    """
+
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
+    )
+
+
 class AvailabilityMixin:
     """Look-ahead bias 防護（見 docs/06 §18）。
 

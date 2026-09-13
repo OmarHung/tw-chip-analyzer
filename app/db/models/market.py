@@ -8,7 +8,7 @@ from sqlalchemy import BigInteger, Date, ForeignKey, Numeric, String, UniqueCons
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.models.mixins import AvailabilityMixin, TimestampMixin
+from app.db.models.mixins import AvailabilityMixin, TimestampMixin, UpdatedAtMixin
 
 
 class Stock(Base, TimestampMixin):
@@ -51,7 +51,7 @@ class MarketDaily(Base, AvailabilityMixin, TimestampMixin):
     market_trend_score: Mapped[float | None] = mapped_column()  # -1..1
 
 
-class DailyPrice(Base, AvailabilityMixin, TimestampMixin):
+class DailyPrice(Base, AvailabilityMixin, TimestampMixin, UpdatedAtMixin):
     """日 OHLCV（含成交金額，供流動性/量比）。
 
     注意：close 為 TWSE 原始（未還原）收盤價。除權息／拆股的還原因子存於
@@ -73,7 +73,7 @@ class DailyPrice(Base, AvailabilityMixin, TimestampMixin):
     turnover: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))  # 成交金額 TWD
 
 
-class CorporateAction(Base, AvailabilityMixin, TimestampMixin):
+class CorporateAction(Base, AvailabilityMixin, TimestampMixin, UpdatedAtMixin):
     """公司行動造成的價格斷點事件。來源（皆 TWSE，欄位含前收/參考價）：
     - TWT49U 除權除息（kind：權/息/權息）
     - TWTB8U 變更股票面額（拆股/面額變更，kind：面額）

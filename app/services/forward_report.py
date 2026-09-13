@@ -10,8 +10,8 @@
 每天 EOD 落地新 snapshot 後,已實現的 forward 樣本自然增加——牆上時間
 每走一天,這份報告就多一天「先寫死預測、後看結果」的誠實 OOS 證據。
 
-快取 key 含最新訊號日、最新價格日、公司行動與 backtest 設定:價格或還原因子更新時,
-即使最新訊號日不變也會重算。
+快取 key 含三張表的 max(updated_at) 與筆數(偵測同筆覆寫與刪除)及 backtest 設定 hash:
+重建分數、修正既有價格、更新公司行動因子後,不重啟 API 也會重算(docs/12 Phase 5)。
 """
 from __future__ import annotations
 
@@ -59,11 +59,12 @@ async def _cache_key(session: AsyncSession, bt: dict) -> tuple:
     row = (
         await session.execute(text(
             "select (select max(data_date) from signal_snapshot),"
+            " (select max(updated_at) from signal_snapshot),"
             " (select count(*) from signal_snapshot),"
-            " (select max(data_date) from daily_price),"
+            " (select max(updated_at) from daily_price),"
             " (select count(*) from daily_price),"
-            " (select count(*) from corporate_action),"
-            " (select max(created_at) from corporate_action)"
+            " (select max(updated_at) from corporate_action),"
+            " (select count(*) from corporate_action)"
         ))
     ).one()
     cfg_hash = hashlib.sha1(
@@ -132,6 +133,13 @@ async def build_forward_report(session: AsyncSession) -> dict:
         prices[["symbol", "data_date", "entry", *(f"exit{k}" for k in horizons)]],
         on=["symbol", "data_date"], how="left",
     )
+    # pending 必須在丟棄無進場列之前計算（docs/12 Phase 5）：
+    # - pending_entry：訊號日即最新交易日，下一交易日尚未發生（真正等待中，非停牌丟棄）
+    # - pending_exit_min_horizon：已有進場但最短 horizon 的出場價尚未出現
+    last_trading_day = prices["data_date"].max()
+    min_h = min(horizons)
+    pending_entry = int((df["data_date"] >= last_trading_day).sum())
+    pending_exit = int((df["entry"].notna() & df[f"exit{min_h}"].isna()).sum())
     df = df[df["entry"] > 0]
     df["score"] = df["score"].astype(float)
     df["bucket"] = [_bucket_label(s, buckets) for s in df["score"]]
@@ -172,7 +180,9 @@ async def build_forward_report(session: AsyncSession) -> dict:
     report = {
         "as_of": str(latest),
         "total_signals": int(len(snaps)),
-        "evaluated_latest_pending": int((df[f"exit{min(horizons)}"].isna()).sum()),
+        "pending_entry": pending_entry,
+        "pending_exit_min_horizon": pending_exit,
+        "evaluated_latest_pending": pending_entry + pending_exit,  # 相容舊前端欄位
         "horizons": out_h,
     }
     _cache.clear()
