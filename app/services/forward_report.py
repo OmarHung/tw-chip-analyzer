@@ -10,7 +10,8 @@
 每天 EOD 落地新 snapshot 後,已實現的 forward 樣本自然增加——牆上時間
 每走一天,這份報告就多一天「先寫死預測、後看結果」的誠實 OOS 證據。
 
-快取 key 含三張表的 max(updated_at) 與筆數(偵測同筆覆寫與刪除)及 backtest 設定 hash:
+快取 key 含三張表的 max(updated_at) 與筆數(偵測同筆覆寫與刪除)及報告設定 hash
+(backtest + validation.min_ic_names,docs/13 Phase 3):
 重建分數、修正既有價格、更新公司行動因子後,不重啟 API 也會重算(docs/12 Phase 5)。
 """
 from __future__ import annotations
@@ -59,7 +60,15 @@ def _ic_stats(ics: list[float], horizon: int) -> dict:
     }
 
 
-async def _cache_key(session: AsyncSession, bt: dict) -> tuple:
+def _report_config(t) -> dict:
+    """報告實際讀取的全部設定；計算與 cache key 共用同一份解析值（docs/13 Phase 3）。"""
+    return {
+        "backtest": t.backtest,
+        "validation": {"min_ic_names": _min_ic_names(t)},
+    }
+
+
+async def _cache_key(session: AsyncSession, report_config: dict) -> tuple:
     row = (
         await session.execute(text(
             "select (select max(data_date) from signal_snapshot),"
@@ -72,7 +81,7 @@ async def _cache_key(session: AsyncSession, bt: dict) -> tuple:
         ))
     ).one()
     cfg_hash = hashlib.sha1(
-        json.dumps(bt, sort_keys=True, default=str).encode()
+        json.dumps(report_config, sort_keys=True, default=str).encode()
     ).hexdigest()
     return (*row, cfg_hash)
 
@@ -104,9 +113,10 @@ def _price_frame(bars_by_sym: dict, horizons: list[int]) -> pd.DataFrame:
 
 async def build_forward_report(session: AsyncSession) -> dict:
     thresholds = get_thresholds()
-    bt = thresholds.backtest
-    min_names = _min_ic_names(thresholds)
-    key = await _cache_key(session, bt)
+    report_config = _report_config(thresholds)
+    bt = report_config["backtest"]
+    min_names = report_config["validation"]["min_ic_names"]
+    key = await _cache_key(session, report_config)
     latest = key[0]
     if latest is None:
         return {"as_of": None, "horizons": [], "total_signals": 0}

@@ -36,7 +36,8 @@ Backtest Metrics：Signal Count、Win Rate、Avg / Median Return、Profit Factor
 - **統計**：逐日 rank IC 的 t 值用 **Newey–West**（lag = horizon − 1），樸素 t 另列 `ic_t_naive` 僅供對照。
   重疊的 k 日報酬會讓樸素 t 高估顯著性（實測舊分數 20D：樸素 2.31 → NW 1.50）。
 - **快取**：key = `signal_snapshot` / `daily_price` / `corporate_action` 的 `max(updated_at)` + 筆數 +
-  backtest 設定 hash；重建覆寫同日期同筆數也會失效，不需重啟 API。
+  報告設定 hash（`backtest` 全部 + `validation.min_ic_names`，與計算共用同一份解析值）；
+  重建覆寫同日期同筆數、或 reload 後只改任一報告設定，都會失效，不需重啟 API。
 - **pending**：`pending_entry` = 最新交易日訊號（尚無下一交易日）；`pending_exit_min_horizon` = 已進場但
   最短 horizon 出場價未出現。
 - **重建後的歷史分數屬樣本內**（算法看過這段資料後修正）；誠實 OOS 從修正部署後每日 EOD 新寫入的
