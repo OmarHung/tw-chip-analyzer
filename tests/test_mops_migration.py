@@ -17,7 +17,7 @@ import app.db.models  # noqa: F401
 ROOT = Path(__file__).resolve().parents[1]
 PREV = "b8e1f5a3c7d9"
 MOPS_BASE = "c9d2e7f1a3b5"
-HEAD = "d4f7a2c9e1b3"
+HEAD = "a8e3c5f7b2d1"  # stock.website（疊在 MOPS 修正 d4f7a2c9e1b3 之上）
 TABLES = ("insider_holding_monthly", "insider_transfer_declaration", "mops_fetch_coverage",
           "mops_shadow_feature_daily")
 

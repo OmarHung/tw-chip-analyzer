@@ -43,6 +43,7 @@ class MarketCell(BaseModel):
     symbol: str
     name: str
     industry: str | None = None  # None＝MOPS 無產業別（興櫃轉上市初期、F 股等）
+    website: str | None = None   # 公司網址；有值時前端向 /api/stocks/{symbol}/logo 取商標
     turnover: float              # 方塊面積
     change_pct: float | None = None
     chip_score: float
@@ -94,7 +95,7 @@ async def market_heatmap(
         covered_turnover=round(covered / total_turnover, 4) if total_turnover else 0.0,
         rows=[
             MarketCell(
-                symbol=r.symbol, name=r.name, industry=r.industry,
+                symbol=r.symbol, name=r.name, industry=r.industry, website=r.website,
                 turnover=r.turnover, change_pct=r.change_pct,
                 chip_score=r.chip_score, institutional=r.institutional,
                 action=r.action,

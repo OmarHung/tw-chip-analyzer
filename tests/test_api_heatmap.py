@@ -32,7 +32,11 @@ SEMI_TURNOVERS = [5e10, 2e10, 8e9, 3e9, 1e9]
 
 async def _seed(session):
     session.add_all(
-        [Stock(symbol=s, name=f"半導{s}", market="TWSE", industry="半導體") for s in SEMI]
+        [
+            Stock(symbol=s, name=f"半導{s}", market="TWSE", industry="半導體",
+                  website="https://www.tsmc.com" if s == "2330" else None)
+            for s in SEMI
+        ]
         + [Stock(symbol=s, name=f"金融{s}", market="TWSE", industry="金融保險") for s in FIN]
         # 無產業別（MOPS 查無）：treemap 仍應收錄，產業矩陣則無從歸類
         + [Stock(symbol="9999", name="未分類", market="TPEx", industry=None)]
@@ -120,6 +124,14 @@ async def test_market_heatmap_includes_industry_and_unclassified(client):
     rows = {row["symbol"]: row for row in r.json()["rows"]}
     assert rows["2330"]["industry"] == "半導體"
     assert rows["9999"]["industry"] is None   # 無產業別不代表要被丟掉
+
+
+async def test_market_heatmap_includes_name_and_website_for_logo(client):
+    r = await client.get("/api/heatmap/market?limit=100")
+    rows = {row["symbol"]: row for row in r.json()["rows"]}
+    assert rows["2330"]["name"] == "半導2330"
+    assert rows["2330"]["website"] == "https://www.tsmc.com"
+    assert rows["2454"]["website"] is None    # 無網址 → 前端退回代號徽章
 
 
 async def test_market_heatmap_min_turnover_filters(client):

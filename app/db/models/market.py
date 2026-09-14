@@ -21,6 +21,8 @@ class Stock(Base, TimestampMixin):
     market: Mapped[str] = mapped_column(String(8), nullable=False)  # TWSE / TPEX
     industry: Mapped[str | None] = mapped_column(String(32))
     shares_outstanding: Mapped[int | None] = mapped_column(BigInteger)
+    # 公司網址（MOPS 基本資料，已正規化）；熱力圖以其網域取 favicon 當商標
+    website: Mapped[str | None] = mapped_column(String(255))
 
 
 class MarketIndex(Base, AvailabilityMixin, TimestampMixin):

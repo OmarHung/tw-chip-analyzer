@@ -25,7 +25,9 @@ const GROUP_PADDING = { top: 13, right: 3, bottom: 3, left: 3 };
 const HEIGHT = 560;
 const MIN_LABEL_W = 42; // 小於這個寬高就只剩色塊，硬塞文字會糊成一片
 const MIN_LABEL_H = 24;
-const MIN_SUBLABEL_H = 42;
+const MIN_NAME_W = 76; // 代號與股名同列所需寬度，不夠就只留代號
+const MIN_VALUE_H = 34; // 再矮就只放代號那一行
+const LARGE_CELL = { w: 120, h: 80 }; // 大方塊放大字級，權值股一眼可辨
 
 function cellValue(cell: MarketHeatCell, metric: HeatMetric): number | null {
   if (metric === "return") return cell.change_pct;
@@ -109,7 +111,7 @@ export function MarketTreemap() {
                     title={`${cell.symbol} ${cell.name}｜${cell.industry ?? "未分類"}
 成交值 ${fmtTurnover(cell.turnover)}｜漲跌 ${formatHeatValue("return", cell.change_pct)}
 分數 ${cell.chip_score.toFixed(1)}｜法人 ${cell.institutional?.toFixed(1) ?? "—"}｜${cell.action}`}
-                    className="absolute overflow-hidden rounded-[2px] border border-black/30 transition-[filter] hover:brightness-125"
+                    className="absolute flex items-center justify-center overflow-hidden rounded-[2px] border border-black/30 transition-[filter] hover:brightness-125"
                     style={{
                       left: cell.x,
                       top: cell.y,
@@ -120,17 +122,7 @@ export function MarketTreemap() {
                     }}
                   >
                     {cell.w > MIN_LABEL_W && cell.h > MIN_LABEL_H && (
-                      // 代號與數值同色：濃底上兩行都必須翻成深字，只翻一行會有一行讀不到
-                      <span className={`block px-1 pt-0.5 ${heatTextClass(metric, v)}`}>
-                        <span className="block truncate font-mono text-[10px] leading-tight">
-                          {cell.symbol}
-                        </span>
-                        {cell.h > MIN_SUBLABEL_H && (
-                          <span className="block truncate font-mono text-[9px] leading-tight opacity-80 tnum">
-                            {formatHeatValue(metric, v)}
-                          </span>
-                        )}
-                      </span>
+                      <CellLabel cell={cell} metric={metric} value={v} />
                     )}
                   </Link>
                 );
@@ -150,6 +142,50 @@ export function MarketTreemap() {
         )}
       </div>
     </Card>
+  );
+}
+
+type CellLabelProps = {
+  cell: MarketHeatCell & { w: number; h: number };
+  metric: HeatMetric;
+  value: number | null;
+};
+
+/* 方塊越大放越多：代號 →（同列）股名 → 數值。
+   所有文字同色：濃底上必須整組翻成深字，只翻一行會有一行讀不到。 */
+function CellLabel({ cell, metric, value }: CellLabelProps) {
+  const isLarge = cell.w >= LARGE_CELL.w && cell.h >= LARGE_CELL.h;
+  const showName = cell.w >= MIN_NAME_W;
+  const showValue = cell.h >= MIN_VALUE_H;
+
+  return (
+    // 方塊本身是 flex 置中容器（見 Link）；這裡撐滿寬度才能讓 truncate 正常裁切。
+    <span
+      className={`flex w-full flex-col items-center gap-0.5 px-1 text-center ${heatTextClass(metric, value)}`}
+    >
+      <span className="flex w-full min-w-0 items-baseline justify-center gap-1">
+        {/* 代號不裁切：它是辨識主鍵，寧可擠掉股名 */}
+        <span
+          className={`shrink-0 font-mono leading-tight ${isLarge ? "text-[12px]" : "text-[10px]"}`}
+        >
+          {cell.symbol}
+        </span>
+        {showName && (
+          <span
+            className={`truncate font-sans leading-tight ${isLarge ? "text-[12px]" : "text-[10px]"}`}
+          >
+            {cell.name}
+          </span>
+        )}
+      </span>
+      {showValue && (
+        <span
+          className={`block truncate font-mono leading-tight opacity-80 tnum ${isLarge ? "text-[11px]" : "text-[9px]"}`}
+        >
+          {formatHeatValue(metric, value)}
+        </span>
+      )}
+    </span>
   );
 }
 

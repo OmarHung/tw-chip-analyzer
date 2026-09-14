@@ -157,6 +157,12 @@ heatmap:
                              # 樣本太少的產業中位數是雜訊,寧可不給格子也不要誤導
   stock:                     # 個股籌碼分項 × 日期
     days: 60
+  logo:                      # treemap 商標代理(/api/stocks/{symbol}/logo,公司網域 favicon)
+    size_px: 64              # 向上游要的尺寸;只有 16px favicon 的站(如台積電)會回原尺寸
+    timeout_sec: 5
+    cache_ttl_hours: 24      # 命中快取;同時作為瀏覽器 Cache-Control max-age
+    miss_ttl_hours: 6        # 確定查無(上游 404)的快取;網路錯誤不快取
+    max_cache_entries: 4000  # 行程記憶體上限(全市場約 2000 個網域)
 
 # Backtest — 對應 docs/06 §17-18、docs/08 §31
 backtest:

@@ -1,4 +1,4 @@
-"""公司基本資料 → 產業別 / 已發行股數（MOPS openapi，上市與上櫃同一套代碼）。
+"""公司基本資料 → 產業別 / 已發行股數 / 公司網址（MOPS openapi，上市與上櫃同一套代碼）。
 
 TWSE `t187ap03_L` 用中文欄名、TPEx `mopsfin_t187ap03_O` 用英文欄名，內容同構。
 產業別只給代碼，這裡轉成中文名稱後存入 `stock.industry`——分組以名稱為準，上市/
@@ -6,7 +6,9 @@ TWSE `t187ap03_L` 用中文欄名、TPEx `mopsfin_t187ap03_O` 用英文欄名，
 """
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from app.importers.base import is_stock_symbol
 
@@ -65,7 +67,33 @@ def _shares(v: Any) -> int | None:
     return n if n > 0 else None
 
 
-def _row(sym: str, code: Any, shares: Any) -> dict | None:
+_HOSTNAME_RE = re.compile(r"^(?=.{4,253}$)([a-z0-9-]+\.)+[a-z]{2,}$")
+
+
+def normalize_website(v: Any) -> str | None:
+    """公司網址（申報者自填，格式混雜）→ `scheme://小寫host/path`；非網址回 None。
+
+    實際髒資料：無 scheme（`www.acc.com.tw`）、全大寫、`https:// www.x.com` 中間夾空白、
+    TPEx 尾端全形空白。只收 http/https 且 host 像網域者——結果會拿去當 favicon 網域查詢。
+    """
+    if v is None:
+        return None
+    s = re.sub(r"\s+", "", str(v))  # \s 含全形空白
+    if not s:
+        return None
+    if "://" not in s:
+        s = f"https://{s}"
+    try:
+        parts = urlsplit(s)
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower()
+    if parts.scheme.lower() not in ("http", "https") or not _HOSTNAME_RE.match(host):
+        return None
+    return urlunsplit((parts.scheme.lower(), host, parts.path, "", ""))
+
+
+def _row(sym: str, code: Any, shares: Any, website: Any) -> dict | None:
     sym = str(sym).strip()
     if not is_stock_symbol(sym):
         return None
@@ -75,6 +103,7 @@ def _row(sym: str, code: Any, shares: Any) -> dict | None:
         "symbol": sym,
         "industry": INDUSTRY_NAMES.get(c, c or None),
         "shares_outstanding": _shares(shares),
+        "website": normalize_website(website),
     }
 
 
@@ -83,7 +112,12 @@ def parse_twse_profiles(raw: list[dict]) -> list[dict]:
     out = [
         r
         for x in raw or []
-        if (r := _row(x.get("公司代號"), x.get("產業別"), x.get("已發行普通股數或TDR原股發行股數")))
+        if (r := _row(
+            x.get("公司代號"),
+            x.get("產業別"),
+            x.get("已發行普通股數或TDR原股發行股數"),
+            x.get("網址"),
+        ))
     ]
     return out
 
@@ -97,6 +131,7 @@ def parse_tpex_profiles(raw: list[dict]) -> list[dict]:
             x.get("SecuritiesCompanyCode"),
             x.get("SecuritiesIndustryCode"),
             x.get("IssueShares"),
+            x.get("WebAddress"),
         ))
     ]
     return out

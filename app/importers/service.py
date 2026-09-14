@@ -40,6 +40,7 @@ async def _import_profiles(session: AsyncSession, rows: list[dict]) -> int:
             .values(
                 industry=r["industry"],
                 shares_outstanding=r["shares_outstanding"],
+                website=r["website"],
             )
         )
         n += res.rowcount or 0

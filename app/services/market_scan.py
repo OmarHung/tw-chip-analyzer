@@ -29,6 +29,7 @@ class ScanRow:
     turnover: float
     rr: float | None
     industry: str | None
+    website: str | None = None
 
 
 async def scan_all(session: AsyncSession) -> tuple[dt.date | None, list[ScanRow]]:
@@ -39,7 +40,7 @@ async def scan_all(session: AsyncSession) -> tuple[dt.date | None, list[ScanRow]
         return None, []
 
     stmt = (
-        select(FeatureDaily, Stock.name, Stock.industry)
+        select(FeatureDaily, Stock.name, Stock.industry, Stock.website)
         .join(Stock, Stock.symbol == FeatureDaily.symbol)
         .where(FeatureDaily.data_date == as_of)
     )
@@ -47,9 +48,9 @@ async def scan_all(session: AsyncSession) -> tuple[dt.date | None, list[ScanRow]
     market = await load_market_context(session, as_of)
     pairs = (await session.execute(stmt)).all()
     # 橫斷面分析(percentile mapping 需整日一起算)
-    results = analyze_market(service, [(fd, name) for fd, name, _ in pairs], market)
+    results = analyze_market(service, [(fd, name) for fd, name, _, _ in pairs], market)
     rows: list[ScanRow] = []
-    for (fd, name, industry), r in zip(pairs, results):
+    for (fd, name, industry, website), r in zip(pairs, results):
         if not r.chip.has_chip_data:  # 無個股籌碼成分，不給分數（見 ChipScoreResult.has_chip_data）
             continue
         rows.append(
@@ -67,6 +68,7 @@ async def scan_all(session: AsyncSession) -> tuple[dt.date | None, list[ScanRow]
                 turnover=float(fd.turnover or 0),
                 rr=r.signal.risk_reward,
                 industry=industry,
+                website=website,
             )
         )
     return as_of, rows
