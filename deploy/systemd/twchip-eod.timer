@@ -1,9 +1,16 @@
 [Unit]
-Description=tw_chip_analyzer EOD 排程觸發(週一~週五 14:30 Asia/Taipei)
+Description=tw_chip_analyzer EOD 排程觸發(週一~週五 16:00 Asia/Taipei)
 
 [Timer]
 # 台股盤後。若主機時區非 Asia/Taipei,此處已明寫時區。
-OnCalendar=Mon..Fri 14:30 Asia/Taipei
+#
+# 16:00 而非收盤後的 14:30:法人、融資券、借券與 TPEx 報表上線時間比行情晚,
+# 太早跑只會抓到半套。時間須與 config/thresholds.yaml 的 schedule.eod 一致。
+#
+# 注意:本 timer 直接跑 scripts/eod.sh,**沒有**完整性檢查與延後重試——那是常駐
+# 排程器(app/jobs/scheduler.py,Docker 版走這條)才有的行為。若某日法人資料到
+# 16:00 仍未上線,這條路徑不會自己補,需手動 `./scripts/eod.sh YYYY-MM-DD`。
+OnCalendar=Mon..Fri 16:00 Asia/Taipei
 # 關機/休眠錯過時,開機後補跑一次(對每日累積很重要)
 Persistent=true
 Unit=twchip-eod.service

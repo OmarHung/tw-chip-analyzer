@@ -7,7 +7,7 @@
 瀏覽器 ─HTTPS→ 主機 nginx ┬ /      → web  容器 127.0.0.1:3000
                           └ /api/* → api  容器 127.0.0.1:8000
                                         db 容器(pgdata volume) ◄┘
-              api 容器內建 APScheduler → 週一–五 14:30(Asia/Taipei) 自動 EOD
+              api 容器內建 APScheduler → 週一–五 16:00(Asia/Taipei) 自動 EOD
 ```
 
 相關檔：根目錄 `Dockerfile`、`docker-entrypoint.sh`（啟動前自動 `alembic upgrade head`）、
@@ -174,8 +174,11 @@ docker compose exec -T api python -m scripts.diag_intraday_bias
 ## 重點與陷阱
 
 1. **EOD 排程**：`api` 容器內建 APScheduler（`config/thresholds.yaml` 的
-   `schedule.enabled: true`），單容器＝單實例，每交易日 14:30（Asia/Taipei）自動跑，
-   無重複跑問題，不需額外 cron 容器。
+   `schedule.enabled: true`），單容器＝單實例，每交易日 16:00（Asia/Taipei）自動跑，
+   無重複跑問題，不需額外 cron 容器。跑完會檢查行情／法人／融資券筆數是否達
+   `schedule.eod.completeness` 門檻，不完整（或因回補／腳本佔用單飛鎖而沒跑成）
+   則每 15 分鐘重試一次，最晚到 18:00。日誌可見 `EOD 完成` / `資料不完整：…` /
+   `已達截止時間…放棄重試` 三種結果。
 2. **同源免 CORS**：後端 `CORSMiddleware` 只放行 `localhost`（見 `app/main.py`）。
    靠主機 nginx 同源代理，勿讓瀏覽器跨網域直打後端。
 3. **逐筆非必需**：不填 `SJ_*` 也能運作，只是 intraday 分項中性——法人買賣超、

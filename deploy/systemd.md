@@ -6,7 +6,7 @@
 瀏覽器 ─HTTPS→ nginx ┬ /      → Next.js  127.0.0.1:3000  (twchip-web.service)
                      └ /api/* → uvicorn  127.0.0.1:8000  (twchip-api.service)
                                    PostgreSQL 16 ◄┘
-      systemd timer(週一–五 14:30 Asia/Taipei) → scripts/eod.sh  (twchip-eod.*)
+      systemd timer(週一–五 16:00 Asia/Taipei) → scripts/eod.sh  (twchip-eod.*)
 ```
 
 相關檔：`systemd/twchip-{api,web,eod}.service`、`systemd/twchip-eod.timer`、
@@ -142,5 +142,10 @@ sudo systemctl start twchip-eod.service && journalctl -u twchip-eod -f  # 手動
    正式環境靠 nginx 同源代理，勿讓瀏覽器直接跨網域打後端；否則需改 CORS 設定。
 3. **逐筆非必需**：不填 `SJ_*` 金鑰也能運作，只是 intraday 分項中性——法人買賣超、
    量價背離、主力估算成本等主力功能不受影響。
-4. **時區**：EOD 於 14:30 Asia/Taipei。timer 已明寫時區；若用 cron 請確認主機時區。
+4. **時區**：EOD 於 16:00 Asia/Taipei（替法人／融資券／借券／TPEx 報表留上線緩衝）。
+   timer 已明寫時區；若用 cron 請確認主機時區。時間須與 `config/thresholds.yaml`
+   的 `schedule.eod` 一致。
+   **timer 路徑沒有完整性檢查與延後重試**：那是常駐排程器（方案 A，`schedule.enabled=true`）
+   才有的行為。走 timer 時若某日法人資料到 16:00 仍未上線，不會自動補，需手動
+   `./scripts/eod.sh YYYY-MM-DD` 重跑（冪等）。
 5. **備份**：`pg_dump twchip` 定期備份；`.env` 含密碼，權限 600、勿進版控。
