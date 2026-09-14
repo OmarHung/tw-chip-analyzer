@@ -7,6 +7,7 @@ import { TaskPanel } from "@/components/TaskPanel";
 import {
   api,
   type BackfillRequest,
+  type OpsCoverage,
   type OpsJob,
   type OpsStatusResponse,
   type OpsTickDay,
@@ -26,6 +27,13 @@ function fmtBytes(v: number | null): string {
 
 function fmtNum(v: number): string {
   return v.toLocaleString("zh-TW");
+}
+
+/* 逐筆總筆數。raw_tick 已達數千萬列,精確 count(*) 是全表掃描(曾拖垮整台機器),
+   後端改回 pg_class 的估計值——估計時要標「約」,不能讓人以為是精確數。 */
+function tickCountLabel(coverage: OpsCoverage): string {
+  const estimated = coverage.row_counts_estimated?.includes("raw_tick");
+  return `${estimated ? "約 " : ""}${fmtNum(coverage.row_counts.raw_tick)}`;
 }
 
 /* 配額用量色:非價格語意,純危險度。高=紅(緊)、中=金(留意)、低=灰。 */
@@ -356,7 +364,7 @@ export default function SystemPage() {
             />
             <StatCard
               label="逐筆總筆數"
-              value={fmtNum(data.coverage.row_counts.raw_tick)}
+              value={tickCountLabel(data.coverage)}
               sub={`涵蓋 ${data.coverage.sources.raw_tick.days} 個交易日`}
             />
           </div>

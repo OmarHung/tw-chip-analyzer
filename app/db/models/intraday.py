@@ -25,7 +25,13 @@ class RawTick(Base, TimestampMixin):
     """逐筆成交（來源：Shioaji ticks）。aggressor_side：1=買(外盤)、-1=賣(內盤)、0=無法判定。"""
 
     __tablename__ = "raw_tick"
-    __table_args__ = (Index("ix_raw_tick_symbol_date", "symbol", "data_date"),)
+    __table_args__ = (
+        Index("ix_raw_tick_symbol_date", "symbol", "data_date"),
+        # 系統頁的涵蓋度統計(日期清單 skip scan、逐日檔數/筆數)靠這條走 index-only
+        # scan。沒有它就得掃 heap 上千萬列,冷 cache 時會拖垮整台機器
+        # (見 repositories/ops.py 的 raw_tick 段落)。
+        Index("ix_raw_tick_date_symbol", "data_date", "symbol"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     symbol: Mapped[str] = mapped_column(

@@ -4,7 +4,7 @@ import { Card, SectionTitle, StatCard } from "@/components/Card";
 import { Change } from "@/components/Change";
 import { IndustryHeatmap } from "@/components/heatmap/IndustryHeatmap";
 import { MarketTreemap } from "@/components/heatmap/MarketTreemap";
-import { api, type Action, type DivergenceScanRow } from "@/lib/api";
+import { ApiTimeoutError, api, type Action, type DivergenceScanRow } from "@/lib/api";
 import { dirColor, scoreColor } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,18 @@ export default async function DashboardPage() {
   let data;
   try {
     data = await api.dashboard();
-  } catch {
-    return <ErrorState message="無法連線後端 API，請確認 uvicorn 執行中。" />;
+  } catch (e) {
+    // 逾時與連不上要分開講：前者多半是後端正在跑重建/回補，重整就會好；
+    // 後者才需要去看 uvicorn。逾時若不在這裡攔下，整頁會死在 nginx 的 504。
+    return (
+      <ErrorState
+        message={
+          e instanceof ApiTimeoutError
+            ? "後端回應逾時，可能正在重建特徵或執行回補。請稍候重新整理。"
+            : "無法連線後端 API，請確認 uvicorn 執行中。"
+        }
+      />
+    );
   }
   if (data.total === 0) {
     return <ErrorState message="尚無特徵資料。請先執行盤後匯入 job。" />;

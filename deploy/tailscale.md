@@ -54,6 +54,10 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        # 總覽頁是 SSR,HTML 要等後端回來。不設這行會吃 nginx 預設 60s,後端一慢
+        # 就變 504(2026-09-15 事故)。90s 要大於前端 SSR 逾時(lib/api.ts 預設 12s),
+        # 讓前端先逾時、先降級,nginx 只當最後一道保險。
+        proxy_read_timeout 90s;
     }
 }
 NGINX

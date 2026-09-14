@@ -48,12 +48,16 @@ _quota_inflight: Future | None = None
 
 # 資料涵蓋 TTL 快取(秒)+ 背景單飛刷新。
 #
-# load_coverage 對已達千萬列的 raw_tick 做全表聚合(count/group by),單次可達數十秒,
-# 且整段佔用一條 DB 連線。若放在請求路徑上,前端每幾秒輪詢 /status 就會疊加多條慢查,
-# 把連線池(預設 5+10)吃光 → 連 EOD/回補都拿不到連線而 QueuePool timeout(實際事故)。
-# 對策:重查詢一律在背景用獨立 session 執行、同時只跑一個(單飛),結果快取;請求當下
-# 只回快取(首次未就緒回結構完整的空骨架),請求路徑不阻塞、不佔用連線。
-_COVERAGE_TTL = 120.0
+# load_coverage 會掃多張表,整段佔用一條 DB 連線。若放在請求路徑上,前端每幾秒輪詢
+# /status 就會疊加多條慢查,把連線池(預設 5+10)吃光 → 連 EOD/回補都拿不到連線而
+# QueuePool timeout(實際事故)。對策:重查詢一律在背景用獨立 session 執行、同時只跑
+# 一個(單飛),結果快取;請求當下只回快取(首次未就緒回結構完整的空骨架),請求路徑
+# 不阻塞、不佔用連線。
+#
+# TTL 從 120s 拉長到 10 分鐘(2026-09-15):涵蓋度是「哪天缺資料」這種以日為單位變動
+# 的資訊,兩分鐘的新鮮度沒有意義,卻讓系統頁一開著就每 2 分鐘觸發一次跨表掃描。查詢
+# 本身已改便宜(見 repositories/ops.py),但 1 vCPU 的機器不該為零收益的新鮮度付這筆帳。
+_COVERAGE_TTL = 600.0
 _coverage_cache: dict | None = None
 _coverage_at: float = 0.0
 _coverage_refreshing = False
@@ -130,6 +134,7 @@ def _empty_coverage() -> dict:
         "sources": {k: dict(span) for k in _COVERAGE_SOURCE_KEYS},
         "calendar": dict(span),
         "row_counts": {"raw_tick": 0, "feature_daily": 0, "daily_price": 0},
+        "row_counts_estimated": [],
         "tick_by_date": [],
         "loading": True,
     }

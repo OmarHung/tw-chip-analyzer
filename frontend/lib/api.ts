@@ -322,6 +322,8 @@ export interface OpsCoverage {
   // 缺口比對的基準交易日曆(= daily_price 有資料的日)。
   calendar?: OpsDateSpan;
   row_counts: Record<string, number>;
+  // 哪些 row_counts 是估計值（raw_tick 太大，後端取 pg_class.reltuples 而非精確 count）。
+  row_counts_estimated?: string[];
   tick_by_date: OpsTickDay[];
   // 後端首次快取尚未就緒時為 true(涵蓋在背景計算中);就緒後為 false/undefined。
   loading?: boolean;
@@ -386,6 +388,7 @@ export interface MarketHeatCell {
   symbol: string;
   name: string;
   industry: string | null; // null＝MOPS 無產業別
+  website: string | null; // 公司網址（後端 /logo 代理其 favicon）；null＝首字徽章
   turnover: number; // treemap 方塊面積
   change_pct: number | null;
   chip_score: number;
@@ -446,8 +449,33 @@ export interface BackfillRequest {
   end?: string;
 }
 
+// SSR 逾時（毫秒）。server component 的 await 會阻塞 HTML 產出，後端一慢整頁就死在
+// nginx 的 proxy_read_timeout 上，使用者看到的是 504 而不是我們的錯誤畫面
+// （2026-09-15 事故：涵蓋度全表掃描把後端卡住 → 首頁 504）。逾時後渲染降級畫面，
+// 至少導覽列與重試路徑還在。必須明顯小於 nginx 對 `/` 的逾時，見 deploy/nginx/twchip.conf。
+//
+// 只限 server 端：瀏覽器端慢只是轉圈，且全市場掃描本來就可能跑十幾秒。
+const SSR_TIMEOUT_MS = Number(process.env.SSR_FETCH_TIMEOUT_MS ?? 12000);
+
+/** SSR fetch 逾時（與「後端連不上」語意不同，UI 訊息要分開）。 */
+export class ApiTimeoutError extends Error {}
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+  const isServer = typeof window === "undefined";
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      cache: "no-store",
+      signal: isServer ? AbortSignal.timeout(SSR_TIMEOUT_MS) : undefined,
+    });
+  } catch (e) {
+    // undici 依 Node 版本可能回 TimeoutError 或 AbortError，兩者都當逾時。
+    const name = e instanceof Error ? e.name : "";
+    if (isServer && (name === "TimeoutError" || name === "AbortError")) {
+      throw new ApiTimeoutError(`API ${path} 逾時（${SSR_TIMEOUT_MS}ms）`);
+    }
+    throw e;
+  }
   if (!res.ok) {
     throw new Error(`API ${path} 失敗：${res.status}`);
   }

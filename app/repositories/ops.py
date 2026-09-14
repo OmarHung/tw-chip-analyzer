@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.chips import (
@@ -81,6 +81,109 @@ async def _row_count(session: AsyncSession, model) -> int:
     )
 
 
+# ── raw_tick 專用:避免全表聚合 ─────────────────────────────────────────────
+#
+# raw_tick 是這裡唯一的巨表(線上 2026-09 已達 4,135 萬列,且每日 +30 萬)。對它做
+# count(*) / count(distinct data_date) / 無下界的 group by,在 1 vCPU、PG page cache
+# 冷掉之後要跑數十秒到數分鐘,期間吃滿 CPU 與磁碟——同機的 API 與 Next.js SSR 會一起
+# 被拖慢。實際事故(2026-09-15):行程重啟後首發涵蓋刷新讓首頁 SSR 超過 nginx 的 60s
+# 逾時,使用者看到 504。以下三招把成本壓到與資料量幾乎無關:
+#
+#   1. 日期清單用 loose index scan(下面的遞迴 CTE)。PG 沒有 index skip scan,
+#      count(distinct data_date) 必須掃完整個索引;遞迴取 min 則是「每個相異日期
+#      一次索引探測」,42 天就只有 42 次。實測 4,062 萬列:6,627ms → 4.5ms。
+#   2. 逐日統計拆成兩個查詢。原本 `count(distinct symbol), count(*) GROUP BY data_date`
+#      單一查詢即使走了 index-only scan(掃描本身只要 1.8s),仍會為了 distinct 去排序
+#      2,659 萬列 → 落到磁碟排序、9.8s。拆開後:筆數用純 GroupAggregate(不必排序),
+#      檔數改用「每日各跑一次 symbol 的 loose index scan」(每天約 2,000 次探測)。
+#      實測 10,948ms → 936ms(721 + 215)。
+#   3. 總列數改用 pg_class.reltuples 估計值(由 autovacuum/ANALYZE 維護),不做精確
+#      count;回傳時標記為估計值,由 UI 顯示「約」。實測 674ms → 0.02ms。
+#
+# 三者都依賴 (data_date, symbol) 索引 —— 見 models/intraday.RawTick。
+# 合計:單次涵蓋刷新 18.2s → 0.94s(本機 NVMe、4,062 萬列)。
+
+_TICK_DATES_SQL = text(
+    """
+    WITH RECURSIVE d(data_date) AS (
+        SELECT min(data_date) FROM raw_tick
+        UNION ALL
+        SELECT (SELECT min(t.data_date) FROM raw_tick t WHERE t.data_date > d.data_date)
+        FROM d
+        WHERE d.data_date IS NOT NULL
+    )
+    SELECT data_date FROM d WHERE data_date IS NOT NULL ORDER BY data_date
+    """
+)
+
+_RELTUPLES_SQL = text("SELECT reltuples::bigint FROM pg_class WHERE oid = to_regclass(:t)")
+
+# 每個指定日期有幾檔(distinct symbol)。同樣是 loose index scan,只是這次在
+# (data_date, symbol) 索引的第二層跳:固定 data_date、逐次取下一個更大的 symbol。
+# 日期由呼叫端傳入(已經有清單了),避免在這裡再掃一次 distinct data_date。
+_TICK_DAILY_SYMBOLS_SQL = text(
+    """
+    WITH RECURSIVE pairs(d, s) AS (
+        SELECT d, (SELECT min(t.symbol) FROM raw_tick t WHERE t.data_date = d)
+        FROM unnest(CAST(:dates AS date[])) AS d
+        UNION ALL
+        SELECT p.d, (
+            SELECT min(t.symbol) FROM raw_tick t
+            WHERE t.data_date = p.d AND t.symbol > p.s
+        )
+        FROM pairs p
+        WHERE p.s IS NOT NULL
+    )
+    SELECT d, count(*) FROM pairs WHERE s IS NOT NULL GROUP BY d
+    """
+)
+
+
+async def _tick_dates(session: AsyncSession) -> list[dt.date]:
+    """raw_tick 出現過的 data_date(升冪),以 loose index scan 取得。"""
+    rows = (await session.execute(_TICK_DATES_SQL)).scalars().all()
+    return [d for d in rows if d is not None]
+
+
+async def _tick_daily_stats(session: AsyncSession, dates: list[dt.date]) -> list[dict]:
+    """指定日期的逐筆每日檔數與筆數(新到舊)。空清單直接回,不打 DB。"""
+    if not dates:
+        return []
+
+    ticks = dict(
+        (
+            await session.execute(
+                select(RawTick.data_date, func.count())
+                .where(RawTick.data_date >= dates[0])
+                .group_by(RawTick.data_date)
+            )
+        ).all()
+    )
+    symbols = dict(
+        (await session.execute(_TICK_DAILY_SYMBOLS_SQL, {"dates": dates})).all()
+    )
+    return [
+        {
+            "date": str(d),
+            "symbols": int(symbols.get(d, 0)),
+            "ticks": int(ticks.get(d, 0)),
+        }
+        for d in sorted(dates, reverse=True)
+    ]
+
+
+async def _tick_row_count(session: AsyncSession) -> tuple[int, bool]:
+    """raw_tick 列數與「是否為估計值」。
+
+    reltuples 在從未 ANALYZE 過的表是 -1(PG14+)或 0;那種情況下表本身也還小,
+    退回精確 count 不貴。
+    """
+    est = (await session.execute(_RELTUPLES_SQL, {"t": "raw_tick"})).scalar()
+    if est is not None and int(est) > 0:
+        return int(est), True
+    return await _row_count(session, RawTick), False
+
+
 async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
     """彙總各資料源涵蓋度 + 近 tick_days 天逐筆的每日檔數/筆數。"""
     # 日頻資料源:撈出實際有資料的日期,才能與交易日曆比對缺口。
@@ -105,23 +208,13 @@ async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
     # 對它們算「每個交易日都該有」沒有意義 → 不給 missing。
     tdcc = await _date_span(session, TdccSummaryWeekly.data_date)
     ca = await _date_span(session, CorporateAction.data_date)
-    tick = await _date_span(session, RawTick.data_date)
 
-    # 逐筆:近 N 天每日灌了幾檔(distinct symbol)與總筆數
-    tick_stmt = (
-        select(
-            RawTick.data_date,
-            func.count(func.distinct(RawTick.symbol)),
-            func.count(),
-        )
-        .group_by(RawTick.data_date)
-        .order_by(RawTick.data_date.desc())
-        .limit(tick_days)
-    )
-    tick_rows = [
-        {"date": str(d), "symbols": int(s), "ticks": int(n)}
-        for d, s, n in (await session.execute(tick_stmt)).all()
-    ]
+    # raw_tick 走專用路徑(見上方註解):日期清單以 loose index scan 取得,再拿最近
+    # tick_days 天去算逐日統計——原本的 LIMIT 是在聚合「之後」才套用,限縮不到掃描。
+    tick_dates = await _tick_dates(session)
+    tick = _span_of(tick_dates)
+    tick_rows = await _tick_daily_stats(session, tick_dates[-tick_days:])
+    tick_count, tick_estimated = await _tick_row_count(session)
 
     return {
         "sources": {
@@ -138,9 +231,11 @@ async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
         # 缺口比對的基準日曆(= daily_price 有資料的交易日)。
         "calendar": _span_of(calendar),
         "row_counts": {
-            "raw_tick": await _row_count(session, RawTick),
+            "raw_tick": tick_count,
             "feature_daily": await _row_count(session, FeatureDaily),
             "daily_price": await _row_count(session, DailyPrice),
         },
+        # 哪些 row_counts 是估計值(UI 顯示「約」)。
+        "row_counts_estimated": ["raw_tick"] if tick_estimated else [],
         "tick_by_date": tick_rows,
     }
