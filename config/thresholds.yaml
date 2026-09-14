@@ -122,11 +122,27 @@ cost_basis:
 # 每日盤後 EOD 排程(app.jobs.scheduler;鐵則 4:排程時間 config 化,禁硬編碼)
 schedule:
   enabled: true            # 隨 API server(FastAPI lifespan)自動起停;test env 一律不啟動
-  timezone: Asia/Taipei
+  timezone: Asia/Taipei    # 「今天」一律用此時區換算,不依賴主機時區
   eod:
     day_of_week: "mon-fri"   # 交易日;國定假日由 daily 偵測無 OHLCV 自動空跑
-    hour: 14
-    minute: 30
+    hour: 16                 # 16:00 起跑,替法人/融資券/借券/TPEx 報表留緩衝
+    minute: 0
+    # 完整性門檻:行情/法人/融資券各取 TWSE+TPEx 合計筆數,任一未達即視為不完整 → 進 retry。
+    # 數字依 dev 庫實測分佈訂(非拍腦袋):兩市場齊全的正常日最低為 行情 1929 / 法人 1807 /
+    # 融資券 1820;而「TPEx 整個沒進來」的降級日最高只有 1074 筆。兩者之間有明顯斷層,
+    # 取 1500 可穩定抓到「掉一個市場」這個最常見的不完整樣態,又對正常日留約 17% 餘裕
+    # (避免下市/停牌造成筆數自然縮水就誤判)。注意:門檻若低於 1100 就會把 TPEx 全缺的
+    # 降級日誤判為完整,失去本檢查的意義。
+    completeness:
+      min_price_rows: 1500
+      min_institutional_rows: 1500
+      min_margin_rows: 1500
+    # 不完整、或因其他回補/腳本佔用單飛鎖而根本沒跑成時,定期重試至當日截止時間。
+    # 截止時間為「該時區的當日」時刻;到點仍不完整就放棄(隔日 EOD 或手動回補處理)。
+    retry:
+      interval_minutes: 15
+      deadline_hour: 18
+      deadline_minute: 0
 
 # Backtest — 對應 docs/06 §17-18、docs/08 §31
 backtest:

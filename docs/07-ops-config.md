@@ -18,6 +18,12 @@ TWSE/TPEx price
 
 > 時間全部 config 化，不硬編碼。
 
+> **EOD 起跑時間與延後重試**（`schedule.eod`）：平日 **16:00** 起跑（原 14:30；後移是為了替
+> 法人、融資券、借券與 TPEx 報表留上線緩衝）。跑完後檢查行情／法人／融資券的 TWSE+TPEx 合計
+> 筆數是否達 `completeness` 門檻；**不完整**、或因手動回補／系統頁腳本佔用單飛鎖而**根本沒跑成**，
+> 都會每 `retry.interval_minutes`（15 分）重試一次，直到 `retry.deadline_hour:deadline_minute`
+> （18:00）為止，到點仍不完整才放棄。「今天」一律以 `schedule.timezone` 換算，不依賴主機時區。
+
 ### TDCC 每週
 
 ```text
@@ -87,6 +93,7 @@ tdcc:
 > | `validation.min_ic_names` | 前瞻驗證每日 IC 最低檔數 |
 > | `intraday_batch.max_consecutive_failures` | 逐筆批次連續失敗停止 |
 > | `jobs.nice / output_max_chars / cancel_grace_sec` | 系統頁腳本按鈕子行程 |
+> | `schedule.eod.completeness / retry` | EOD 完整性檢查（行情/法人/融資券最低筆數）與重試節流（不完整或忙碌跳過時，每 N 分鐘重試至截止時間） |
 > | `weights.intraday.cvd_slope` | 原 `obi`（改名，非 OBI） |
 > | `mops.http / schedule / insider_holding / transfer_declaration / backfill / research` | Phase 2 MOPS（shadow-only，docs/14）：重試節流、排程（2026-09-14 線上 smoke 驗收後 `enabled: true`；某日轉讓網頁失敗應以 `app.jobs.mops <該日> --skip-holdings` 補跑，勿用回補腳本）、揭露落後規則、轉讓回看窗、回補範圍、regime 分層、honest OOS 最低 test 日數（`research.min_honest_test_days`）。不在 `data_version` 區塊內，改動不觸發正式分數重建提示 |
 >
@@ -96,4 +103,5 @@ tdcc:
 > `signal_snapshot.config_version` 判斷並提示重建。
 >
 > **腳本按鈕**：`/system` 頁「工作」可觸發 `app/jobs/tasks.py` 白名單腳本（子行程 + nice，與 EOD/回補
-> 共用單飛鎖；工作進行中到 EOD 時間，當日 EOD 會被跳過）。寫入型操作需 `OPS_API_KEY`。
+> 共用單飛鎖；工作進行中到 EOD 時間，當日 EOD 會延後重試——每 15 分鐘再試一次，最晚到 18:00，
+> 不再像先前直接跳過整天）。寫入型操作需 `OPS_API_KEY`。

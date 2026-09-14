@@ -8,6 +8,11 @@ EOD 流程(與 eod.sh 等價):
   1. daily.run(import+TAIEX+特徵,暫不落地) → 2. import_ticks(逐筆,容錯)
   → 3. daily.run(skip_import:重建含 intraday 特徵 + 落地 signal_snapshot)
 
+完整性與重試:跑完後檢查行情/法人/融資券筆數是否達 schedule.eod.completeness 門檻
+(法人、融資券、借券、TPEx 報表上線時間比行情晚,16:00 起跑仍可能只抓到一半)。
+不完整、或因單飛鎖被回補/腳本佔用而根本沒跑成,都會每隔 retry.interval_minutes
+重試一次,直到 retry.deadline_hour:deadline_minute 為止。
+
 用法:
   APP_ENV=dev python -m app.jobs.scheduler            # 常駐,依 config 排程
   APP_ENV=dev python -m app.jobs.scheduler --check     # 印下次執行時間後退出
@@ -18,6 +23,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -29,17 +35,60 @@ from app.jobs import daily, import_ticks
 logger = get_logger("jobs.scheduler")
 
 
-async def run_eod(target: dt.date | None = None) -> None:
-    """單次 EOD 流程;非交易日 daily 偵測無 OHLCV 會自動空跑。
+def _local_now() -> dt.datetime:
+    """config schedule.timezone 的當下時間(tz-aware)。
 
-    與手動回補共用忙碌旗標(runner):若回補進行中則跳過本次 EOD,避免打架。
+    刻意不用 dt.date.today() / dt.datetime.now():主機時區不保證是台北,
+    在 UTC 機器上跑會在台北時間 08:00 前把「今天」算成昨天。
+    """
+    tz = get_thresholds().schedule.get("timezone", "Asia/Taipei")
+    return dt.datetime.now(ZoneInfo(tz))
+
+
+# 完整性檢查的三個核心維度:(顯示名, config 鍵, 來源 label)。
+# label 必須與 daily.SourceReport 寫入的字串一致,TWSE + TPEx 合計後比門檻。
+_COMPLETENESS_DIMENSIONS: tuple[tuple[str, str, tuple[str, str]], ...] = (
+    ("行情", "min_price_rows", ("TWSE 行情", "TPEx 行情")),
+    ("法人", "min_institutional_rows", ("TWSE 法人", "TPEx 法人")),
+    ("融資券", "min_margin_rows", ("TWSE 融資券", "TPEx 融資券")),
+)
+
+
+def _check_completeness(import_res: dict) -> tuple[bool, str | None]:
+    """核心三維度是否都達到 config 的最低筆數;回 (是否完整, 不完整原因)。
+
+    門檻一律讀 config schedule.eod.completeness(鐵則 4)。某維度缺鍵時該維度門檻
+    視為 0(= 不檢查),而非套一個硬編碼預設——否則 config 少一個鍵就會讓每天 EOD
+    都被判成不完整,白白重試到截止時間。
+    """
+    conf = get_thresholds().get("schedule", "eod", "completeness", default={}) or {}
+    sources = import_res.get("sources", {}) or {}
+    reasons: list[str] = []
+    for name, key, labels in _COMPLETENESS_DIMENSIONS:
+        threshold = conf.get(key, 0)
+        rows = sum((sources.get(label) or {}).get("rows", 0) or 0 for label in labels)
+        if rows < threshold:
+            reasons.append(f"{name} {rows} 筆 < 門檻 {threshold}")
+    if reasons:
+        return False, ";".join(reasons)
+    return True, None
+
+
+async def _run_eod_once(target: dt.date) -> bool:
+    """跑一次 EOD 流程;回傳「本次是否成功且資料完整」。
+
+    非交易日 daily 偵測無 OHLCV 會自動空跑。與手動回補共用忙碌旗標(runner)。
+    回 False 的三種情形都交由 run_eod 安排重試:
+      1. 忙碌旗標被其他回補/腳本佔用 → 這次根本沒跑到
+      2. 流程中途拋例外
+      3. 跑完了但核心資料未達完整性門檻(法人/融資券常比行情晚上線)
     """
     from app.jobs import runner
 
-    target = target or dt.date.today()
     if not runner.try_mark("scheduled_eod", "eod", str(target)):
-        logger.warning("已有回補/工作進行中,跳過本次 EOD %s", target)
-        return
+        # 注意:沒搶到旗標就不能碰 runner.finish(),那是別人的鎖。
+        logger.warning("已有回補/工作進行中,本次 EOD %s 未執行,稍後重試", target)
+        return False
     logger.info("EOD 開始 %s", target)
     try:
         # 1) 行情 + 法人 + 融資 + 當週 TDCC + TAIEX + 特徵(暫不落地,待步驟 3 一次算四維)
@@ -61,16 +110,62 @@ async def run_eod(target: dt.date | None = None) -> None:
         runner._state["step"] = f"{target}:重建特徵 + 落地"
         runner._state["progress"] = None
         await daily.run(target, do_import=False, do_features=True, do_signals=True)
+        complete, reason = _check_completeness(import_res)
         runner._state["result"] = {
             "date": str(target), "mode": "scheduled_eod",
             "degraded": import_res["degraded"], "sources": import_res["sources"],
             "ticks": tick_res,
+            "complete": complete, "incomplete_reason": reason,
         }
+        # 不完整仍算「這次跑完了」(資料有進、分數有落地),只是還要再補一輪,
+        # 故 finish(ok=True):狀態頁不該把「等法人上線」顯示成錯誤。
         runner.finish(ok=True)
-        logger.info("EOD 完成 %s", target)
+        if complete:
+            logger.info("EOD 完成 %s", target)
+        else:
+            logger.warning("EOD %s 資料不完整:%s", target, reason)
+        return complete
     except Exception as e:  # noqa: BLE001
         logger.exception("EOD 失敗 %s", target)
         runner.finish(ok=False, error=str(e))
+        return False
+
+
+async def run_eod(target: dt.date | None = None) -> None:
+    """EOD 進入點:跑一次,若不完整(或被忙碌擋掉)就每隔 N 分鐘重試至截止時間。
+
+    截止時間取「當下時區的今天」的 deadline_hour:deadline_minute,與 target 無關
+    ——它描述的是今天這個重試視窗的牆鐘邊界,所以手動補算舊日期(--now --date)
+    在截止時間後執行時只會跑一次就結束,不會空轉。
+    """
+    now = _local_now()
+    target = target or now.date()   # 需求 5:用 config 時區,不用主機 date.today()
+    retry = get_thresholds().get("schedule", "eod", "retry", default={}) or {}
+    interval_sec = retry.get("interval_minutes", 15) * 60
+    deadline = now.replace(
+        hour=retry.get("deadline_hour", 18), minute=retry.get("deadline_minute", 0),
+        second=0, microsecond=0,
+    )
+    attempt = 0
+    while True:
+        attempt += 1
+        # 先跑再看截止時間:確保任何情況下至少嘗試一次(即使已過 deadline)。
+        if await _run_eod_once(target):
+            return
+        remaining = (deadline - _local_now()).total_seconds()
+        if remaining <= 0:
+            logger.error(
+                "EOD %s 已達截止時間 %s 仍不完整,放棄重試(共嘗試 %d 次)",
+                target, deadline.strftime("%H:%M"), attempt,
+            )
+            return
+        # 不可睡過頭跨越 deadline,否則最後一次重試會落在截止時間之外。
+        sleep_sec = min(interval_sec, remaining)
+        logger.warning(
+            "EOD %s 第 %d 次嘗試未完成,%.0f 分鐘後重試(截止 %s)",
+            target, attempt, sleep_sec / 60, deadline.strftime("%H:%M"),
+        )
+        await asyncio.sleep(sleep_sec)
 
 
 def _build_scheduler() -> AsyncIOScheduler:
@@ -80,8 +175,8 @@ def _build_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=tz)
     trigger = CronTrigger(
         day_of_week=eod.get("day_of_week", "mon-fri"),
-        hour=eod.get("hour", 14),
-        minute=eod.get("minute", 30),
+        hour=eod.get("hour", 16),      # 預設須與 config/thresholds.yaml 一致,
+        minute=eod.get("minute", 0),   # 否則 YAML 缺鍵時會悄悄退回舊的 14:30
         timezone=tz,
     )
     scheduler.add_job(
@@ -163,8 +258,8 @@ def scheduler_status() -> dict:
         "timezone": sch.get("timezone", "Asia/Taipei"),
         "eod": {
             "day_of_week": eod.get("day_of_week", "mon-fri"),
-            "hour": eod.get("hour", 14),
-            "minute": eod.get("minute", 30),
+            "hour": eod.get("hour", 16),
+            "minute": eod.get("minute", 0),
         },
         "next_run": next_run,
     }

@@ -12,8 +12,9 @@
 #
 # 非交易日:daily.py 偵測當日無 OHLCV 會自動略過,安全空跑。
 #
-# 排程(交易日盤後,例:週一~週五 14:30;國定假日自動空跑):
-#   30 14 * * 1-5 cd /Users/omar/tw_chip_analyzer && APP_ENV=dev ./scripts/eod.sh >> /tmp/eod.log 2>&1
+# 排程(交易日盤後,例:週一~週五 16:00;國定假日自動空跑):
+#   0 16 * * 1-5 cd /Users/omar/tw_chip_analyzer && APP_ENV=dev ./scripts/eod.sh >> /tmp/eod.log 2>&1
+# 註:此 shell 版本沒有完整性檢查與延後重試,那是常駐排程器(app.jobs.scheduler)才有的行為。
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
