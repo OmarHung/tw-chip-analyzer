@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ActionBadge } from "@/components/ActionBadge";
 import { Card, SectionTitle } from "@/components/Card";
 import { Change } from "@/components/Change";
+import { StockScoreHeatmap } from "@/components/heatmap/StockScoreHeatmap";
 import { OrderFlowPanel } from "@/components/OrderFlowPanel";
 import { ScoreBar, ScoreRing } from "@/components/ScoreBar";
 import { StockCharts } from "@/components/StockCharts";
@@ -152,6 +153,11 @@ export default async function StockDetailPage({
           <p className="text-sm text-ink-faint">無顯著訊號</p>
         )}
       </Card>
+
+      {/* 籌碼分項 × 日期熱力圖（讀已落地的每日分數） */}
+      <div className="reveal">
+        <StockScoreHeatmap symbol={data.symbol} />
+      </div>
 
       {/* 盤中資金流（逐筆計算的 order flow） */}
       <div className="reveal">

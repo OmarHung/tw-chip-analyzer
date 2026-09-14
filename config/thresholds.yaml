@@ -144,6 +144,20 @@ schedule:
       deadline_hour: 18
       deadline_minute: 0
 
+# 熱力圖(純展示層)。不在 threshold_registry._DATA_SECTIONS 內,改這裡不會觸發分數重建提示,
+# 因為它只決定「畫幾格」,不參與 feature/score 計算。
+heatmap:
+  market:                    # 全市場 treemap(方塊面積＝成交值)
+    max_symbols: 300         # 方塊數上限;全市場近 3000 檔全畫會讓小方塊小於 1px 且拖垮瀏覽器
+    min_turnover: 0          # 成交金額下限(TWD),0＝不過濾
+  industry:                  # 產業 × 日期矩陣
+    days: 20                 # 橫軸交易日數(非日曆日;停牌/假日不佔格)
+    max_days: 120            # 單次查詢上限,擋住前端傳入過大的 days
+    min_symbols: 5           # 產業成分股數下限。與 feature_builder 的 industry_trend 一致:
+                             # 樣本太少的產業中位數是雜訊,寧可不給格子也不要誤導
+  stock:                     # 個股籌碼分項 × 日期
+    days: 60
+
 # Backtest — 對應 docs/06 §17-18、docs/08 §31
 backtest:
   # 交易成本(台股)。禁止 0 成本回測。每邊各收一次手續費，賣出加證交稅。

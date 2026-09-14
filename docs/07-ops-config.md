@@ -93,6 +93,7 @@ tdcc:
 > | `validation.min_ic_names` | 前瞻驗證每日 IC 最低檔數 |
 > | `intraday_batch.max_consecutive_failures` | 逐筆批次連續失敗停止 |
 > | `jobs.nice / output_max_chars / cancel_grace_sec` | 系統頁腳本按鈕子行程 |
+> | `heatmap.market / industry / stock` | 熱力圖展示參數（treemap 方塊數上限、產業矩陣天數與成分股門檻、個股分項天數）。**純展示層**，不在 `data_version` 區塊內，改動不觸發分數重建提示 |
 > | `schedule.eod.completeness / retry` | EOD 完整性檢查（行情/法人/融資券最低筆數）與重試節流（不完整或忙碌跳過時，每 N 分鐘重試至截止時間） |
 > | `weights.intraday.cvd_slope` | 原 `obi`（改名，非 OBI） |
 > | `mops.http / schedule / insider_holding / transfer_declaration / backfill / research` | Phase 2 MOPS（shadow-only，docs/14）：重試節流、排程（2026-09-14 線上 smoke 驗收後 `enabled: true`；某日轉讓網頁失敗應以 `app.jobs.mops <該日> --skip-holdings` 補跑，勿用回補腳本）、揭露落後規則、轉讓回看窗、回補範圍、regime 分層、honest OOS 最低 test 日數（`research.min_honest_test_days`）。不在 `data_version` 區塊內，改動不觸發正式分數重建提示 |

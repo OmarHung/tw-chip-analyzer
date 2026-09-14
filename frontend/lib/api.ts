@@ -381,6 +381,63 @@ export interface ForwardReport {
   horizons: ForwardHorizon[];
 }
 
+// --- 熱力圖（見後端 app/api/heatmap.py）---
+export interface MarketHeatCell {
+  symbol: string;
+  name: string;
+  industry: string | null; // null＝MOPS 無產業別
+  turnover: number; // treemap 方塊面積
+  change_pct: number | null;
+  chip_score: number;
+  institutional: number | null;
+  action: Action;
+}
+
+export interface MarketHeatmapResponse {
+  as_of: string | null;
+  total: number; // 當日全市場可評分檔數
+  count: number; // 本次回傳（依成交值取前 N）
+  covered_turnover: number; // 0~1，回傳這些檔佔全市場成交值比例
+  rows: MarketHeatCell[];
+}
+
+export interface IndustryHeatCell {
+  date: string;
+  n: number;
+  ret: number | null; // 成分股漲跌幅中位數
+  score: number | null; // chip_score 中位數
+  inst: number | null; // 法人分項中位數
+}
+
+export interface IndustryHeatRow {
+  industry: string;
+  n_max: number;
+  cells: IndustryHeatCell[]; // 只含有資料的日期，需依 dates 對齊
+}
+
+export interface IndustryHeatmapResponse {
+  as_of: string | null;
+  dates: string[]; // 由舊到新的交易日
+  min_symbols: number;
+  industries: IndustryHeatRow[];
+}
+
+export interface StockHeatCell {
+  date: string;
+  chip_score: number;
+  intraday: number | null; // null＝當日無此成分（非中性 50）
+  institutional: number | null;
+  holder: number | null;
+  market: number | null;
+  action: Action | null;
+}
+
+export interface StockHeatmapResponse {
+  symbol: string;
+  days: number;
+  cells: StockHeatCell[]; // 由舊到新
+}
+
 export interface BackfillRequest {
   kind: "single" | "range" | "missing";
   date?: string;
@@ -572,6 +629,26 @@ export const api = {
       `/api/scanner/divergence${qs ? `?${qs}` : ""}`,
     );
   },
+  marketHeatmap: (params: { limit?: number; min_turnover?: number } = {}) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined) q.set(k, String(v));
+    }
+    const qs = q.toString();
+    return get<MarketHeatmapResponse>(`/api/heatmap/market${qs ? `?${qs}` : ""}`);
+  },
+  industryHeatmap: (params: { days?: number; min_symbols?: number } = {}) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined) q.set(k, String(v));
+    }
+    const qs = q.toString();
+    return get<IndustryHeatmapResponse>(`/api/heatmap/industry${qs ? `?${qs}` : ""}`);
+  },
+  stockHeatmap: (symbol: string, days?: number) =>
+    get<StockHeatmapResponse>(
+      `/api/heatmap/stock/${symbol}${days ? `?days=${days}` : ""}`,
+    ),
   opsStatus: () => get<OpsStatusResponse>("/api/ops/status"),
   forwardReport: () => get<ForwardReport>("/api/validation/forward"),
   settings: () => get<SettingsResponse>("/api/ops/settings"),

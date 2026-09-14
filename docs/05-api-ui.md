@@ -40,9 +40,47 @@ Response 範例：
 
 支援 query：`min_score`、`action`、`min_turnover`、`industry`、`limit`。依 score 排序。
 
+### GET /api/heatmap/market · /api/heatmap/industry · /api/heatmap/stock/{symbol}
+
+熱力圖三個端點（`app/api/heatmap.py`）。不新增任何特徵計算，只是把既有資料換一種
+密度更高的呈現；門檻走 `config/thresholds.yaml` 的 `heatmap` 區塊（純展示層，不在
+`threshold_registry._DATA_SECTIONS` 內，改動不觸發分數重建提示）。
+
+| 端點 | 內容 | query |
+|---|---|---|
+| `/market` | 全市場扁平列（含 `industry`／`turnover`／三個顏色維度）＋ `covered_turnover` 涵蓋率 | `limit`、`min_turnover` |
+| `/industry` | 產業 × 交易日矩陣，每格為該產業成分股的**中位數**（`ret`／`score`／`inst` 一次給齊） | `days`、`min_symbols` |
+| `/stock/{symbol}` | 個股籌碼分項 × 交易日（讀已落地的 `signal_snapshot`，不重算） | `days` |
+
+兩個刻意的設計：**中位數而非平均**（產業內一兩檔漲停會讓平均看起來像整個產業在動）；
+**成分股數門檻**（`heatmap.industry.min_symbols`，與 feature_builder 的 industry_trend 同為 5——
+樣本太少的中位數是雜訊，寧可留白也不要畫出會被誤讀的顏色）。缺成分一律傳 NULL，由前端
+畫成「無資料」斜線紋，與「中性」分開。
+
+第四張熱力圖（分數 bucket × horizon）沒有專用端點——數字已由 `/api/validation/forward` 供應。
+
 ## 16. UI
 
-**Dashboard**：TAIEX、Market Regime、上漲/下跌家數、BUY candidate 數、Distribution Warning 數。
+**Dashboard**：TAIEX、Market Regime、上漲/下跌家數、BUY candidate 數、Distribution Warning 數、
+市場熱力圖（treemap）、產業輪動矩陣。
+
+**熱力圖（四張）**：
+
+| 位置 | 元件 | 形式 | 顏色維度 |
+|---|---|---|---|
+| 總覽 | `MarketTreemap` | 產業分組 treemap，方塊面積＝成交值 | 漲跌幅／籌碼分數／法人強度（可切） |
+| 總覽 | `IndustryHeatmap` | 產業 × 交易日矩陣（中位數） | 同上 |
+| 個股 | `StockScoreHeatmap` | 五列（總分＋四分項）× 交易日 | 分數（無漲跌維度，故不給切換） |
+| 驗證 | `ValidationHeatmap` | 分數 bucket × horizon | 平均淨報酬 |
+
+色階規則（`lib/heat.ts`）：報酬類走 **up/down 紅漲綠跌**，分數類走 **琥珀金**，兩者絕不混用——
+否則「高分」會被讀成「上漲」。強度用 alpha 疊在深底上而非換色相。**飽和點跟著資料量級走**：
+個股日漲跌 ±3%、產業中位數 ±1%、驗證淨報酬 ±1%；圖例標籤同步顯示該刻度，不得寫死。
+**「無資料」畫成斜線紋**，與「中性」的極淡底色分開——分項 NULL 代表該成分不存在（權重已重分配），
+不是「中性 50 分」。
+
+treemap 的面積固定用成交值，不隨顏色維度改變：面積若跟著換，同一張圖在不同 metric 下
+就不是同一個市場，無法比較。排版為自寫的 squarified treemap（`lib/treemap.ts`，無新增相依）。
 
 **Scanner 欄位**：
 

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { ActionBadge } from "@/components/ActionBadge";
 import { Card, SectionTitle, StatCard } from "@/components/Card";
 import { Change } from "@/components/Change";
+import { IndustryHeatmap } from "@/components/heatmap/IndustryHeatmap";
+import { MarketTreemap } from "@/components/heatmap/MarketTreemap";
 import { api, type Action, type DivergenceScanRow } from "@/lib/api";
 import { dirColor, scoreColor } from "@/lib/format";
 
@@ -126,6 +128,16 @@ export default async function DashboardPage() {
           value={data.avg_chip_score.toFixed(1)}
           accent={scoreColor(data.avg_chip_score)}
         />
+      </section>
+
+      {/* 全市場熱力圖：方塊面積＝成交值，顏色可切漲跌／分數／法人 */}
+      <section className="reveal" style={{ animationDelay: "120ms" }}>
+        <MarketTreemap />
+      </section>
+
+      {/* 產業輪動矩陣 */}
+      <section className="reveal" style={{ animationDelay: "200ms" }}>
+        <IndustryHeatmap />
       </section>
 
       {/* 訊號分布 + Top */}

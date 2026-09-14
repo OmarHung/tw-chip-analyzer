@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Card, SectionTitle } from "@/components/Card";
+import { ValidationHeatmap } from "@/components/heatmap/ValidationHeatmap";
 import { api, type ForwardHorizon, type ForwardReport } from "@/lib/api";
 
 /* §28 成功標準的活體追蹤:分數 bucket vs 之後「實現」淨報酬。
@@ -64,7 +65,12 @@ export default function ValidationPage() {
           計算中…(首次載入約數秒)
         </div>
       ) : (
-        data.horizons.map((h) => <HorizonCard key={h.horizon} h={h} />)
+        <>
+          <ValidationHeatmap horizons={data.horizons} />
+          {data.horizons.map((h) => (
+            <HorizonCard key={h.horizon} h={h} />
+          ))}
+        </>
       )}
     </div>
   );
