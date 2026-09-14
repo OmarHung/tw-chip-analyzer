@@ -23,10 +23,11 @@
 ## 現況（Phase 1，rule-based）
 
 - docs/01–06 全部完成（骨架、演算法、評分、決策、API、Backtest）+ Next.js 前端（`frontend/`）
-- 可吃真實台股盤後資料端到端運作：OHLCV + institutional + margin（TWSE）+ TDCC 股權分散 + TAIEX 大盤 regime
-- 已對全市場（~1080 檔）驗證分層；intraday 分項已可併入全市場 composite
+- 可吃真實台股盤後資料端到端運作：OHLCV + institutional + margin（TWSE + TPEx）+ TWSE SBL + TDCC 股權分散 + TAIEX 大盤 regime
+- Chip Score 已採依可用成分／資料簽章分組的當日橫斷面百分位；公司行動價量還原、前瞻驗證與 Newey–West 統計已接線
+- Phase 2 MOPS 董監／大股東持股、質押、轉讓申報已開始 forward 累積，但嚴格維持 shadow-only，不進正式分數
 
-> ⚠️ **尚未通過驗證，勿當可用策略**：2026-09-06 首次真實回測顯示 IC≈0、Chip Score 與未來報酬**無單調性**。**Backtest 是實盤前必要條件**，上線前優先修分數（feature / normalization / weight），詳見 `docs/06`。
+> ⚠️ **尚未通過驗證，勿當可用策略**：2026-09-13 修正後的 dev 重建仍顯示各 horizon IC 約 +0.006～+0.008、Chip Score 與未來報酬**無單調性**。**Backtest 是實盤前必要條件**；目前應優先累積跨 regime honest OOS，不再用同一段短樣本反覆調參，詳見 `CLAUDE.md` 與 `docs/06`。
 
 ## Run
 
@@ -60,8 +61,8 @@ cd frontend && pnpm install && pnpm build && pnpm start   # :3000
 
 ## 下一步
 
-TPEx connector · SBL importer · 真實 TDCC week-over-week change · 產業別/趨勢 · Shioaji realtime · intraday 補齊 absorption/trade_speed/price_efficiency 三成分並併入 backtest 驗證單調性。實盤前先 paper trade，不直接下單（第一階段鐵則：只分析、不下單）。
+優先累積跨 regime 的 honest OOS，持續用 `/validation` 與 `scripts/score_monotonicity.py` 檢查分數單調性及 MAE；SBL、產業趨勢與 MOPS 未通過既定門檻前維持零權重／shadow-only。工程面先完成 production 資料涵蓋監控與 UI 人工驗收。只有 §28 成功標準有可靠進展後，才投入 Shioaji realtime、真正五檔 OBI、intraday backtest 與 paper trade；第一階段永遠只分析、不下單。
 
 ## 文件導覽
 
-架構 `docs/01` · 資料源/表 `docs/02` · Order Flow/Score `docs/03` · Entry/Risk/Exit `docs/04` · API/UI `docs/05` · Backtest/Look-ahead `docs/06` · 排程/Config `docs/07` · Roadmap/DoD `docs/08`（索引 `docs/README.md`）。
+架構 `docs/01` · 資料源/表 `docs/02` · Order Flow/Score `docs/03` · Entry/Risk/Exit `docs/04` · API/UI `docs/05` · Backtest/Look-ahead `docs/06` · 排程/Config `docs/07` · Roadmap/DoD `docs/08` · MOPS 現行規格 `docs/14`／審查修正 `docs/15`（完整索引見 `docs/README.md`）。
