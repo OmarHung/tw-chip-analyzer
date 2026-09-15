@@ -8,7 +8,8 @@ tw_chip_analyzer 正式部署。架構為 nginx 同源反向代理，前端 Next
                      └ /api/* → uvicorn  (127.0.0.1:8000)  後端 FastAPI
                                    PostgreSQL 16 ◄┘
         排程(週一–五 16:00 Asia/Taipei) → 每日累積(Docker 版走容器內 APScheduler,
-                                          不完整會重試至 18:00;systemd/launchd 版
+                                          不完整會重試至 18:00,20:00 起補融資券/借券至 23:30;
+                                          systemd/launchd 版
                                           直接跑 scripts/eod.sh,無重試)
 ```
 

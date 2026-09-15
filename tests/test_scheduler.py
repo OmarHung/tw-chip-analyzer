@@ -25,24 +25,28 @@ from app.jobs.scheduler import (
 TZ = ZoneInfo(get_thresholds().schedule.get("timezone", "Asia/Taipei"))
 
 
-def _sources(price: int, inst: int, margin: int) -> dict:
+def _sources(price: int, inst: int) -> dict:
     """組一份 daily.run() 形狀的回傳;TWSE/TPEx 各分一半以驗證「合計」而非單邊。"""
-    def pair(label_a: str, label_b: str, total: int) -> dict:
-        return {
-            label_a: {"ok": True, "rows": total // 2, "error": None},
-            label_b: {"ok": True, "rows": total - total // 2, "error": None},
-        }
+    return {"sources": {**_pair("TWSE 行情", "TPEx 行情", price),
+                        **_pair("TWSE 法人", "TPEx 法人", inst)}, "degraded": []}
 
-    sources = {
-        **pair("TWSE 行情", "TPEx 行情", price),
-        **pair("TWSE 法人", "TPEx 法人", inst),
-        **pair("TWSE 融資券", "TPEx 融資券", margin),
+
+def _credit_sources(margin: int, sbl: int) -> dict:
+    """daily.run_credit() 形狀的回傳。"""
+    return {"sources": {**_pair("TWSE 融資券", "TPEx 融資券", margin),
+                        "SBL 借券": {"ok": True, "rows": sbl, "error": None}},
+            "degraded": []}
+
+
+def _pair(label_a: str, label_b: str, total: int) -> dict:
+    return {
+        label_a: {"ok": True, "rows": total // 2, "error": None},
+        label_b: {"ok": True, "rows": total - total // 2, "error": None},
     }
-    return {"sources": sources, "degraded": []}
 
 
-def _thresholds() -> dict:
-    return get_thresholds().get("schedule", "eod", "completeness", default={}) or {}
+def _thresholds(section: str = "eod") -> dict:
+    return get_thresholds().get("schedule", section, "completeness", default={}) or {}
 
 
 # ---------------------------------------------------------------- trigger / 生命週期
@@ -89,29 +93,45 @@ def test_shutdown_scheduler_idempotent():
 # ---------------------------------------------------------------- 完整性檢查
 
 def test_completeness_passes_when_all_dimensions_meet_threshold():
-    """三維度都達標 → (True, None)。"""
+    """行情/法人都達標 → (True, None)。"""
     conf = _thresholds()
     ok, reason = _check_completeness(_sources(
-        conf["min_price_rows"], conf["min_institutional_rows"], conf["min_margin_rows"],
+        conf["min_price_rows"], conf["min_institutional_rows"],
     ))
     assert ok is True and reason is None
 
 
-@pytest.mark.parametrize("dim,keyword", [
-    ("price", "行情"), ("inst", "法人"), ("margin", "融資券"),
-])
+@pytest.mark.parametrize("dim,keyword", [("price", "行情"), ("inst", "法人")])
 def test_completeness_fails_and_names_the_short_dimension(dim: str, keyword: str):
     """任一維度低於門檻 → (False, 原因),且原因要指出是哪個維度不足。"""
     conf = _thresholds()
-    rows = {
-        "price": conf["min_price_rows"],
-        "inst": conf["min_institutional_rows"],
-        "margin": conf["min_margin_rows"],
-    }
+    rows = {"price": conf["min_price_rows"], "inst": conf["min_institutional_rows"]}
     rows[dim] = 10  # 只讓這一維短缺
-    ok, reason = _check_completeness(_sources(rows["price"], rows["inst"], rows["margin"]))
+    ok, reason = _check_completeness(_sources(rows["price"], rows["inst"]))
     assert ok is False
     assert reason is not None and keyword in reason
+
+
+def test_eod_completeness_ignores_margin():
+    """融資券晚間才公布:16:00 抓到 0 筆不可讓 EOD 白白重試到截止(線上 09-15 實況)。"""
+    conf = _thresholds()
+    res = _sources(conf["min_price_rows"], conf["min_institutional_rows"])
+    res["sources"]["TWSE 融資券"] = {"ok": True, "rows": 0, "error": None}
+    assert _check_completeness(res) == (True, None)
+
+
+@pytest.mark.parametrize("margin,sbl,keyword", [(0, None, "融資券"), (None, 0, "借券")])
+def test_credit_completeness_requires_margin_and_sbl(margin, sbl, keyword):
+    """借券未公布時 TWT93U 回 stat=OK、0 筆且不拋錯——只有筆數檢查抓得到。"""
+    conf = _thresholds("credit")
+    res = _credit_sources(
+        conf["min_margin_rows"] if margin is None else margin,
+        conf["min_sbl_rows"] if sbl is None else sbl,
+    )
+    ok, reason = _check_completeness(res, "credit")
+    assert ok is False and keyword in reason
+    full = _credit_sources(conf["min_margin_rows"], conf["min_sbl_rows"])
+    assert _check_completeness(full, "credit") == (True, None)
 
 
 def test_completeness_catches_missing_tpex_market():
@@ -125,10 +145,8 @@ def test_completeness_catches_missing_tpex_market():
             "TPEx 行情": {"ok": False, "rows": 0, "error": "來源失敗"},
             "TWSE 法人": {"ok": True, "rows": 1042, "error": None},
             "TPEx 法人": {"ok": False, "rows": 0, "error": "來源失敗"},
-            "TWSE 融資券": {"ok": True, "rows": 1036, "error": None},
-            "TPEx 融資券": {"ok": False, "rows": 0, "error": "來源失敗"},
         },
-        "degraded": ["TPEx 行情", "TPEx 法人", "TPEx 融資券"],
+        "degraded": ["TPEx 行情", "TPEx 法人"],
     }
     ok, reason = _check_completeness(only_twse)
     assert ok is False and reason is not None
@@ -297,3 +315,101 @@ async def test_run_eod_target_never_uses_host_date_today(monkeypatch):
 
     tz = get_thresholds().schedule.get("timezone", "Asia/Taipei")
     assert seen == [dt.datetime.now(ZoneInfo(tz)).date()]
+
+
+# ---------------------------------------------------------------- 晚間信用補抓
+
+def test_build_scheduler_registers_credit_job_from_config():
+    """信用補抓時間同樣來自 config(鐵則 4),且 YAML 缺鍵時程式碼預設與 YAML 一致。"""
+    from app.core.config import Thresholds
+
+    credit = get_thresholds().schedule["credit"]
+    text = str(_build_scheduler().get_job("credit").trigger)
+    assert f"hour='{credit['hour']}'" in text and f"minute='{credit['minute']}'" in text
+
+    original = scheduler.get_thresholds
+    try:
+        scheduler.get_thresholds = lambda: Thresholds({"schedule": {"timezone": "Asia/Taipei"}})
+        text = str(_build_scheduler().get_job("credit").trigger)
+        assert f"hour='{credit['hour']}'" in text and f"minute='{credit['minute']}'" in text
+    finally:
+        scheduler.get_thresholds = original
+
+
+def _patch_credit_once(monkeypatch, import_res: dict) -> list[str]:
+    from app.jobs import runner
+
+    calls: list[str] = []
+    monkeypatch.setattr(runner, "try_mark", lambda *a, **k: True)
+    monkeypatch.setattr(runner, "finish", lambda *a, **k: calls.append("finish"))
+
+    async def fake_credit(target):
+        calls.append("run_credit")
+        return import_res
+
+    async def fake_run(target, **kw):
+        calls.append("rebuild")
+        assert kw == {"do_import": False, "do_features": True, "do_signals": True}
+
+    monkeypatch.setattr(scheduler.daily, "run_credit", fake_credit)
+    monkeypatch.setattr(scheduler.daily, "run", fake_run)
+    return calls
+
+
+async def test_credit_once_skips_rebuild_when_nothing_published(monkeypatch):
+    """報表未公布(全 0 筆)的嘗試不重算特徵——否則 20:00 起每 15 分鐘白算一次。"""
+    calls = _patch_credit_once(monkeypatch, _credit_sources(0, 0))
+    assert await scheduler._run_credit_once(dt.date(2026, 9, 15)) is False
+    assert calls == ["run_credit", "finish"]
+
+
+async def test_credit_once_rebuilds_when_complete(monkeypatch):
+    conf = _thresholds("credit")
+    calls = _patch_credit_once(
+        monkeypatch, _credit_sources(conf["min_margin_rows"], conf["min_sbl_rows"])
+    )
+    assert await scheduler._run_credit_once(dt.date(2026, 9, 15)) is True
+    assert calls == ["run_credit", "rebuild", "finish"]
+
+
+async def test_run_credit_retries_until_its_own_deadline(monkeypatch):
+    """信用補抓用 schedule.credit.retry,不可沿用 EOD 的 18:00 截止。"""
+    retry = get_thresholds().schedule["credit"]["retry"]
+    slept: list[float] = []
+    attempts: list[dt.date] = []
+
+    async def incomplete(target):
+        attempts.append(target)
+        return False
+
+    async def has_price(target):
+        return True
+
+    async def no_notify(target, note=None):
+        return None
+
+    monkeypatch.setattr(scheduler, "_run_credit_once", incomplete)
+    monkeypatch.setattr(scheduler, "_has_daily_price", has_price)
+    monkeypatch.setattr(scheduler, "_notify_signals", no_notify)
+    start = dt.datetime(2026, 9, 15, 20, 0, tzinfo=TZ)
+    _patch_clock(monkeypatch, start, slept)
+
+    await scheduler.run_credit(dt.date(2026, 9, 15))
+
+    deadline = start.replace(hour=retry["deadline_hour"], minute=retry["deadline_minute"])
+    assert sum(slept) == (deadline - start).total_seconds()
+    assert len(attempts) == len(slept) + 1
+
+
+async def test_run_credit_skips_non_trading_day(monkeypatch):
+    """當日無行情(假日):不抓、不重試、不推播。"""
+    async def no_price(target):
+        return False
+
+    async def boom(*a, **k):
+        raise AssertionError("無行情時不應嘗試補抓或推播")
+
+    monkeypatch.setattr(scheduler, "_has_daily_price", no_price)
+    monkeypatch.setattr(scheduler, "_run_credit_once", boom)
+    monkeypatch.setattr(scheduler, "_notify_signals", boom)
+    await scheduler.run_credit(dt.date(2026, 9, 19))

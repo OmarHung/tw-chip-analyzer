@@ -1,6 +1,6 @@
 """每日推播：把 target 當日「新進 BUY / AVOID」推到 Telegram。
 
-由排程器在 EOD 落地 signal_snapshot 後呼叫（scheduler._run_eod_once），也可手動：
+由排程器在晚間信用補抓（融資券/借券）重建並落地 signal_snapshot 後呼叫（scheduler.run_credit），也可手動：
   APP_ENV=dev python -m app.jobs.notify_signals 2026-09-15            # 送出
   APP_ENV=dev python -m app.jobs.notify_signals 2026-09-15 --dry-run  # 只印訊息不送
 

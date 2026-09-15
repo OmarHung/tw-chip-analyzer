@@ -315,7 +315,12 @@ def _patch_scheduler(monkeypatch, *, today: dt.date, is_test: bool = False) -> l
     return calls
 
 
-async def test_eod_complete_triggers_notify_for_today(monkeypatch):
+async def _has_price(target):
+    return True
+
+
+async def test_eod_complete_does_not_notify(monkeypatch):
+    """推播改在晚間信用補抓後:16:00 EOD 完成時融資券/借券還沒公布,不發。"""
     calls = _patch_scheduler(monkeypatch, today=TARGET)
 
     async def complete(target):
@@ -323,10 +328,40 @@ async def test_eod_complete_triggers_notify_for_today(monkeypatch):
 
     monkeypatch.setattr(scheduler, "_run_eod_once", complete)
     await scheduler.run_eod(TARGET)
+    assert calls == []
+
+
+async def test_credit_complete_triggers_notify_for_today(monkeypatch):
+    calls = _patch_scheduler(monkeypatch, today=TARGET)
+    scheduler._eod_incomplete.pop(TARGET, None)
+
+    async def complete(target):
+        return True
+
+    monkeypatch.setattr(scheduler, "_has_daily_price", _has_price)
+    monkeypatch.setattr(scheduler, "_run_credit_once", complete)
+    await scheduler.run_credit(TARGET)
     assert calls == [(TARGET, None)]
 
 
-async def test_eod_incomplete_at_deadline_notifies_with_note(monkeypatch):
+async def test_credit_incomplete_at_deadline_notifies_with_note(monkeypatch):
+    calls = _patch_scheduler(monkeypatch, today=TARGET)
+    scheduler._eod_incomplete.pop(TARGET, None)
+    monkeypatch.setattr(scheduler, "_local_now", lambda: dt.datetime.combine(
+        TARGET, dt.time(23, 45), scheduler.ZoneInfo("Asia/Taipei")))
+    monkeypatch.setattr(scheduler, "_last_incomplete_reason", lambda t: "借券 0 筆 < 門檻 800")
+
+    async def incomplete(target):
+        return False
+
+    monkeypatch.setattr(scheduler, "_has_daily_price", _has_price)
+    monkeypatch.setattr(scheduler, "_run_credit_once", incomplete)
+    await scheduler.run_credit(TARGET)
+    assert len(calls) == 1 and "借券 0 筆" in calls[0][1]
+
+
+async def test_eod_incomplete_reason_carried_into_evening_notify(monkeypatch):
+    """EOD 到 18:00 仍不完整的原因要附在晚間推播,不可因分段而遺失。"""
     calls = _patch_scheduler(monkeypatch, today=TARGET)
     monkeypatch.setattr(scheduler, "_local_now", lambda: dt.datetime.combine(
         TARGET, dt.time(19, 0), scheduler.ZoneInfo("Asia/Taipei")))
@@ -335,9 +370,18 @@ async def test_eod_incomplete_at_deadline_notifies_with_note(monkeypatch):
     async def incomplete(target):
         return False
 
+    async def complete(target):
+        return True
+
     monkeypatch.setattr(scheduler, "_run_eod_once", incomplete)
     await scheduler.run_eod(TARGET)
+    assert calls == []
+
+    monkeypatch.setattr(scheduler, "_has_daily_price", _has_price)
+    monkeypatch.setattr(scheduler, "_run_credit_once", complete)
+    await scheduler.run_credit(TARGET)
     assert len(calls) == 1 and "法人 0 筆" in calls[0][1]
+    scheduler._eod_incomplete.pop(TARGET, None)
 
 
 async def test_notify_skips_past_dates_and_test_env(monkeypatch):

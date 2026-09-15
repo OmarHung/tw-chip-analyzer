@@ -125,24 +125,40 @@ schedule:
   timezone: Asia/Taipei    # 「今天」一律用此時區換算,不依賴主機時區
   eod:
     day_of_week: "mon-fri"   # 交易日;國定假日由 daily 偵測無 OHLCV 自動空跑
-    hour: 16                 # 16:00 起跑,替法人/融資券/借券/TPEx 報表留緩衝
+    hour: 16                 # 16:00 起跑,替法人/TPEx 報表留緩衝
     minute: 0
-    # 完整性門檻:行情/法人/融資券各取 TWSE+TPEx 合計筆數,任一未達即視為不完整 → 進 retry。
-    # 數字依 dev 庫實測分佈訂(非拍腦袋):兩市場齊全的正常日最低為 行情 1929 / 法人 1807 /
-    # 融資券 1820;而「TPEx 整個沒進來」的降級日最高只有 1074 筆。兩者之間有明顯斷層,
+    # 完整性門檻:行情/法人各取 TWSE+TPEx 合計筆數,任一未達即視為不完整 → 進 retry。
+    # 融資券/借券不在此檢查——交易所晚間才公布,改由下方 schedule.credit 補抓。
+    # 數字依 dev 庫實測分佈訂(非拍腦袋):兩市場齊全的正常日最低為 行情 1929 / 法人 1807;
+    # 而「TPEx 整個沒進來」的降級日最高只有 1074 筆。兩者之間有明顯斷層,
     # 取 1500 可穩定抓到「掉一個市場」這個最常見的不完整樣態,又對正常日留約 17% 餘裕
     # (避免下市/停牌造成筆數自然縮水就誤判)。注意:門檻若低於 1100 就會把 TPEx 全缺的
     # 降級日誤判為完整,失去本檢查的意義。
     completeness:
       min_price_rows: 1500
       min_institutional_rows: 1500
-      min_margin_rows: 1500
     # 不完整、或因其他回補/腳本佔用單飛鎖而根本沒跑成時,定期重試至當日截止時間。
     # 截止時間為「該時區的當日」時刻;到點仍不完整就放棄(隔日 EOD 或手動回補處理)。
     retry:
       interval_minutes: 15
       deadline_hour: 18
       deadline_minute: 0
+  # 晚間信用補抓(融資券 TWSE+TPEx、借券 TWT93U)→ 重建特徵 → Telegram 推播。
+  # 時間依線上實測訂:2026-09-08 起每日首次入庫皆在 20:53~23:20,09-15 當日 19:37 仍查無、
+  # 22:08 已公布。未公布的嘗試只是三個 GET(不重算特徵),故 20:00 起跑、密集重試成本很低。
+  credit:
+    day_of_week: "mon-fri"
+    hour: 20
+    minute: 0
+    # 融資券同 EOD 口徑(TWSE+TPEx 合計,正常日 dev 最低 1820);借券只有上市,
+    # dev 庫每日筆數 min 1041 / p5 1043,未公布時為 0——取 800 留約 23% 餘裕。
+    completeness:
+      min_margin_rows: 1500
+      min_sbl_rows: 800
+    retry:
+      interval_minutes: 15
+      deadline_hour: 23
+      deadline_minute: 30
 
 # 每日推播(app.jobs.notify_signals;EOD 完成後推「新進 BUY / AVOID」到 Telegram)。
 # 機密(bot token / chat id)在 .env 的 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID,不放這裡。

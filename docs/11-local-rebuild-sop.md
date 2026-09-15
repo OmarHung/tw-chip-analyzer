@@ -21,7 +21,7 @@
 | 程式版本一致 | 兩邊 `git log --oneline -1` | **完全相同的 commit**。不同版本算出的分數推回線上會混用兩套算法 |
 | config 一致 | 兩邊 `git diff --stat config/` | 都沒有未 commit 的門檻修改 |
 | 線上沒有工作在跑 | 系統頁回補區狀態為閒置，或 `curl -s localhost:8000/api/ops/status` 看 `job.state` | 不是 `running` |
-| 避開 EOD | 排程為平日 16:00，不完整會重試到 18:00（`config/thresholds.yaml` `schedule.eod`） | 整個流程**不要跨過 16:00–18:00 這段 EOD 視窗**（見「例外處理」） |
+| 避開 EOD | 排程為平日 16:00，不完整會重試到 18:00；20:00 起信用補抓重試到 23:30（`config/thresholds.yaml` `schedule.eod` / `schedule.credit`） | 整個流程**不要跨過 16:00–18:00、20:00–23:30 這兩段排程視窗**（見「例外處理」） |
 
 ---
 

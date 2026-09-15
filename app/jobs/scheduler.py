@@ -4,20 +4,27 @@
 的 schedule 節提供(鐵則 4:排程時間必須 config 化,禁硬編碼)。job 直接 await
 job 函式(daily.run / import_ticks.run),不走 subprocess。
 
-EOD 流程(與 eod.sh 等價):
+每日兩段(兩段各自有完整性檢查與延後重試,門檻/時間讀 schedule.eod / schedule.credit):
+
+EOD(16:00,與 eod.sh 等價):
   1. daily.run(import+TAIEX+特徵,暫不落地) → 2. import_ticks(逐筆,容錯)
   → 3. daily.run(skip_import:重建含 intraday 特徵 + 落地 signal_snapshot)
-  → 4. notify_signals(推播新進 BUY / AVOID 到 Telegram;失敗不影響 EOD)
+  完整性只看行情/法人(TPEx 報表偶爾 5xx,16:20 前後補齊)。
 
-完整性與重試:跑完後檢查行情/法人/融資券筆數是否達 schedule.eod.completeness 門檻
-(法人、融資券、借券、TPEx 報表上線時間比行情晚,16:00 起跑仍可能只抓到一半)。
+信用補抓(晚間,schedule.credit):融資券(TWSE+TPEx)與借券交易所晚間才公布(線上實測
+首次入庫皆在 20:53~23:20,09-15 當日 19:37 仍查無資料),16:00 的 EOD 從來抓不到。
+  1. daily.run_credit(只抓三張信用報表) → 到齊(或有新列)才 2. 重建特徵 + 落地
+  → 3. notify_signals(推播新進 BUY / AVOID;失敗不影響排程)
+推播放在這段:資料完整後才發,避免推出缺融資券/借券成分、晚間又會變的名單。
+
 不完整、或因單飛鎖被回補/腳本佔用而根本沒跑成,都會每隔 retry.interval_minutes
 重試一次,直到 retry.deadline_hour:deadline_minute 為止。
 
 用法:
   APP_ENV=dev python -m app.jobs.scheduler            # 常駐,依 config 排程
   APP_ENV=dev python -m app.jobs.scheduler --check     # 印下次執行時間後退出
-  APP_ENV=dev python -m app.jobs.scheduler --now [--date YYYY-MM-DD]  # 立即跑一次
+  APP_ENV=dev python -m app.jobs.scheduler --now [--date YYYY-MM-DD]  # 立即跑一次 EOD
+  APP_ENV=dev python -m app.jobs.scheduler --credit [--date YYYY-MM-DD]  # 立即跑信用補抓
 """
 from __future__ import annotations
 
@@ -46,26 +53,33 @@ def _local_now() -> dt.datetime:
     return dt.datetime.now(ZoneInfo(tz))
 
 
-# 完整性檢查的三個核心維度:(顯示名, config 鍵, 來源 label)。
-# label 必須與 daily.SourceReport 寫入的字串一致,TWSE + TPEx 合計後比門檻。
-_COMPLETENESS_DIMENSIONS: tuple[tuple[str, str, tuple[str, str]], ...] = (
-    ("行情", "min_price_rows", ("TWSE 行情", "TPEx 行情")),
-    ("法人", "min_institutional_rows", ("TWSE 法人", "TPEx 法人")),
-    ("融資券", "min_margin_rows", ("TWSE 融資券", "TPEx 融資券")),
-)
+# 完整性檢查維度(依排程段):(顯示名, config 鍵, 來源 label)。
+# label 必須與 daily.SourceReport 寫入的字串一致,多個 label(TWSE + TPEx)合計後比門檻。
+_Dimension = tuple[str, str, tuple[str, ...]]
+_COMPLETENESS_DIMENSIONS: dict[str, tuple[_Dimension, ...]] = {
+    "eod": (
+        ("行情", "min_price_rows", ("TWSE 行情", "TPEx 行情")),
+        ("法人", "min_institutional_rows", ("TWSE 法人", "TPEx 法人")),
+    ),
+    "credit": (
+        ("融資券", "min_margin_rows", ("TWSE 融資券", "TPEx 融資券")),
+        # 借券未公布時 TWT93U 回 stat=OK 但 0 筆、不拋錯,只有筆數檢查抓得到
+        ("借券", "min_sbl_rows", ("SBL 借券",)),
+    ),
+}
 
 
-def _check_completeness(import_res: dict) -> tuple[bool, str | None]:
-    """核心三維度是否都達到 config 的最低筆數;回 (是否完整, 不完整原因)。
+def _check_completeness(import_res: dict, section: str = "eod") -> tuple[bool, str | None]:
+    """該段各維度是否都達到 config 的最低筆數;回 (是否完整, 不完整原因)。
 
-    門檻一律讀 config schedule.eod.completeness(鐵則 4)。某維度缺鍵時該維度門檻
-    視為 0(= 不檢查),而非套一個硬編碼預設——否則 config 少一個鍵就會讓每天 EOD
+    門檻一律讀 config schedule.<section>.completeness(鐵則 4)。某維度缺鍵時該維度門檻
+    視為 0(= 不檢查),而非套一個硬編碼預設——否則 config 少一個鍵就會讓每天排程
     都被判成不完整,白白重試到截止時間。
     """
-    conf = get_thresholds().get("schedule", "eod", "completeness", default={}) or {}
+    conf = get_thresholds().get("schedule", section, "completeness", default={}) or {}
     sources = import_res.get("sources", {}) or {}
     reasons: list[str] = []
-    for name, key, labels in _COMPLETENESS_DIMENSIONS:
+    for name, key, labels in _COMPLETENESS_DIMENSIONS[section]:
         threshold = conf.get(key, 0)
         rows = sum((sources.get(label) or {}).get("rows", 0) or 0 for label in labels)
         if rows < threshold:
@@ -82,7 +96,7 @@ async def _run_eod_once(target: dt.date) -> bool:
     回 False 的三種情形都交由 run_eod 安排重試:
       1. 忙碌旗標被其他回補/腳本佔用 → 這次根本沒跑到
       2. 流程中途拋例外
-      3. 跑完了但核心資料未達完整性門檻(法人/融資券常比行情晚上線)
+      3. 跑完了但核心資料未達完整性門檻(TPEx 報表偶爾 5xx、法人比行情晚上線)
     """
     from app.jobs import runner
 
@@ -92,7 +106,7 @@ async def _run_eod_once(target: dt.date) -> bool:
         return False
     logger.info("EOD 開始 %s", target)
     try:
-        # 1) 行情 + 法人 + 融資 + 當週 TDCC + TAIEX + 特徵(暫不落地,待步驟 3 一次算四維)
+        # 1) 行情 + 法人 + 當週 TDCC + TAIEX + 特徵(暫不落地,待步驟 3 一次算四維)
         runner._state["step"] = f"{target}:匯入 + 特徵"
         import_res = await daily.run(
             target, do_import=True, do_features=True, do_signals=False,
@@ -119,7 +133,7 @@ async def _run_eod_once(target: dt.date) -> bool:
             "complete": complete, "incomplete_reason": reason,
         }
         # 不完整仍算「這次跑完了」(資料有進、分數有落地),只是還要再補一輪,
-        # 故 finish(ok=True):狀態頁不該把「等法人上線」顯示成錯誤。
+        # 故 finish(ok=True):狀態頁不該把「等報表上線」顯示成錯誤。
         runner.finish(ok=True)
         if complete:
             logger.info("EOD 完成 %s", target)
@@ -128,6 +142,43 @@ async def _run_eod_once(target: dt.date) -> bool:
         return complete
     except Exception as e:  # noqa: BLE001
         logger.exception("EOD 失敗 %s", target)
+        runner.finish(ok=False, error=str(e))
+        return False
+
+
+async def _run_credit_once(target: dt.date) -> bool:
+    """跑一次信用補抓;回傳「融資券 + 借券是否到齊」。
+
+    有新列才重建特徵 + 落地(未公布的嘗試只是三個 GET,不重算);部分到齊也重建,
+    讓截止時仍不完整的日子至少用上已公布的部分。回 False 的情形同 _run_eod_once。
+    """
+    from app.jobs import runner
+
+    if not runner.try_mark("scheduled_credit", "credit", str(target)):
+        logger.warning("已有回補/工作進行中,本次信用補抓 %s 未執行,稍後重試", target)
+        return False
+    logger.info("信用補抓開始 %s", target)
+    try:
+        runner._state["step"] = f"{target}:融資券 + 借券"
+        import_res = await daily.run_credit(target)
+        complete, reason = _check_completeness(import_res, "credit")
+        rows = sum((v or {}).get("rows", 0) or 0 for v in import_res["sources"].values())
+        if rows > 0:
+            runner._state["step"] = f"{target}:重建特徵 + 落地"
+            await daily.run(target, do_import=False, do_features=True, do_signals=True)
+        runner._state["result"] = {
+            "date": str(target), "mode": "scheduled_credit",
+            "degraded": import_res["degraded"], "sources": import_res["sources"],
+            "complete": complete, "incomplete_reason": reason,
+        }
+        runner.finish(ok=True)
+        if complete:
+            logger.info("信用補抓完成 %s", target)
+        else:
+            logger.warning("信用補抓 %s 資料不完整:%s", target, reason)
+        return complete
+    except Exception as e:  # noqa: BLE001
+        logger.exception("信用補抓失敗 %s", target)
         runner.finish(ok=False, error=str(e))
         return False
 
@@ -141,8 +192,12 @@ def _last_incomplete_reason(target: dt.date) -> str | None:
     return result.get("incomplete_reason")
 
 
+# EOD 到截止仍不完整的原因(date → reason),留給同日晚間推播附註;行程重啟即遺失(僅影響附註)。
+_eod_incomplete: dict[dt.date, str] = {}
+
+
 async def _notify_signals(target: dt.date, note: str | None = None) -> None:
-    """EOD 後推播新進 BUY / AVOID(notify.telegram)。失敗只記 log,絕不影響 EOD。
+    """信用補抓後推播新進 BUY / AVOID(notify.telegram)。失敗只記 log,絕不影響排程。
 
     只推「今天」:`--now --date` 補算舊日期時不該對 Telegram 補發過期名單。
     test 環境一律不送(.env 可能含真實 token)。
@@ -158,47 +213,86 @@ async def _notify_signals(target: dt.date, note: str | None = None) -> None:
         logger.exception("推播 %s 失敗", target)
 
 
-async def run_eod(target: dt.date | None = None) -> None:
-    """EOD 進入點:跑一次,若不完整(或被忙碌擋掉)就每隔 N 分鐘重試至截止時間。
+# 各段 retry 截止時間的程式碼預設(須與 config/thresholds.yaml 一致)
+_DEADLINE_DEFAULTS = {"eod": (18, 0), "credit": (23, 30)}
+
+
+async def _retry_until_deadline(
+    section: str, label: str, target: dt.date, once
+) -> bool:
+    """跑 once(target),不完整(或被忙碌擋掉)就每隔 N 分鐘重試至截止時間;回是否完成。
 
     截止時間取「當下時區的今天」的 deadline_hour:deadline_minute,與 target 無關
     ——它描述的是今天這個重試視窗的牆鐘邊界,所以手動補算舊日期(--now --date)
     在截止時間後執行時只會跑一次就結束,不會空轉。
     """
-    now = _local_now()
-    target = target or now.date()   # 需求 5:用 config 時區,不用主機 date.today()
-    retry = get_thresholds().get("schedule", "eod", "retry", default={}) or {}
+    retry = get_thresholds().get("schedule", section, "retry", default={}) or {}
     interval_sec = retry.get("interval_minutes", 15) * 60
-    deadline = now.replace(
-        hour=retry.get("deadline_hour", 18), minute=retry.get("deadline_minute", 0),
+    d_hour, d_minute = _DEADLINE_DEFAULTS[section]
+    deadline = _local_now().replace(
+        hour=retry.get("deadline_hour", d_hour), minute=retry.get("deadline_minute", d_minute),
         second=0, microsecond=0,
     )
     attempt = 0
     while True:
         attempt += 1
         # 先跑再看截止時間:確保任何情況下至少嘗試一次(即使已過 deadline)。
-        if await _run_eod_once(target):
-            await _notify_signals(target)
-            return
+        if await once(target):
+            return True
         remaining = (deadline - _local_now()).total_seconds()
         if remaining <= 0:
             logger.error(
-                "EOD %s 已達截止時間 %s 仍不完整,放棄重試(共嘗試 %d 次)",
-                target, deadline.strftime("%H:%M"), attempt,
+                "%s %s 已達截止時間 %s 仍不完整,放棄重試(共嘗試 %d 次)",
+                label, target, deadline.strftime("%H:%M"), attempt,
             )
-            # 分數已落地(不完整只是缺部分來源)仍推播,但標註;全無快照時 notify 自行略過
-            reason = _last_incomplete_reason(target)
-            await _notify_signals(
-                target, note=f"EOD 至截止時間仍不完整({reason or '原因未知'}),名單可能失真"
-            )
-            return
+            return False
         # 不可睡過頭跨越 deadline,否則最後一次重試會落在截止時間之外。
         sleep_sec = min(interval_sec, remaining)
         logger.warning(
-            "EOD %s 第 %d 次嘗試未完成,%.0f 分鐘後重試(截止 %s)",
-            target, attempt, sleep_sec / 60, deadline.strftime("%H:%M"),
+            "%s %s 第 %d 次嘗試未完成,%.0f 分鐘後重試(截止 %s)",
+            label, target, attempt, sleep_sec / 60, deadline.strftime("%H:%M"),
         )
         await asyncio.sleep(sleep_sec)
+
+
+async def run_eod(target: dt.date | None = None) -> None:
+    """EOD 進入點(不推播;推播在晚間信用補抓後)。"""
+    target = target or _local_now().date()   # 需求 5:用 config 時區,不用主機 date.today()
+    if await _retry_until_deadline("eod", "EOD", target, _run_eod_once):
+        _eod_incomplete.pop(target, None)
+    else:
+        _eod_incomplete[target] = _last_incomplete_reason(target) or "原因未知"
+
+
+async def run_credit(target: dt.date | None = None) -> None:
+    """晚間信用補抓進入點:補融資券 + 借券 → 重建特徵 → 推播。
+
+    當日 EOD 沒落地任何行情(非交易日,或 EOD 整段失敗)就不抓也不推——融資券端點
+    在假日同樣回 0 筆,否則會空轉到截止時間。
+    """
+    target = target or _local_now().date()
+    if not await _has_daily_price(target):
+        logger.info("信用補抓 %s 略過:當日無行情(非交易日或 EOD 未成功)", target)
+        return
+    notes: list[str] = []
+    if target in _eod_incomplete:
+        notes.append(f"EOD 至截止時間仍不完整({_eod_incomplete[target]})")
+    if not await _retry_until_deadline("credit", "信用補抓", target, _run_credit_once):
+        reason = _last_incomplete_reason(target)
+        notes.append(f"融資券/借券至截止時間仍不完整({reason or '原因未知'})")
+    # 分數已落地(不完整只是缺部分來源)仍推播,但標註;全無快照時 notify 自行略過
+    note = ";".join(notes) + ",名單可能失真" if notes else None
+    await _notify_signals(target, note=note)
+
+
+async def _has_daily_price(target: dt.date) -> bool:
+    from sqlalchemy import exists, select
+
+    from app.db.models.market import DailyPrice
+    from app.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        return bool(await s.scalar(select(exists().where(DailyPrice.data_date == target))))
 
 
 def _build_scheduler() -> AsyncIOScheduler:
@@ -217,6 +311,17 @@ def _build_scheduler() -> AsyncIOScheduler:
         misfire_grace_time=3600,  # 機器休眠錯過時的寬限
         coalesce=True,            # 多次錯過只補跑一次
         max_instances=1,
+    )
+    credit = sch.get("credit", {})
+    scheduler.add_job(
+        run_credit,
+        CronTrigger(
+            day_of_week=credit.get("day_of_week", "mon-fri"),
+            hour=credit.get("hour", 20),      # 預設須與 config/thresholds.yaml 一致
+            minute=credit.get("minute", 0),
+            timezone=tz,
+        ),
+        id="credit", misfire_grace_time=3600, coalesce=True, max_instances=1,
     )
     # Phase 2 MOPS(shadow-only,docs/14):時間讀 config mops.schedule,與 EOD 共用單飛鎖
     mops = get_thresholds().get("mops", "schedule", default={}) or {}
@@ -309,6 +414,7 @@ async def _serve() -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description="EOD 常駐排程器(APScheduler)")
     p.add_argument("--now", action="store_true", help="立即跑一次 EOD 後退出")
+    p.add_argument("--credit", action="store_true", help="立即跑一次信用補抓(含推播)後退出")
     p.add_argument("--check", action="store_true", help="印下次執行時間後退出")
     p.add_argument("--date", help="搭配 --now 指定日期 YYYY-MM-DD")
     args = p.parse_args()
@@ -317,15 +423,16 @@ def main() -> None:
         async def _check() -> None:
             scheduler = _build_scheduler()
             scheduler.start()  # next_run_time 需 start 後才計算
-            job = scheduler.get_job("eod")
-            print(f"下次 EOD 執行時間:{job.next_run_time}  (trigger: {job.trigger})")
+            for job_id, name in (("eod", "EOD"), ("credit", "信用補抓")):
+                job = scheduler.get_job(job_id)
+                print(f"下次 {name} 執行時間:{job.next_run_time}  (trigger: {job.trigger})")
             scheduler.shutdown(wait=False)
 
         asyncio.run(_check())
         return
-    if args.now:
+    if args.now or args.credit:
         target = dt.date.fromisoformat(args.date) if args.date else None
-        asyncio.run(run_eod(target))
+        asyncio.run(run_credit(target) if args.credit else run_eod(target))
         return
     try:
         asyncio.run(_serve())

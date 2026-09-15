@@ -131,8 +131,8 @@ export function TaskPanel({ busy }: { busy: boolean }) {
       <div className="space-y-5">
         <p className="text-xs text-ink-dim">
           以子行程執行白名單腳本，與 EOD／回補共用同一把鎖。工作執行中若到了 EOD 排程時間，
-          <span className="text-up">當日 EOD 會延後重試</span>（每 15 分鐘再試一次，最晚到 18:00），
-          請盡量避開平日 16:00 前後。
+          <span className="text-up">當日 EOD 會延後重試</span>（每 15 分鐘再試一次，最晚到 18:00；
+          晚間融資券／借券補抓同理，最晚到 23:30），請盡量避開平日 16:00 前後與 20:00 之後。
         </p>
 
         <div className="flex flex-wrap gap-4">

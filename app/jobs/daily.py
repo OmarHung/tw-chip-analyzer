@@ -78,6 +78,37 @@ class SourceReport:
         }
 
 
+async def _import_credit(report: SourceReport, target: dt.date) -> None:
+    """融資券(TWSE+TPEx)+ 借券(TWSE TWT93U)。各自 fail-soft、各自落庫。
+
+    交易所晚間(實測 20~22 時)才公布,未公布時端點回「查無資料」或 stat=OK 但 0 筆,
+    兩者都不拋錯——故是否到齊只能看筆數(scheduler 的 credit 完整性檢查)。
+    """
+    sm = get_sessionmaker()
+    for label, fetch, imp in (
+        ("TWSE 融資券", twse_conn.fetch_margin, import_margin),
+        ("SBL 借券", twse_conn.fetch_sbl, import_sbl),
+        ("TPEx 融資券", tpex_conn.fetch_margin, import_tpex_margin),
+    ):
+        try:
+            raw = await fetch(target)
+            async with sm() as s:
+                report.ok(label, await imp(s, raw, target))
+        except Exception as e:  # noqa: BLE001 — 缺則該子項 NULL,由晚間排程重試
+            report.fail(label, e)
+
+
+async def run_credit(target: dt.date) -> dict:
+    """只抓融資券 + 借券(晚間補抓用);回傳同 run() 形狀。不建特徵,由呼叫端決定。"""
+    report = SourceReport()
+    await _import_credit(report, target)
+    logger.info(
+        "信用資料匯入 %s：margin=%d/%d sbl=%d", target,
+        report.rows("TWSE 融資券"), report.rows("TPEx 融資券"), report.rows("SBL 借券"),
+    )
+    return report.summary()
+
+
 async def run(
     target: dt.date,
     do_import: bool = True,
@@ -88,7 +119,7 @@ async def run(
 ) -> dict:
     """回傳 {sources: {來源: {ok, rows, error}}, degraded: [失敗來源]}。
 
-    核心 TWSE 行情/法人/融資失敗仍直接拋錯(無核心資料不該產生訊號);
+    核心 TWSE 行情/法人失敗仍直接拋錯(無核心資料不該產生訊號);
     其餘來源各自 fail-soft,缺則該成分在 composite 中排除或維持前值。
     """
     sm = get_sessionmaker()
@@ -124,23 +155,14 @@ async def run(
         logger.info("抓取 TWSE 盤後資料 %s ...", target)
         ohlcv = await twse_conn.fetch_ohlcv(target)
         inst = await twse_conn.fetch_institutional(target)
-        margin = await twse_conn.fetch_margin(target)
         async with sm() as s:
             n_price = await import_ohlcv(s, ohlcv, target)
             n_inst = await import_institutional(s, inst, target)
-            n_margin = await import_margin(s, margin, target)
         report.ok("TWSE 行情", n_price)
         report.ok("TWSE 法人", n_inst)
-        report.ok("TWSE 融資券", n_margin)
-        # 借券 SBL（TWT93U）：新資料源，失敗不影響核心匯入。
-        n_sbl = 0
-        try:
-            sbl = await twse_conn.fetch_sbl(target)
-            async with sm() as s:
-                n_sbl = await import_sbl(s, sbl, target)
-            report.ok("SBL 借券", n_sbl)
-        except Exception as e:  # noqa: BLE001 — SBL 非必要，缺則該子項 NULL
-            report.fail("SBL 借券", e)
+        # 融資券 / 借券:交易所晚間才公布,16:00 多半抓到 0 筆;照抓(已公布就先用),
+        # 補齊交給 run_credit 晚間排程。
+        await _import_credit(report, target)
         # 公司行動還原因子：TWSE 除權息(TWT49U)+面額變更(TWTB8U)+減資(TWTAUU)+兩張預告表
         # (TWT48U 補配股率、TWTAVU 補減資換股率→量因子,只回未來)；
         # TPEx 除權息(exDailyQ,同表即有配股率)
@@ -187,12 +209,11 @@ async def run(
                 report.ok(label, n)
             except Exception as e:  # noqa: BLE001 — 缺則產業別維持前值
                 report.fail(label, e)
-        # TPEx 上櫃（行情/法人/融資券）：三個端點各自 fail-soft、各自落庫——
-        # 融資端點失敗不可連帶丟掉已抓到的行情，否則整個上櫃從當日橫斷面消失。
+        # TPEx 上櫃（行情/法人）：各自 fail-soft、各自落庫（融資券在 _import_credit）——
+        # 任一端點失敗不可連帶丟掉已抓到的行情，否則整個上櫃從當日橫斷面消失。
         for label, fetch, imp in (
             ("TPEx 行情", tpex_conn.fetch_ohlcv, import_tpex_ohlcv),
             ("TPEx 法人", tpex_conn.fetch_institutional, import_tpex_institutional),
-            ("TPEx 融資券", tpex_conn.fetch_margin, import_tpex_margin),
         ):
             try:
                 raw_tpx = await fetch(target)
@@ -202,12 +223,11 @@ async def run(
                 report.fail(label, e)
         n_tpx = report.rows("TPEx 行情")
         n_tpx_inst = report.rows("TPEx 法人")
-        n_tpx_margin = report.rows("TPEx 融資券")
         logger.info(
             "匯入完成：price=%d institutional=%d margin=%d sbl=%d ca=%d "
             "profile=%d tpex=%d/%d/%d",
-            n_price, n_inst, n_margin, n_sbl, n_ca, n_prof,
-            n_tpx, n_tpx_inst, n_tpx_margin,
+            n_price, n_inst, report.rows("TWSE 融資券"), report.rows("SBL 借券"),
+            n_ca, n_prof, n_tpx, n_tpx_inst, report.rows("TPEx 融資券"),
         )
         if n_price + n_tpx == 0:
             logger.warning("當日無 OHLCV（可能非交易日），略過建特徵。")

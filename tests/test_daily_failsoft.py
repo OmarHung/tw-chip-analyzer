@@ -101,6 +101,25 @@ async def test_tpex_margin_failure_keeps_ohlcv_and_institutional(fake_daily, mon
     assert res["sources"]["TPEx 行情"]["rows"] == 10
 
 
+async def test_twse_margin_failure_does_not_abort_eod(fake_daily, monkeypatch):
+    """融資券晚間才公布、交給晚間排程補,16:00 抓失敗不可讓整個 EOD 拋錯。"""
+    monkeypatch.setattr(daily.twse_conn, "fetch_margin", _aboom)
+    res = await _run()
+    assert "import:ohlcv" in fake_daily and "import:tpex_ohlcv" in fake_daily
+    assert "TWSE 融資券" in res["degraded"]
+
+
+async def test_run_credit_only_touches_margin_and_sbl(fake_daily):
+    """晚間補抓只抓三張信用報表,不重抓行情/法人/公司行動。"""
+    res = await daily.run_credit(TARGET)
+    assert sorted(fake_daily) == sorted([
+        "fetch:twse.fetch_margin", "import:margin",
+        "fetch:twse.fetch_sbl", "import:sbl",
+        "fetch:tpex.fetch_margin", "import:tpex_margin",
+    ])
+    assert set(res["sources"]) == {"TWSE 融資券", "SBL 借券", "TPEx 融資券"}
+
+
 async def test_core_twse_failure_still_raises(fake_daily, monkeypatch):
     monkeypatch.setattr(daily.twse_conn, "fetch_ohlcv", _aboom)
     with pytest.raises(RuntimeError):

@@ -175,10 +175,12 @@ docker compose exec -T api python -m scripts.diag_intraday_bias
 
 1. **EOD 排程**：`api` 容器內建 APScheduler（`config/thresholds.yaml` 的
    `schedule.enabled: true`），單容器＝單實例，每交易日 16:00（Asia/Taipei）自動跑，
-   無重複跑問題，不需額外 cron 容器。跑完會檢查行情／法人／融資券筆數是否達
+   無重複跑問題，不需額外 cron 容器。跑完會檢查行情／法人筆數是否達
    `schedule.eod.completeness` 門檻，不完整（或因回補／腳本佔用單飛鎖而沒跑成）
    則每 15 分鐘重試一次，最晚到 18:00。日誌可見 `EOD 完成` / `資料不完整：…` /
-   `已達截止時間…放棄重試` 三種結果。
+   `已達截止時間…放棄重試` 三種結果。融資券／借券晚間才公布，由 20:00 起的
+   `信用補抓`（`schedule.credit`，重試至 23:30）補齊後重算並推播 Telegram；
+   手動補跑：`docker compose exec api python -m app.jobs.scheduler --credit --date YYYY-MM-DD`。
 2. **同源免 CORS**：後端 `CORSMiddleware` 只放行 `localhost`（見 `app/main.py`）。
    靠主機 nginx 同源代理，勿讓瀏覽器跨網域直打後端。
 3. **逐筆非必需**：不填 `SJ_*` 也能運作，只是 intraday 分項中性——法人買賣超、
