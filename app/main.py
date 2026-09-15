@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     from app.api.dashboard import router as dashboard_router
     from app.api.heatmap import router as heatmap_router
     from app.api.logos import router as logos_router
+    from app.api.notify import router as notify_router
     from app.api.ops import router as ops_router
     from app.api.scanner import router as scanner_router
     from app.api.settings import router as settings_router
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(logos_router)
     app.include_router(ops_router)
     app.include_router(settings_router)
+    app.include_router(notify_router)
     app.include_router(tasks_router)
     app.include_router(validation_router)
 

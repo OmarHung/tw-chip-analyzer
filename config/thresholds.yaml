@@ -144,6 +144,24 @@ schedule:
       deadline_hour: 18
       deadline_minute: 0
 
+# 每日推播(app.jobs.notify_signals;EOD 完成後推「新進 BUY / AVOID」到 Telegram)。
+# 機密(bot token / chat id)在 .env 的 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID,不放這裡。
+# 「新進」= 當日 signal_snapshot 的 action 屬於 actions,且該檔在 lookback_days 內最近一筆快照
+# 的 action 不同(或沒有前一筆)。只讀已落地的 signal_snapshot,不重算分數,與 UI/backtest 同口徑。
+# 純通知層:不在 data_version 區塊內,改動不觸發分數重建提示。
+notify:
+  telegram:
+    enabled: true
+    actions: ["BUY", "AVOID"]
+    lookback_days: 10          # 找「前一筆快照」的回看日曆天數(涵蓋連假;超過視為無基準=新進)
+    max_items: 20              # 每個 action 最多列幾檔(其餘只報總數)。AVOID 常態下每日新進可達上百檔
+    max_reasons: 2             # 每檔列幾條原因
+    min_turnover: 0            # 成交金額(TWD)低於此值不列(0＝不過濾);流動性差的標的本就不宜進場
+    max_message_chars: 3900    # Telegram 單則上限 4096,留餘裕;超過自動分段
+    timeout_sec: 15
+    retries: 2                 # 逾時/連線重置/5xx 重試次數
+    backoff_sec: 2.0
+
 # 熱力圖(純展示層)。不在 threshold_registry._DATA_SECTIONS 內,改這裡不會觸發分數重建提示,
 # 因為它只決定「畫幾格」,不參與 feature/score 計算。
 heatmap:

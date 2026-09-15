@@ -110,6 +110,14 @@ _TASKS: tuple[TaskSpec, ...] = (
                       label="最低成交金額"),
         ),
     ),
+    TaskSpec(
+        "notify_signals", "app.jobs.notify_signals", "推播新進 BUY / AVOID", "maintenance",
+        params=(
+            ParamSpec("date", "date", label="資料日", help="省略＝今天"),
+            ParamSpec("dry_run", "bool", flag="--dry-run", label="只預覽不送"),
+        ),
+        help="讀已落地的 signal_snapshot 推到 Telegram（EOD 完成後會自動送；此處供補發/預覽）。",
+    ),
     # --- Phase 2 MOPS（shadow-only，不影響正式分數與建議；docs/14）---
     TaskSpec(
         "backfill_mops_transfers", "scripts.backfill_mops_transfers", "回補 MOPS 轉讓申報",

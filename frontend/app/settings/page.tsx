@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, SectionTitle } from "@/components/Card";
 import { OpsKeyField } from "@/components/OpsKeyField";
+import { TelegramSettings } from "@/components/TelegramSettings";
 import { api, type SettingItem, type SettingsResponse } from "@/lib/api";
 import { useOpsKey } from "@/lib/useOpsKey";
 
@@ -140,6 +141,8 @@ export default function SettingsPage() {
               </ul>
             </Card>
           )}
+
+          <TelegramSettings />
 
           {groups.map(([group, items]) => (
             <Card key={group}>

@@ -15,7 +15,7 @@ from app.db.models.mops import (
     MopsFetchCoverage,
     MopsShadowFeatureDaily,
 )
-from app.db.models.settings import ThresholdChange, ThresholdOverride
+from app.db.models.settings import NotifySetting, ThresholdChange, ThresholdOverride
 from app.db.models.market import (
     CorporateAction,
     DailyPrice,
@@ -38,6 +38,7 @@ __all__ = [
     "TdccSummaryWeekly",
     "FeatureDaily",
     "SignalSnapshot",
+    "NotifySetting",
     "ThresholdOverride",
     "ThresholdChange",
     "JobRun",

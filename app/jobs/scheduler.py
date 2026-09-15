@@ -7,6 +7,7 @@ job 函式(daily.run / import_ticks.run),不走 subprocess。
 EOD 流程(與 eod.sh 等價):
   1. daily.run(import+TAIEX+特徵,暫不落地) → 2. import_ticks(逐筆,容錯)
   → 3. daily.run(skip_import:重建含 intraday 特徵 + 落地 signal_snapshot)
+  → 4. notify_signals(推播新進 BUY / AVOID 到 Telegram;失敗不影響 EOD)
 
 完整性與重試:跑完後檢查行情/法人/融資券筆數是否達 schedule.eod.completeness 門檻
 (法人、融資券、借券、TPEx 報表上線時間比行情晚,16:00 起跑仍可能只抓到一半)。
@@ -131,6 +132,32 @@ async def _run_eod_once(target: dt.date) -> bool:
         return False
 
 
+def _last_incomplete_reason(target: dt.date) -> str | None:
+    from app.jobs import runner
+
+    result = runner._state.get("result") or {}
+    if result.get("date") != str(target):
+        return None
+    return result.get("incomplete_reason")
+
+
+async def _notify_signals(target: dt.date, note: str | None = None) -> None:
+    """EOD 後推播新進 BUY / AVOID(notify.telegram)。失敗只記 log,絕不影響 EOD。
+
+    只推「今天」:`--now --date` 補算舊日期時不該對 Telegram 補發過期名單。
+    test 環境一律不送(.env 可能含真實 token)。
+    """
+    if get_settings().is_test or target != _local_now().date():
+        return
+    from app.jobs import notify_signals
+
+    try:
+        result = await notify_signals.run(target, note=note)
+        logger.info("推播 %s:%s", target, result)
+    except Exception:  # noqa: BLE001 — 推播是附加功能
+        logger.exception("推播 %s 失敗", target)
+
+
 async def run_eod(target: dt.date | None = None) -> None:
     """EOD 進入點:跑一次,若不完整(或被忙碌擋掉)就每隔 N 分鐘重試至截止時間。
 
@@ -151,12 +178,18 @@ async def run_eod(target: dt.date | None = None) -> None:
         attempt += 1
         # 先跑再看截止時間:確保任何情況下至少嘗試一次(即使已過 deadline)。
         if await _run_eod_once(target):
+            await _notify_signals(target)
             return
         remaining = (deadline - _local_now()).total_seconds()
         if remaining <= 0:
             logger.error(
                 "EOD %s 已達截止時間 %s 仍不完整,放棄重試(共嘗試 %d 次)",
                 target, deadline.strftime("%H:%M"), attempt,
+            )
+            # 分數已落地(不完整只是缺部分來源)仍推播,但標註;全無快照時 notify 自行略過
+            reason = _last_incomplete_reason(target)
+            await _notify_signals(
+                target, note=f"EOD 至截止時間仍不完整({reason or '原因未知'}),名單可能失真"
             )
             return
         # 不可睡過頭跨越 deadline,否則最後一次重試會落在截止時間之外。

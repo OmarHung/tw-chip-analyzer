@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # 留空 = 只接受本機直連（無反向代理）；經 nginx / tailscale 對外開放時務必設定。
     ops_api_key: str = ""
 
+    # Telegram 推播（每日 EOD 後推「新進 BUY / AVOID」）。兩者皆設才會送；
+    # 開關與格式參數在 config/thresholds.yaml 的 notify.telegram。
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
     thresholds_path: Path = Field(default=DEFAULT_THRESHOLDS_PATH)
 
     @property

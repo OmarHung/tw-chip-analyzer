@@ -95,6 +95,7 @@ tdcc:
 > | `jobs.nice / output_max_chars / cancel_grace_sec` | 系統頁腳本按鈕子行程 |
 > | `heatmap.market / industry / stock` | 熱力圖展示參數（treemap 方塊數上限、產業矩陣天數與成分股門檻、個股分項天數）。**純展示層**，不在 `data_version` 區塊內，改動不觸發分數重建提示 |
 > | `schedule.eod.completeness / retry` | EOD 完整性檢查（行情/法人/融資券最低筆數）與重試節流（不完整或忙碌跳過時，每 N 分鐘重試至截止時間） |
+> | `notify.telegram` | 每日推播「新進 BUY / AVOID」（`app.jobs.notify_signals`，EOD 資料完整後自動送；到截止時間仍不完整也會送，但附警示；補算過去日期不送）。「新進」＝與該檔回看窗內最近一筆快照的 action 不同。**可在 `/settings`「Telegram 推播」卡片設定**（token、chat id〔可按「偵測」自動列出〕、啟用、推播類型、每類檔數、原因條數、最低成交金額；存 DB `notify_setting`，欄位 NULL＝沿用 `.env` 的 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` 與此 YAML；token 對外一律遮蔽、稽核 log 只記欄位名、httpx 請求 log 已遮蔽 URL 內的 token；寫入需 `OPS_API_KEY`）。`lookback_days`／分段長度／逾時重試只在 YAML。推播失敗只記 log，不影響 EOD。**純通知層**，不在 `data_version` 區塊內 |
 > | `weights.intraday.cvd_slope` | 原 `obi`（改名，非 OBI） |
 > | `mops.http / schedule / insider_holding / transfer_declaration / backfill / research` | Phase 2 MOPS（shadow-only，docs/14）：重試節流、排程（2026-09-14 線上 smoke 驗收後 `enabled: true`；某日轉讓網頁失敗應以 `app.jobs.mops <該日> --skip-holdings` 補跑，勿用回補腳本）、揭露落後規則、轉讓回看窗、回補範圍、regime 分層、honest OOS 最低 test 日數（`research.min_honest_test_days`）。不在 `data_version` 區塊內，改動不觸發正式分數重建提示 |
 >

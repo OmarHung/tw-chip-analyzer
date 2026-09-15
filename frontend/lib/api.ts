@@ -564,6 +564,53 @@ export interface SettingsResponse {
   history: SettingChange[];
 }
 
+// --- Telegram 推播設定（UI/DB > .env > YAML；token 一律遮蔽回傳） ---
+export type NotifySource = "db" | "env" | "yaml" | "unset";
+
+export interface TelegramSettings {
+  enabled: boolean;
+  chat_id: string;
+  actions: string[];
+  max_items: number;
+  max_reasons: number;
+  min_turnover: number;
+  token_set: boolean;
+  token_masked: string | null;
+  sources: Record<
+    "enabled" | "bot_token" | "chat_id" | "actions" | "max_items" | "max_reasons" | "min_turnover",
+    NotifySource
+  >;
+  defaults: {
+    enabled: boolean;
+    chat_id: string;
+    actions: string[];
+    max_items: number;
+    max_reasons: number;
+    min_turnover: number;
+    bot_token_masked: string | null;
+  };
+  allowed_actions: string[];
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+/** 部分更新；null＝清除 UI 設定、回到 .env / YAML 預設。 */
+export type TelegramPatch = Partial<{
+  enabled: boolean | null;
+  bot_token: string | null;
+  chat_id: string | null;
+  actions: string[] | null;
+  max_items: number | null;
+  max_reasons: number | null;
+  min_turnover: number | null;
+}>;
+
+export interface TelegramChat {
+  chat_id: string;
+  type: string;
+  title: string;
+}
+
 // --- 腳本工作 ---
 export interface TaskParam {
   name: string;
@@ -692,6 +739,17 @@ export const api = {
       "DELETE",
       `/api/ops/settings/${encodeURIComponent(key)}`,
       undefined,
+      keyHeader(opsKey),
+    ),
+  telegramSettings: () => get<TelegramSettings>("/api/ops/notify/telegram"),
+  updateTelegram: (patch: TelegramPatch, opsKey?: string) =>
+    send<TelegramSettings>("PUT", "/api/ops/notify/telegram", patch, keyHeader(opsKey)),
+  testTelegram: (opsKey?: string) =>
+    post<{ message_id: number | null }>("/api/ops/notify/telegram/test", {}, keyHeader(opsKey)),
+  detectTelegramChats: (botToken: string | undefined, opsKey?: string) =>
+    post<{ chats: TelegramChat[] }>(
+      "/api/ops/notify/telegram/detect-chats",
+      { bot_token: botToken || null },
       keyHeader(opsKey),
     ),
   tasks: () => get<TasksResponse>("/api/ops/tasks"),
