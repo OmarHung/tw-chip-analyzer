@@ -74,6 +74,16 @@ _TASKS: tuple[TaskSpec, ...] = (
                 ParamSpec("dry_run", "bool", flag="--dry-run", label="只列缺哪幾天")),
     ),
     TaskSpec(
+        "backfill_futures", "scripts.backfill_futures", "回補台指期行情", "maintenance",
+        params=(
+            ParamSpec("months", "int", flag="--months", min=1, max=24, label="近 N 個月"),
+            _date("start", "起始日", help="覆蓋近 N 個月"),
+            _date("end", "結束日"),
+            ParamSpec("dry_run", "bool", flag="--dry-run", label="只列缺哪幾段"),
+        ),
+        help="期交所每日行情，一次一個月份區段。只供概覽頁展示，不影響分數。",
+    ),
+    TaskSpec(
         "backfill_corporate_actions", "scripts.backfill_corporate_actions", "回補公司行動",
         "maintenance",
         params=(

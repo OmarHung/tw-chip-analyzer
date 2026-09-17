@@ -17,11 +17,11 @@ import app.db.models  # noqa: F401
 ROOT = Path(__file__).resolve().parents[1]
 PREV = "b8e1f5a3c7d9"
 MOPS_BASE = "c9d2e7f1a3b5"
-HEAD = "a1b2c3d4e5f6"  # app_user / user_session（全站認證，疊在 notify_setting 之上）
+HEAD = "19e933bc4c07"  # futures_daily（台指期，疊在 app_user/user_session 之上）
 TABLES = ("insider_holding_monthly", "insider_transfer_declaration", "mops_fetch_coverage",
           "mops_shadow_feature_daily")
 # 疊在 MOPS 之後的非 MOPS 表：降到 PREV 時一併移除，不算 MOPS migration 誤刪
-LATER_TABLES = ("notify_setting", "app_user", "user_session")
+LATER_TABLES = ("notify_setting", "app_user", "user_session", "futures_daily")
 
 
 def _alembic(*args: str) -> str:

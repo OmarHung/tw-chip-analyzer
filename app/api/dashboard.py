@@ -1,7 +1,7 @@
 """Dashboard 彙總 API（見 docs/05 §16）。
 
 提供前端概覽：掃描標的數、各 action 家數、BUY/WATCH 候選數、平均分數、Top 榜。
-註：TAIEX / 大盤 regime / 漲跌家數需大盤資料源，待 market 資料接入後補。
+含大盤（TAIEX 收盤/漲跌/均線/漲跌家數）與台指期主力月份（收盤/漲跌）。
 """
 from __future__ import annotations
 
@@ -10,7 +10,11 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
-from app.repositories.market import load_market_daily
+from app.repositories.market import (
+    load_futures_front_month,
+    load_market_daily,
+    load_prev_taiex_close,
+)
 from app.services.market_scan import scan_all
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
@@ -24,14 +28,26 @@ class TopRow(BaseModel):
     action: str
 
 
+class FuturesInfo(BaseModel):
+    """台指期主力月份日盤收盤。change_pct 為小數（0.0084 = +0.84%）。"""
+
+    contract_month: str
+    close: float | None = None
+    change: float | None = None
+    change_pct: float | None = None
+
+
 class MarketInfo(BaseModel):
     taiex_close: float | None = None
+    taiex_change: float | None = None  # 點數
+    taiex_change_pct: float | None = None  # 小數
     taiex_ma20: float | None = None
     taiex_ma60: float | None = None
     advancers: int | None = None
     decliners: int | None = None
     trend_score: float | None = None
     regime: str  # 多頭 / 偏多 / 中性 / 偏空 / 空頭
+    futures: FuturesInfo | None = None
 
 
 class DashboardResponse(BaseModel):
@@ -80,8 +96,23 @@ async def dashboard(
     md = await load_market_daily(session, as_of)
     market = None
     if md is not None:
+        close = float(md.taiex_close) if md.taiex_close is not None else None
+        prev = await load_prev_taiex_close(session, as_of)
+        # 前收缺（回補起點的第一天）或為 0 → 漲跌未知，不猜。
+        change = close - prev if close is not None and prev else None
+        fut = await load_futures_front_month(session, as_of)
         market = MarketInfo(
-            taiex_close=float(md.taiex_close) if md.taiex_close is not None else None,
+            taiex_close=close,
+            taiex_change=round(change, 2) if change is not None else None,
+            taiex_change_pct=round(change / prev, 6) if change is not None else None,
+            futures=FuturesInfo(
+                contract_month=fut.contract_month,
+                close=float(fut.close) if fut.close is not None else None,
+                change=float(fut.change) if fut.change is not None else None,
+                change_pct=fut.change_pct,
+            )
+            if fut is not None
+            else None,
             taiex_ma20=float(md.taiex_ma20) if md.taiex_ma20 is not None else None,
             taiex_ma60=float(md.taiex_ma60) if md.taiex_ma60 is not None else None,
             advancers=md.advancers,

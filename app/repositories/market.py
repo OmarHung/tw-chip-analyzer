@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.chips import InstitutionalDaily, MarginDaily, TdccSummaryWeekly
-from app.db.models.market import DailyPrice, MarketDaily
+from app.db.models.market import DailyPrice, FuturesDaily, MarketDaily, MarketIndex
 from app.models.signal import MarketContext
 
 
@@ -81,6 +81,40 @@ async def load_market_daily(session: AsyncSession, as_of: dt.date) -> MarketDail
     """只取目標日的 MarketDaily；缺當日（例如 TAIEX 抓取失敗）回 None，不沿用前一日。"""
     stmt = select(MarketDaily).where(MarketDaily.data_date == as_of)
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def load_prev_taiex_close(
+    session: AsyncSession, as_of: dt.date
+) -> float | None:
+    """as_of 之前最近一個交易日的 TAIEX 收盤（供算當日漲跌幅）。
+
+    來源用 MarketIndex（每個交易日都有原始指數）而非 MarketDaily（需 MA60 視窗，
+    歷史前段可能沒有）。展示用途，不依 available_at 過濾。
+    """
+    stmt = (
+        select(MarketIndex.taiex_close)
+        .where(MarketIndex.data_date < as_of, MarketIndex.taiex_close.is_not(None))
+        .order_by(MarketIndex.data_date.desc())
+        .limit(1)
+    )
+    v = (await session.execute(stmt)).scalar_one_or_none()
+    return float(v) if v is not None else None
+
+
+async def load_futures_front_month(
+    session: AsyncSession, as_of: dt.date, contract: str = "TX"
+) -> FuturesDaily | None:
+    """目標日的台指期主力月份（當日日盤成交量最大者）。缺當日回 None，不沿用前一日。
+
+    不取「到期月份最小」：結算日當天近月成交量已萎縮、報價不具代表性（見 FuturesDaily）。
+    """
+    stmt = (
+        select(FuturesDaily)
+        .where(FuturesDaily.contract == contract, FuturesDaily.data_date == as_of)
+        .order_by(FuturesDaily.volume.desc().nullslast())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalars().first()
 
 
 async def load_market_context(

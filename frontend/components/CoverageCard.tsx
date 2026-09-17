@@ -13,6 +13,7 @@ const SOURCE_ZH: Record<string, { zh: string; en: string }> = {
   sbl_daily: { zh: "借券", en: "SBL" },
   market_daily: { zh: "大盤", en: "market_daily" },
   corporate_action: { zh: "除權息", en: "corporate_action" },
+  futures_daily: { zh: "台指期", en: "futures_daily" },
   raw_tick: { zh: "逐筆", en: "raw_tick" },
 };
 

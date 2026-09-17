@@ -30,7 +30,7 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 
 ## 現況
 
-已完成 docs/01–06 全部（骨架、演算法、評分、決策、API、Backtest）、docs/05 §16 Next.js UI，可吃真實台股盤後資料端到端運作。真實資料涵蓋 OHLCV + institutional + margin（**TWSE + TPEx 上櫃**）+ **SBL 借券（TWT93U）** + TDCC 股權分散 + TAIEX 大盤 regime。intraday 分項可併入 composite（有逐筆走四維，無者三維排除）。UI 有 總覽/選股/主力背離/驗證(/validation 前瞻報告)/系統(/system 配額·涵蓋·回補) 五頁，另有四張熱力圖（總覽 treemap + 產業輪動、個股分項演變、驗證 bucket×horizon；色階規則見 docs/05 §16）。
+已完成 docs/01–06 全部（骨架、演算法、評分、決策、API、Backtest）、docs/05 §16 Next.js UI，可吃真實台股盤後資料端到端運作。真實資料涵蓋 OHLCV + institutional + margin（**TWSE + TPEx 上櫃**）+ **SBL 借券（TWT93U）** + TDCC 股權分散 + TAIEX 大盤 regime + **台指期日行情（TAIFEX，只供概覽頁展示、不進分數）**。intraday 分項可併入 composite（有逐筆走四維，無者三維排除）。UI 有 總覽/選股/主力背離/驗證(/validation 前瞻報告)/系統(/system 配額·涵蓋·回補) 五頁，另有四張熱力圖（總覽 treemap + 產業輪動、個股分項演變、驗證 bucket×horizon；色階規則見 docs/05 §16）。
 
 **chip_score 已改橫斷面百分位映射（2026-09-08，重大行為變更）**：`scoring.mapping: percentile`（config 可切回 linear）。分數 = 當日全市場 composite_raw 排名百分位（0~100 均勻分布），修復「z 合成回歸 50、天花板 ~64、高分 bucket 永無樣本」的結構缺陷；rank-preserving 不改 IC。**語意**：75 分 = 當日前 25%，BUY 門檻從「幾乎不可達」變「常態可達」（Entry Filter 其餘關卡仍在）。四呼叫點（scanner/dashboard/persist/單股 analysis）共用 `analysis.analyze_market` 兩段式；單股 `/analysis` 會載入當日全市場一起算。
 **百分位依「成分組合」分組計算（2026-09-09 修正）**：缺成分時權重重分配，四維（有逐筆）與三維（無逐筆）的 `composite_raw` 尺度不同——intraday z 是在「有逐筆的子集」內標準化、該組均值**恆為 0**，故四維 raw 恰為三維的 `1 - w_intraday` 倍（實測 0.077/0.119 = 0.647 = 1−0.35）。混排會讓有逐筆的標的高低分都被擠向中間，而「有沒有逐筆」只反映 Shioaji 當天抓到誰（線上實測某日該組 ≥75 只佔 16.2%，應為 25%）。診斷工具：`scripts/diag_intraday_bias.py`。
@@ -96,7 +96,7 @@ admin）、**相容模式**——DB 尚無啟用帳號時讀取照常開放、�
 - `app/services/`：`feature_builder.py`（原始表→`feature_daily`，兩段正規化，look-ahead 只用 `data_date<=target`）、`market_score.py`、`normalize.py`（含 `cross_sectional_percentile`）、`analysis.py`（含 `analyze_market` 橫斷面兩段式）、`market_scan.py`、`flow_scan.py`、`forward_report.py`（前瞻驗證）、`price_adjust.py`（後復權純函式，價/量共用）、`orderflow_intraday.py`、`ticks.py`、`signal_persist.py`
 - `app/api/`：`auth`（`/api/auth/*` 登入／帳號管理）、`auth_deps`（`require_user` / `require_admin` / `Principal`，`ops_auth` 只是回傳稽核字串的薄包裝）、`settings`（`/api/ops/settings` 門檻覆寫）、`tasks`（`/api/ops/tasks` 白名單腳本按鈕）、`stocks`（`/analysis`、`/chart`、`/ticks`、`/orderflow`、`/flows`、`/features` 還原值核對）、`scanner`（含 `/divergence`）、`dashboard`、`heatmap`（`/market` treemap、`/industry` 產業×日期中位數、`/stock/{symbol}` 分項×日期）、`ops`（`/status`、`/backfill`）、`validation`（`/forward`）；router 於 `main.py` 統一掛 `require_user`；CORS 允許任意 localhost 埠且 `allow_credentials`（故 methods/headers 明列，不可用 `*`）
 - `app/backtest/`：`costs`（禁 0 成本）、`forward_returns`、`metrics`、`engine`（look-ahead 安全）、`runner`
-- `app/connectors/`：`twse`（含 SBL TWT93U、公司行動 TWT49U/TWT48U/TWTB8U/TWTAUU/TWTAVU）/ `tpex`（上櫃；憑證缺 SKI，關 strict X509）/ `tdcc` / `yahoo`（圖表用）/ `shioaji_market`（逐筆 ticks，`simulation=True` 單例；金鑰無 production 權限但模擬可取真實行情）
+- `app/connectors/`：`twse`（含 SBL TWT93U、公司行動 TWT49U/TWT48U/TWTB8U/TWTAUU/TWTAVU）/ `tpex`（上櫃；憑證缺 SKI，關 strict X509）/ `taifex`（台指期日行情，Big5 CSV）/ `tdcc` / `yahoo`（圖表用）/ `shioaji_market`（逐筆 ticks，`simulation=True` 單例；金鑰無 production 權限但模擬可取真實行情）
 - `app/importers/`：TWSE/TPEx/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
 - `app/jobs/`：`tasks.py`（UI 可觸發腳本白名單，參數驗證後 exec，不經 shell）、`task_runner.py`（子行程 + nice、與 EOD/回補共用單飛鎖、`job_run` 紀錄）、`daily.py`（抓取→匯入 TWSE+TPEx+SBL→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）、`scheduler.py`（APScheduler EOD）、`runner.py`（手動回補，與 EOD 共用單飛鎖）
 - `frontend/`：Next.js 16 + TS + Tailwind v4。設計約束見下節。UI 規格見 `docs/05-api-ui.md §16`。

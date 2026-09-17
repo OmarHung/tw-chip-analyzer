@@ -18,7 +18,12 @@ from app.db.models.chips import (
 )
 from app.db.models.features import FeatureDaily
 from app.db.models.intraday import RawTick
-from app.db.models.market import CorporateAction, DailyPrice, MarketDaily
+from app.db.models.market import (
+    CorporateAction,
+    DailyPrice,
+    FuturesDaily,
+    MarketDaily,
+)
 
 
 async def _date_span(session: AsyncSession, col) -> dict:
@@ -208,6 +213,9 @@ async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
     # 對它們算「每個交易日都該有」沒有意義 → 不給 missing。
     tdcc = await _date_span(session, TdccSummaryWeekly.data_date)
     ca = await _date_span(session, CorporateAction.data_date)
+    # 台指期同樣不給 missing:它不進分數,缺漏用專屬的 backfill_futures(整月一次請求)補,
+    # 不該被算進「一鍵補齊缺漏」的日子聯集而觸發整條 EOD 逐日重跑。
+    futures = await _date_span(session, FuturesDaily.data_date)
 
     # raw_tick 走專用路徑(見上方註解):日期清單以 loose index scan 取得,再拿最近
     # tick_days 天去算逐日統計——原本的 LIMIT 是在聚合「之後」才套用,限縮不到掃描。
@@ -226,6 +234,7 @@ async def load_coverage(session: AsyncSession, tick_days: int = 30) -> dict:
             "sbl_daily": sbl,
             "market_daily": market,
             "corporate_action": ca,
+            "futures_daily": futures,
             "raw_tick": tick,
         },
         # 缺口比對的基準日曆(= daily_price 有資料的交易日)。

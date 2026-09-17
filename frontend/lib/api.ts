@@ -68,14 +68,27 @@ export interface ScannerResponse {
   rows: ScannerRow[];
 }
 
+export interface FuturesInfo {
+  contract_month: string;
+  close: number | null;
+  change: number | null;
+  /** 小數（0.0084 = +0.84%） */
+  change_pct: number | null;
+}
+
 export interface MarketInfo {
   taiex_close: number | null;
+  /** 點數 */
+  taiex_change: number | null;
+  /** 小數（0.0084 = +0.84%） */
+  taiex_change_pct: number | null;
   taiex_ma20: number | null;
   taiex_ma60: number | null;
   advancers: number | null;
   decliners: number | null;
   trend_score: number | null;
   regime: string;
+  futures: FuturesInfo | null;
 }
 
 export interface DashboardResponse {

@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import datetime as dt
 
+from app.connectors import taifex as taifex_conn
 from app.connectors import tdcc as tdcc_conn
 from app.connectors import tpex as tpex_conn
 from app.connectors import twse as twse_conn
@@ -21,6 +22,7 @@ from app.importers.service import (
     import_company_profiles,
     import_ex_dividend,
     import_ex_rights_forecast,
+    import_futures,
     import_index,
     import_institutional,
     import_margin,
@@ -209,6 +211,14 @@ async def run(
                 report.ok(label, n)
             except Exception as e:  # noqa: BLE001 — 缺則產業別維持前值
                 report.fail(label, e)
+        # 台指期（TAIFEX 日盤）：概覽頁的大盤脈絡展示用，非評分成分。
+        # 期交所出表比 TWSE 晚，抓不到只是當日概覽少一格，不影響特徵。
+        try:
+            raw_fut = await taifex_conn.fetch_futures_daily(target)
+            async with sm() as s:
+                report.ok("台指期 TAIFEX", await import_futures(s, raw_fut))
+        except Exception as e:  # noqa: BLE001 — 缺則概覽頁台指期顯示 —
+            report.fail("台指期 TAIFEX", e)
         # TPEx 上櫃（行情/法人）：各自 fail-soft、各自落庫（融資券在 _import_credit）——
         # 任一端點失敗不可連帶丟掉已抓到的行情，否則整個上櫃從當日橫斷面消失。
         for label, fetch, imp in (

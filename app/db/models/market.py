@@ -53,6 +53,38 @@ class MarketDaily(Base, AvailabilityMixin, TimestampMixin):
     market_trend_score: Mapped[float | None] = mapped_column()  # -1..1
 
 
+class FuturesDaily(Base, AvailabilityMixin, TimestampMixin, UpdatedAtMixin):
+    """期貨每日行情（TAIFEX futDataDown，目前只收臺股期貨 TX 的日盤）。
+
+    一個 data_date 有多個 contract_month（近月/次月/季月），「台指期報價」慣例上看
+    **主力月份**＝當日成交量最大者，而非到期月份最小者：結算日當天近月已無代表性
+    （成交量萎縮、結算價 0）。取用見 repositories.market.load_futures_front_month。
+
+    change_pct 為小數（0.0084 = +0.84%），直接取自期交所欄位而非自算——換月時
+    前一交易日的同月份收盤才是正確基準，自算容易在換月日給出假跳空。
+    """
+
+    __tablename__ = "futures_daily"
+    __table_args__ = (
+        UniqueConstraint(
+            "contract", "contract_month", "data_date", name="uq_futures_daily"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    contract: Mapped[str] = mapped_column(String(8), nullable=False)  # TX
+    contract_month: Mapped[str] = mapped_column(String(16), nullable=False)  # 202610
+    open: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    high: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    low: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    close: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    change: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    change_pct: Mapped[float | None] = mapped_column()  # 小數
+    volume: Mapped[int | None] = mapped_column(BigInteger)
+    settlement_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    open_interest: Mapped[int | None] = mapped_column(BigInteger)
+
+
 class DailyPrice(Base, AvailabilityMixin, TimestampMixin, UpdatedAtMixin):
     """日 OHLCV（含成交金額，供流動性/量比）。
 

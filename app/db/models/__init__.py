@@ -20,6 +20,7 @@ from app.db.models.settings import NotifySetting, ThresholdChange, ThresholdOver
 from app.db.models.market import (
     CorporateAction,
     DailyPrice,
+    FuturesDaily,
     MarketDaily,
     MarketIndex,
     Stock,
@@ -33,6 +34,7 @@ __all__ = [
     "CorporateAction",
     "MarketIndex",
     "MarketDaily",
+    "FuturesDaily",
     "RawTick",
     "InstitutionalDaily",
     "MarginDaily",

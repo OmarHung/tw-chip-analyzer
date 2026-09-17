@@ -65,8 +65,13 @@ Response 範例：
 
 ## 16. UI
 
-**Dashboard**：TAIEX、Market Regime、上漲/下跌家數、BUY candidate 數、Distribution Warning 數、
+**Dashboard**：TAIEX（收盤＋漲跌點數/幅度）、台指期主力月份（收盤＋漲跌點數/幅度）、
+Market Regime、均線 MA20/MA60、上漲/下跌家數、BUY candidate 數、Distribution Warning 數、
 市場熱力圖（treemap）、產業輪動矩陣。
+
+Hero 列的漲跌：TAIEX 漲跌由 `market_index` 前一交易日收盤算（前收缺則 NULL，不猜）；
+台指期直接用期交所給的漲跌價/漲跌%（見 `docs/02` 的 `futures_daily`）。兩者都走台股語意
+紅漲綠跌（`dirColor`）。
 
 **熱力圖（四張）**：
 

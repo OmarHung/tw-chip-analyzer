@@ -80,12 +80,25 @@ export default async function DashboardPage() {
                 regimeUp ? "bg-up/10" : regimeDown ? "bg-down/10" : "bg-gold/5"
               }`}
             />
-            <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-6 md:grid-cols-3 xl:grid-cols-5">
               <div>
                 <Label>TAIEX 加權指數</Label>
                 <div className="mt-2 font-mono text-3xl font-bold tnum">
                   {m.taiex_close?.toLocaleString("zh-TW") ?? "—"}
                 </div>
+                <PointChange pts={m.taiex_change} pct={m.taiex_change_pct} />
+              </div>
+              <div>
+                <Label>
+                  台指期{m.futures ? ` ${m.futures.contract_month}` : ""}
+                </Label>
+                <div className="mt-2 font-mono text-3xl font-bold tnum">
+                  {m.futures?.close?.toLocaleString("zh-TW") ?? "—"}
+                </div>
+                <PointChange
+                  pts={m.futures?.change ?? null}
+                  pct={m.futures?.change_pct ?? null}
+                />
               </div>
               <div>
                 <Label>大盤氣氛</Label>
@@ -312,6 +325,28 @@ function FlashList({
         </ul>
       )}
     </Card>
+  );
+}
+
+/** 指數/期貨的漲跌：點數 + 百分比（台股語意紅漲綠跌，色由 Change 提供）。 */
+function PointChange({
+  pts,
+  pct,
+}: {
+  pts: number | null | undefined;
+  pct: number | null | undefined;
+}) {
+  return (
+    <div className="mt-1 flex items-baseline gap-2 text-sm">
+      <span className={`font-mono tnum ${dirColor(pts)}`}>
+        {pts == null
+          ? "—"
+          : `${pts > 0 ? "+" : ""}${pts.toLocaleString("zh-TW", {
+              maximumFractionDigits: 2,
+            })}`}
+      </span>
+      <Change pct={pct} className="text-sm" />
+    </div>
   );
 }
 

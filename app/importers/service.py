@@ -13,9 +13,15 @@ from app.db.models.chips import (
     TdccSummaryWeekly,
     TdccWeekly,
 )
-from app.db.models.market import CorporateAction, DailyPrice, MarketIndex, Stock
+from app.db.models.market import (
+    CorporateAction,
+    DailyPrice,
+    FuturesDaily,
+    MarketIndex,
+    Stock,
+)
 from app.importers import industry as industry_parse
-from app.importers import tdcc, tpex, twse
+from app.importers import taifex, tdcc, tpex, twse
 from app.repositories.upsert import upsert_ignore, upsert_many
 
 
@@ -199,6 +205,16 @@ async def import_index(session: AsyncSession, raw: dict) -> int:
     """匯入一個月的 TAIEX 日線（FMTQIK）。"""
     rows = twse.parse_index(raw)
     n = await upsert_many(session, MarketIndex, rows, ["data_date"])
+    await session.commit()
+    return n
+
+
+async def import_futures(session: AsyncSession, csv_text: str) -> int:
+    """匯入期貨每日行情（TAIFEX futDataDown CSV）。可含多日多月份，冪等。"""
+    rows = taifex.parse_futures_daily(csv_text)
+    n = await upsert_many(
+        session, FuturesDaily, rows, ["contract", "contract_month", "data_date"]
+    )
     await session.commit()
     return n
 
