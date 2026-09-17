@@ -19,5 +19,7 @@
 | [13-post-fix-followup-action-plan-2026-09-13.md](13-post-fix-followup-action-plan-2026-09-13.md) | singleton z、updated_at 與 validation cache 三項後續（已完成） | 審閱紀錄 |
 | [14-phase2-mops-data-sources.md](14-phase2-mops-data-sources.md) | Phase 2 MOPS 來源、時點、資料契約、shadow 特徵與 OOS 規則 | 現行規格 |
 | [15-phase2-mops-review-fixes-2026-09-14.md](15-phase2-mops-review-fixes-2026-09-14.md) | MOPS canonical market、修正申報、NULL、provenance 與排程審查修正 | 審閱紀錄 |
+| [16-phase2-realtime-ml-plan.md](16-phase2-realtime-ml-plan.md) | Phase 2／3 realtime 與 ML 規劃 | 規劃 |
+| [17-auth-and-permissions.md](17-auth-and-permissions.md) | 全站登入認證、角色權限、相容模式、啟用步驟 | 現行規格 |
 
 > 專案不變量（鐵則）與快速導覽見專案根目錄的 `CLAUDE.md`。

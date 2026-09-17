@@ -4,6 +4,10 @@
 
 ## 15. API
 
+> **認證**：除 `/health` 與 `/api/auth/*` 外，所有端點都需要通過認證
+> （session cookie 或 `X-Ops-Key`；尚未建立帳號時走相容模式）。寫入型端點另需 admin 角色。
+> 規則、端點清單與啟用步驟見 [17-auth-and-permissions.md](17-auth-and-permissions.md)。
+
 ### GET /api/stocks/{symbol}/analysis
 
 Response 範例：

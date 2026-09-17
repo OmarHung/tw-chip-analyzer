@@ -22,6 +22,14 @@ tw_chip_analyzer 正式部署。架構為 nginx 同源反向代理，前端 Next
 
 兩者的對外 nginx 同源代理做法相同，各文件內都有對應步驟。
 
+**登入認證**：`alembic upgrade head` 後建立第一個管理者帳號才會全站要求登入
+（建帳號前維持舊行為：讀取開放、寫入需 `OPS_API_KEY` 或本機直連）。做法見
+[docs/17](../docs/17-auth-and-permissions.md)：
+
+```bash
+python -m scripts.manage_users create <帳號> --role admin   # Docker: docker compose exec api ...
+```
+
 **存取層**（如何連到服務）：
 - **公開網域 + TLS**：nginx + certbot（見 docker.md / systemd.md）。
 - **Tailscale 跳板（不需網域）**：[tailscale.md](tailscale.md)——`tailscale serve` 自動
@@ -50,3 +58,5 @@ tw_chip_analyzer 正式部署。架構為 nginx 同源反向代理，前端 Next
 3. **`NEXT_PUBLIC_API_BASE` build 時烤入**：設公開網域；改網域要重新 build 前端。
 4. **逐筆非必需**：不填 `SJ_*` 金鑰也能運作，只是 intraday 中性，不影響法人/背離/主力成本。
 5. **秘密**：`.env` 已 gitignore、勿進版控；憑證（Shioaji CA）亦然。
+6. **認證**：建立帳號後全站需登入（cookie session，角色 admin／viewer）；`OPS_API_KEY`
+   仍可給腳本／curl 用，等同 admin。細節與相容模式見 [docs/17](../docs/17-auth-and-permissions.md)。

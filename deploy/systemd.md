@@ -63,6 +63,9 @@ chmod 600 .env
 ```bash
 APP_ENV=prod .venv/bin/alembic upgrade head
 
+# 建立第一個管理者帳號(建了才會全站要求登入;密碼互動輸入)。見 docs/17。
+APP_ENV=prod .venv/bin/python -m scripts.manage_users create <帳號> --role admin
+
 # 5/20/60 日視窗與背離需歷史。用 backfill.sh 補過去 N 天(約 64 交易日),冪等:
 PY=.venv/bin/python APP_ENV=prod ./scripts/backfill.sh 90
 ```
@@ -132,6 +135,7 @@ sudo systemctl start twchip-eod.service && journalctl -u twchip-eod -f  # 手動
 | 改 `NEXT_PUBLIC_API_BASE`／前端碼 | 重新 `pnpm build` → `sudo systemctl restart twchip-web` |
 | 補跑某日 EOD | `APP_ENV=prod ./scripts/eod.sh 2026-09-04` |
 | DB migration | `APP_ENV=prod .venv/bin/alembic upgrade head` |
+| 新增／停用登入帳號 | `APP_ENV=prod .venv/bin/python -m scripts.manage_users create\|disable\|list ...`（見 docs/17） |
 | DB 備份 | `pg_dump -U twchip twchip > backup.sql` |
 
 ## 重點與陷阱

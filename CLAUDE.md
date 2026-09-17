@@ -46,6 +46,15 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 - 設定可從 `/settings` 覆寫（DB），腳本可從 `/system` 工作面板觸發；寫入需 `OPS_API_KEY`（線上必設）。
 - 修正後 dev 重建的 `score_monotonicity`（修 docs/12 前）：各 horizon IC 仍 ≈ +0.006～0.008、bucket 報酬不單調，**§28 仍未達成**；唯高分組 MAE 較小（可能是大型股效應，未控制市值）。
 
+**全站登入認證已上線（2026-09-17，見 `docs/17`）**：除 `/health` 與 `/api/auth/*` 外，所有 API 都需通過
+認證；前端未登入導向 `/login`。三條路徑：session cookie（角色 admin／viewer）、`X-Ops-Key`（腳本用，等同
+admin）、**相容模式**——DB 尚無啟用帳號時讀取照常開放、寫入沿用舊的金鑰／本機直連規則，**建立第一個帳號的
+那一刻**才全站鎖上（故 migration 後行為不變、既有測試不必改寫）。第一個帳號只能用
+`python -m scripts.manage_users create <帳號> --role admin` 建立。viewer 寫入回 **403**（不是 401），前端據此
+顯示「需要管理者權限」而非要人重登。密碼用標準庫 scrypt，session 是不透明 token、DB 只存 SHA-256 指紋，
+停用／改密碼／登出立即失效。**dev 陷阱**：cookie 不分 port 但分主機名，瀏覽器開 `localhost:3000` 卻把
+`NEXT_PUBLIC_API_BASE` 指到 `127.0.0.1:8000` 會登入後又被踢回 `/login`（兩邊主機名要一致）。
+
 **已知限制 / 待辦（會影響決策，讀不出來的部分）**：
 - **歷史除權息的配股率補不回來**：TWT48U 是預告表，只回「未來尚未執行」的事件（區間參數無效）——只能靠每日 EOD 往前累積。（註：SBL TWT93U 歷史其實可回補，勿再以它類比。）故 2026-09-09 以前的 `權`/`權息` 事件 `share_factor` 為 NULL（只還原價、不還原量）；`面額`與「彌補虧損」減資不受影響（用 `1/adj_factor`，精確且可回補）。
 - **歷史現金減資的換股率也補不回來**（2026-09-09 修正）：TWTAVU 與 TWT48U 同性質、只回未來事件，故已執行的現金減資 `share_factor` 一律 NULL（只還原價、不還原量），舊有由 `1/adj_factor` 寫入的錯值已由 `scripts/backfill_corporate_actions.py` 清除（dev 庫 1414/1459/6176/1563 四筆）。TPEx 減資不受影響（revivt 詳細資料同表即有換股率，歷史可回補）。
@@ -79,21 +88,23 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 
 細節用 CodeGraph 或讀碼；完整建議結構見 `docs/01-overview-architecture.md §5`。
 
-- `app/core/`：`config.py`（env 用 pydantic-settings；門檻 = `config/thresholds.yaml` 預設 + DB `threshold_override` 覆寫，`reload_thresholds()` 失效快取）、`threshold_registry.py`（UI 可調鍵、live/rebuild、鎖定權重、`data_version`）、`logging.py`
-- `app/db/`：`models/`（Phase 1 核心表 + Phase 2 MOPS shadow 表，`mixins.py` 含 look-ahead `data_date`/`available_at`）；`intraday.py` 有 `RawTick`
+- `app/core/`：`config.py`（env 用 pydantic-settings；門檻 = `config/thresholds.yaml` 預設 + DB `threshold_override` 覆寫，`reload_thresholds()` 失效快取）、`threshold_registry.py`（UI 可調鍵、live/rebuild、鎖定權重、`data_version`）、`security.py`（scrypt 密碼雜湊、session token）、`logging.py`
+- `app/db/`：`models/`（Phase 1 核心表 + Phase 2 MOPS shadow 表 + `auth.py` 的 `User`/`UserSession`，`mixins.py` 含 look-ahead `data_date`/`available_at`）；`intraday.py` 有 `RawTick`
 - `app/services/orderflow/`：aggressor / cvd / large_trade / obi / absorption / trade_speed（純函式）
 - `app/services/chip/`：intraday / institutional / holder / market 分項 + `composite.py`（config 驅動權重 + 缺成分重分配）
 - `app/services/decision/`：`risk` / `entry` / `exit` + `decide()`
 - `app/services/`：`feature_builder.py`（原始表→`feature_daily`，兩段正規化，look-ahead 只用 `data_date<=target`）、`market_score.py`、`normalize.py`（含 `cross_sectional_percentile`）、`analysis.py`（含 `analyze_market` 橫斷面兩段式）、`market_scan.py`、`flow_scan.py`、`forward_report.py`（前瞻驗證）、`price_adjust.py`（後復權純函式，價/量共用）、`orderflow_intraday.py`、`ticks.py`、`signal_persist.py`
-- `app/api/`：`settings`（`/api/ops/settings` 門檻覆寫）、`tasks`（`/api/ops/tasks` 白名單腳本按鈕）、`stocks`（`/analysis`、`/chart`、`/ticks`、`/orderflow`、`/flows`、`/features` 還原值核對）、`scanner`（含 `/divergence`）、`dashboard`、`heatmap`（`/market` treemap、`/industry` 產業×日期中位數、`/stock/{symbol}` 分項×日期）、`ops`（`/status`、`/backfill`）、`validation`（`/forward`）；CORS 允許任意 localhost 埠（見 `main.py`）
+- `app/api/`：`auth`（`/api/auth/*` 登入／帳號管理）、`auth_deps`（`require_user` / `require_admin` / `Principal`，`ops_auth` 只是回傳稽核字串的薄包裝）、`settings`（`/api/ops/settings` 門檻覆寫）、`tasks`（`/api/ops/tasks` 白名單腳本按鈕）、`stocks`（`/analysis`、`/chart`、`/ticks`、`/orderflow`、`/flows`、`/features` 還原值核對）、`scanner`（含 `/divergence`）、`dashboard`、`heatmap`（`/market` treemap、`/industry` 產業×日期中位數、`/stock/{symbol}` 分項×日期）、`ops`（`/status`、`/backfill`）、`validation`（`/forward`）；router 於 `main.py` 統一掛 `require_user`；CORS 允許任意 localhost 埠且 `allow_credentials`（故 methods/headers 明列，不可用 `*`）
 - `app/backtest/`：`costs`（禁 0 成本）、`forward_returns`、`metrics`、`engine`（look-ahead 安全）、`runner`
 - `app/connectors/`：`twse`（含 SBL TWT93U、公司行動 TWT49U/TWT48U/TWTB8U/TWTAUU/TWTAVU）/ `tpex`（上櫃；憑證缺 SKI，關 strict X509）/ `tdcc` / `yahoo`（圖表用）/ `shioaji_market`（逐筆 ticks，`simulation=True` 單例；金鑰無 production 權限但模擬可取真實行情）
 - `app/importers/`：TWSE/TPEx/TDCC parser + `service.py`（冪等 upsert）；`app/repositories/upsert.py` 用 PG `on_conflict`
 - `app/jobs/`：`tasks.py`（UI 可觸發腳本白名單，參數驗證後 exec，不經 shell）、`task_runner.py`（子行程 + nice、與 EOD/回補共用單飛鎖、`job_run` 紀錄）、`daily.py`（抓取→匯入 TWSE+TPEx+SBL→建特徵→大盤脈絡）、`import_ticks.py`（批次逐筆）、`scheduler.py`（APScheduler EOD）、`runner.py`（手動回補，與 EOD 共用單飛鎖）
 - `frontend/`：Next.js 16 + TS + Tailwind v4。設計約束見下節。UI 規格見 `docs/05-api-ui.md §16`。
-- `tests/`：497 passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
+- `tests/`：599 passed。`tests/fixtures/` 有 TWSE/TPEx 真實回應切片供 parser 測試不打網路。
 
 **逐筆特別注意**：Shioaji tick ts 為 ns，以 UTC 解讀即台北牆鐘（用 `utcfromtimestamp`）。批次逐筆要先跑 `import_ticks` 再跑 `daily --skip-import`，intraday z 才會進 `feature_daily`。
+
+**前端路由結構**：受保護頁面在 `app/(app)/`（殼層做登入守門並注入 `AuthProvider`），登入頁在 `app/(auth)/login`，root layout 只剩 html/body 與字體。SSR 取資料用 `lib/api.server.ts`（轉發使用者 cookie），client 用 `lib/api.ts` 的 `api`。
 
 **前端設計約束（改前端必守）**：**台股語意紅漲綠跌**（與美股相反，見 `lib/format.ts` 的 `dirColor`/`Change`）、**無斜體**。「Terminal Luxe」風格：Fraunces(display)/JetBrains Mono(數字)/Noto Sans TC(中文)、招牌琥珀金、深炭黑底。`lib/api.ts` 為型別化 client（`NEXT_PUBLIC_API_BASE`）。
 
@@ -103,14 +114,16 @@ Milestone 交付格式（已完成 / migration / API / 測試 / 技術債 / 下�
 - 安裝：`pip install -r requirements.txt`
 - Migration：`alembic upgrade head`（新增 model 後 `alembic revision --autogenerate -m "..."`）
 - 測試：`python -m pytest`
+- 建立登入帳號（建了第一個就會全站要求登入）：`APP_ENV=dev python -m scripts.manage_users create <帳號> --role admin`；`list` / `passwd` / `role` / `disable` / `enable` / `delete` 同一支腳本
 - 啟動：`APP_ENV=dev uvicorn app.main:app --reload`；Swagger 於 `/docs`
 - Seed / Backtest 示範：`python -m scripts.seed_dev`、`python -m scripts.backtest_demo`（前綴 `APP_ENV=dev`）
 - 每日盤後匯入 + 建特徵：`APP_ENV=dev python -m app.jobs.daily 2026-09-04`（需先匯入約 10 個交易日歷史，5/20 日視窗才有意義）；`--tdcc` 抓當週 TDCC；`--index` 抓近 4 個月 TAIEX 建大盤脈絡。批次逐筆：`APP_ENV=dev python -m app.jobs.import_ticks YYYY-MM-DD [--max-symbols N]`。
-- 前端：`cd frontend && pnpm install && pnpm dev`（:3000）。dev 模式 HMR websocket 在本沙箱會卡住 hydration；驗證用 `pnpm build && pnpm start`。
+- 前端：`cd frontend && pnpm install && pnpm dev`（:3000）。**以 `127.0.0.1` 開網頁時**，dev server 預設把它當跨來源、擋掉 `/_next` dev 資源與 HMR，症狀是畫面出得來但 hydration 沒完成（打字不進 state、按鈕按不動）——已在 `next.config.ts` 的 `allowedDevOrigins` 放行 `localhost` 與 `127.0.0.1`。登入 cookie **分主機名不分 port**，瀏覽器網址列的主機名要與 `NEXT_PUBLIC_API_BASE` 一致（見 `docs/17`），否則登入後會被踢回 `/login`。
 
 ## 文件導覽（`docs/`，索引 `docs/README.md`）
 
 - 架構/目錄 → `01` · 資料源/表/Retention → `02` · Order Flow/Normalization/Score/Signal → `03`
+- 認證/權限/帳號 → `17`
 - Entry/Risk/Exit → `04` · API/UI → `05` · Backtest/Look-ahead/Testing → `06` · 排程/Config → `07` · Roadmap/DoD → `08`
 
 原始完整交接文件：`tw_stock_chip_analysis_coding_agent_handoff.md`（單一來源存檔）。

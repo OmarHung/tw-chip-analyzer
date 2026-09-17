@@ -48,6 +48,16 @@ docker compose logs -f api            # 看啟動與 EOD 日誌
 > **Apple Silicon** 上 build 請加 `DOCKER_DEFAULT_PLATFORM=linux/amd64`——`shioaji`
 > 只有 amd64 wheel。正式主機一般是 amd64，無此問題。
 
+## 3.5 建立第一個登入帳號
+
+建了帳號全站才會要求登入（之前維持舊行為：讀取開放、寫入需 `OPS_API_KEY` 或本機直連）。
+細節見 [docs/17](../docs/17-auth-and-permissions.md)。
+
+```bash
+docker compose exec api python -m scripts.manage_users create <帳號> --role admin
+docker compose exec api python -m scripts.manage_users list
+```
+
 ## 4. 灌初始歷史
 
 5/20/60 日視窗與背離需要歷史，補約 60+ 個交易日。用 `scripts/backfill.sh`（對過去 N

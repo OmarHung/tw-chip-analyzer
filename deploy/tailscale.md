@@ -102,12 +102,24 @@ curl -s https://<主機>.<tailnet>.ts.net/api/dashboard | head -c 200
 
 ---
 
-## 回補端點金鑰（必設）
+## 登入帳號（建議）與回補端點金鑰
 
-tailscale serve / nginx 轉發進來的請求在後端看來也是 127.0.0.1，所以**沒設
-`OPS_API_KEY` 時系統頁的「回補」會回 403**（只有主機本機直連 API 可觸發）。
-在 `.env` 設 `OPS_API_KEY=<隨機字串>` 並重啟 API，之後在系統頁第一次觸發回補時
-輸入金鑰即可（只存在該分頁 sessionStorage）。唯讀的 `/api/ops/status` 不需金鑰。
+**帳號**：建立第一個帳號後，全站（含讀取 API 與前端）就需要登入，tailnet 內其他裝置
+也一樣。tailnet 本身是邊界，但多一層帳號才能分辨「誰在用」、也才有 viewer 唯讀角色：
+
+```bash
+# systemd： APP_ENV=prod .venv/bin/python -m scripts.manage_users create <帳號> --role admin
+# Docker：  docker compose exec api python -m scripts.manage_users create <帳號> --role admin
+```
+
+建帳號後系統頁的回補、設定修改改由登入身分授權，不必再輸入金鑰。細節見
+[docs/17](../docs/17-auth-and-permissions.md)。
+
+**`OPS_API_KEY`**：給排程腳本 / curl 等非瀏覽器用戶端（等同 admin）。
+**還沒建帳號時它是必設的**——tailscale serve / nginx 轉發進來的請求在後端看來也是
+127.0.0.1，所以沒設金鑰時系統頁的「回補」會回 403（只有主機本機直連 API 可觸發）。
+在 `.env` 設 `OPS_API_KEY=<隨機字串>` 並重啟 API，系統頁第一次觸發回補時輸入即可
+（只存在該分頁 sessionStorage）。
 
 ## 重點與眉角
 
