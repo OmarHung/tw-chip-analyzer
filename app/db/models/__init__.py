@@ -1,4 +1,5 @@
 """匯總所有 ORM model，讓 Base.metadata 完整（Alembic autogenerate 需要）。"""
+from app.db.models.auth import User, UserSession
 from app.db.models.chips import (
     InstitutionalDaily,
     MarginDaily,
@@ -25,6 +26,8 @@ from app.db.models.market import (
 )
 
 __all__ = [
+    "User",
+    "UserSession",
     "Stock",
     "DailyPrice",
     "CorporateAction",

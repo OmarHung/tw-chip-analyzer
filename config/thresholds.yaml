@@ -312,3 +312,14 @@ market_regime:
   volatility: 0.10       # 波動 regime（高波動偏空）
   slope_scale: 0.02      # ma20_slope 正規化：日斜率/MA20 * 60 天 → tanh
   high_vol_pct: 0.03     # 近 20 日報酬標準差 > 3% 視為高波動
+
+# 登入認證與帳號（見 docs/17）。這一區不進 threshold_registry：安全參數不開放 UI 調整，
+# 也不影響已落地資料（不進 data_version）。改這裡需重啟 API 或於設定頁觸發 reload。
+auth:
+  cookie_name: twchip_session
+  session_ttl_hours: 336       # session 有效期（14 天）
+  renew_within_hours: 168      # 剩餘時效低於此值才續期，避免每個請求都寫 DB
+  max_failed_attempts: 5       # 同帳號或同來源 IP 連續失敗上限
+  lockout_seconds: 300         # 達上限後鎖定秒數（同時也是失敗計數視窗）
+  min_password_length: 10
+  cookie_secure: auto          # auto＝https 時才加 Secure；always / never 可強制

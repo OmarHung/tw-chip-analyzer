@@ -7,8 +7,10 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.auth_deps import require_user
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -48,18 +50,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # 允許本機前端(Next.js dev)跨埠呼叫
+    # 允許本機前端(Next.js dev)跨埠呼叫。認證改用 cookie 後必須 allow_credentials；
+    # 帶 credentials 的請求不接受 "*" 萬用值，故 methods / headers 明列。
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Ops-Key"],
     )
 
     @app.get("/health", tags=["system"])
     async def health() -> dict:
         return {"status": "ok", "env": get_settings().app_env}
 
+    from app.api.auth import router as auth_router
     from app.api.dashboard import router as dashboard_router
     from app.api.heatmap import router as heatmap_router
     from app.api.logos import router as logos_router
@@ -71,16 +76,20 @@ def create_app() -> FastAPI:
     from app.api.stocks import router as stocks_router
     from app.api.validation import router as validation_router
 
-    app.include_router(stocks_router)
-    app.include_router(scanner_router)
-    app.include_router(dashboard_router)
-    app.include_router(heatmap_router)
-    app.include_router(logos_router)
-    app.include_router(ops_router)
-    app.include_router(settings_router)
-    app.include_router(notify_router)
-    app.include_router(tasks_router)
-    app.include_router(validation_router)
+    # /api/auth/* 本身不能要求登入(否則沒人進得來);其餘一律至少需要已認證身分。
+    # 尚未建立任何帳號時 require_user 走相容模式放行——見 app/api/auth_deps。
+    app.include_router(auth_router)
+    protected = [Depends(require_user)]
+    app.include_router(stocks_router, dependencies=protected)
+    app.include_router(scanner_router, dependencies=protected)
+    app.include_router(dashboard_router, dependencies=protected)
+    app.include_router(heatmap_router, dependencies=protected)
+    app.include_router(logos_router, dependencies=protected)
+    app.include_router(ops_router, dependencies=protected)
+    app.include_router(settings_router, dependencies=protected)
+    app.include_router(notify_router, dependencies=protected)
+    app.include_router(tasks_router, dependencies=protected)
+    app.include_router(validation_router, dependencies=protected)
 
     return app
 
