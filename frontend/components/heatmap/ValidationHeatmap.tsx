@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import { Card, SectionTitle } from "@/components/Card";
 import type { ForwardHorizon } from "@/lib/api";
 import { heatTextClass, returnColor } from "@/lib/heat";
@@ -26,31 +27,34 @@ export function ValidationHeatmap({ horizons }: { horizons: ForwardHorizon[] }) 
       </div>
 
       <div className="overflow-x-auto">
-        <div style={{ minWidth: 70 + labels.length * 68 }}>
-          <div className="flex items-end gap-1 pb-1">
-            <div className="shrink-0" style={{ width: 62 }} />
-            {labels.map((l) => (
-              <div
-                key={l}
-                className="flex-1 text-center font-mono text-[10px] text-ink-faint"
-              >
-                {l}
-              </div>
-            ))}
-          </div>
+        {/* 表頭與資料列共用一個 grid：橫軸 bucket 自動對齊，
+            左側 horizon 欄用 auto（內容只有 1D~20D，寫死寬度會在左邊空一片）。 */}
+        <div
+          className="grid items-center gap-1"
+          style={{
+            minWidth: 36 + labels.length * 68,
+            gridTemplateColumns: `auto repeat(${labels.length}, minmax(0, 1fr))`,
+          }}
+        >
+          <div />
+          {labels.map((l) => (
+            <div
+              key={l}
+              className="pb-1 text-center font-mono text-[10px] text-ink-faint"
+            >
+              {l}
+            </div>
+          ))}
 
           {withData.map((h) => (
-            <div key={h.horizon} className="flex items-center gap-1 py-0.5">
-              <div
-                className="shrink-0 text-right font-mono text-[11px] text-ink-dim"
-                style={{ width: 62 }}
-              >
+            <Fragment key={h.horizon}>
+              <div className="pr-1 text-right font-mono text-[11px] text-ink-dim">
                 {h.horizon}D
               </div>
               {h.buckets.map((b) => (
                 <div
                   key={b.label}
-                  className={`flex-1 rounded-[3px] border border-white/5 px-1 py-2 text-center ${heatTextClass("return", b.avg_net, NET_FULL)}`}
+                  className={`rounded-[3px] border border-white/5 px-1 py-2 text-center ${heatTextClass("return", b.avg_net, NET_FULL)}`}
                   style={{ background: returnColor(b.avg_net, NET_FULL) }}
                   title={`${h.horizon} 日｜${b.label}｜n=${b.n}｜勝率 ${
                     b.win_rate != null ? (b.win_rate * 100).toFixed(1) + "%" : "—"
@@ -67,7 +71,7 @@ export function ValidationHeatmap({ horizons }: { horizons: ForwardHorizon[] }) 
                   </div>
                 </div>
               ))}
-            </div>
+            </Fragment>
           ))}
         </div>
       </div>

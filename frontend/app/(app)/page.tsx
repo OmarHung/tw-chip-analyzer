@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ActionBadge } from "@/components/ActionBadge";
-import { Card, SectionTitle, StatCard } from "@/components/Card";
+import { Card, SectionTitle } from "@/components/Card";
 import { Change } from "@/components/Change";
 import { IndustryHeatmap } from "@/components/heatmap/IndustryHeatmap";
 import { MarketTreemap } from "@/components/heatmap/MarketTreemap";
@@ -50,6 +50,13 @@ export default async function DashboardPage() {
   const m = data.market;
   const regimeUp = (m?.trend_score ?? 0) >= 0.15;
   const regimeDown = (m?.trend_score ?? 0) <= -0.15;
+  // 大盤脈絡的兩個衍生值（由 dashboard 既有欄位算，不另外打 API）
+  const vsMa20 =
+    m?.taiex_close != null && m.taiex_ma20
+      ? (m.taiex_close - m.taiex_ma20) / m.taiex_ma20
+      : null;
+  const breadth = (m?.advancers ?? 0) + (m?.decliners ?? 0);
+  const advPct = breadth > 0 ? ((m?.advancers ?? 0) / breadth) * 100 : null;
 
   return (
     <div className="space-y-10">
@@ -80,60 +87,65 @@ export default async function DashboardPage() {
                 regimeUp ? "bg-up/10" : regimeDown ? "bg-down/10" : "bg-gold/5"
               }`}
             />
-            <div className="grid grid-cols-2 gap-6 md:grid-cols-3 xl:grid-cols-5">
-              <div>
-                <Label>TAIEX 加權指數</Label>
-                <div className="mt-2 font-mono text-3xl font-bold tnum">
-                  {m.taiex_close?.toLocaleString("zh-TW") ?? "—"}
-                </div>
-                <PointChange pts={m.taiex_change} pct={m.taiex_change_pct} />
-              </div>
-              <div>
-                <Label>
-                  台指期{m.futures ? ` ${m.futures.contract_month}` : ""}
-                </Label>
-                <div className="mt-2 font-mono text-3xl font-bold tnum">
-                  {m.futures?.close?.toLocaleString("zh-TW") ?? "—"}
-                </div>
-                <PointChange
+            {/* 兩區:左「報價」(大字,主角)、右「脈絡」(次級,同一基線),中間 1px 分隔。
+                五格等重時眼睛不知道先看哪 —— 分區後階層自己會說話。 */}
+            <div className="relative grid gap-y-8 lg:grid-cols-[auto_1px_minmax(0,1fr)] lg:gap-x-10">
+              <div className="flex flex-wrap gap-x-12 gap-y-6">
+                <Quote
+                  label="TAIEX 加權指數"
+                  value={m.taiex_close}
+                  pts={m.taiex_change}
+                  pct={m.taiex_change_pct}
+                />
+                <Quote
+                  label={`台指期${m.futures ? ` ${m.futures.contract_month}` : ""}`}
+                  value={m.futures?.close ?? null}
                   pts={m.futures?.change ?? null}
                   pct={m.futures?.change_pct ?? null}
                 />
               </div>
-              <div>
-                <Label>大盤氣氛</Label>
-                <div className="mt-2 flex items-center gap-2">
-                  <span
-                    className={`font-display text-3xl ${dirColor(m.trend_score)}`}
-                  >
-                    {m.regime}
-                  </span>
-                  {m.trend_score != null && (
-                    <span className="font-mono text-sm tnum text-ink-faint">
-                      {m.trend_score >= 0 ? "+" : ""}
-                      {m.trend_score.toFixed(2)}
+
+              <div className="hidden bg-line-soft lg:block" />
+
+              <div className="flex flex-wrap items-start gap-x-8 gap-y-6">
+                <div className="shrink-0">
+                  <Label>大盤氣氛</Label>
+                  <div className="mt-3 flex h-7 items-center leading-none">
+                    <span className={`font-display text-2xl ${dirColor(m.trend_score)}`}>
+                      {m.regime}
                     </span>
-                  )}
+                  </div>
+                  <SubNote>
+                    {m.trend_score != null
+                      ? `趨勢 ${m.trend_score >= 0 ? "+" : ""}${m.trend_score.toFixed(2)}`
+                      : "趨勢未知"}
+                  </SubNote>
                 </div>
-              </div>
-              <div>
-                <Label>均線 MA20 / MA60</Label>
-                <div className="mt-2 font-mono text-sm tnum text-ink-dim">
-                  {m.taiex_ma20?.toLocaleString("zh-TW") ?? "—"}
-                  <span className="mx-1 text-ink-faint">/</span>
-                  {m.taiex_ma60?.toLocaleString("zh-TW") ?? "—"}
+                <div className="shrink-0">
+                  <Label>均線 MA20 / MA60</Label>
+                  <div className="mt-3 flex h-7 items-center font-mono text-sm tnum leading-none whitespace-nowrap text-ink-dim">
+                    {m.taiex_ma20?.toLocaleString("zh-TW") ?? "—"}
+                    <span className="mx-1 text-ink-faint">/</span>
+                    {m.taiex_ma60?.toLocaleString("zh-TW") ?? "—"}
+                  </div>
+                  <SubNote>
+                    收盤 <Change pct={vsMa20} className="text-xs" /> vs MA20
+                  </SubNote>
                 </div>
-              </div>
-              <div>
-                <Label>漲 / 跌家數</Label>
-                <div className="mt-2 flex items-center gap-3">
-                  <span className="font-mono text-2xl font-bold tnum text-up">
-                    {m.advancers ?? "—"}
-                  </span>
-                  <BreadthBar adv={m.advancers ?? 0} dec={m.decliners ?? 0} />
-                  <span className="font-mono text-2xl font-bold tnum text-down">
-                    {m.decliners ?? "—"}
-                  </span>
+                <div className="min-w-[180px] flex-1">
+                  <Label>漲 / 跌家數</Label>
+                  <div className="mt-3 flex h-7 items-center gap-3 leading-none">
+                    <span className="font-mono text-xl font-bold tnum text-up">
+                      {m.advancers ?? "—"}
+                    </span>
+                    <BreadthBar adv={m.advancers ?? 0} dec={m.decliners ?? 0} />
+                    <span className="font-mono text-xl font-bold tnum text-down">
+                      {m.decliners ?? "—"}
+                    </span>
+                  </div>
+                  <SubNote>
+                    {advPct != null ? `上漲佔 ${advPct.toFixed(1)}%` : "—"}
+                  </SubNote>
                 </div>
               </div>
             </div>
@@ -141,22 +153,32 @@ export default async function DashboardPage() {
         )}
       </section>
 
-      {/* 統計卡 + 訊號分布（lg 以下訊號分布自己佔一行，橫條才不會擠成一團） */}
-      <section
-        className="reveal grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-7"
-        style={{ animationDelay: "80ms" }}
-      >
-        <StatCard label="掃描標的" value={data.total} />
-        <StatCard label="買進候選" value={data.buy_candidates} accent="text-gold-bright" />
-        <StatCard label="觀察候選" value={data.watch_candidates} accent="text-gold" />
-        <StatCard
-          label="平均籌碼分數"
-          value={data.avg_chip_score.toFixed(1)}
-          accent={scoreColor(data.avg_chip_score)}
-        />
-        <div className="col-span-2 min-w-0 md:col-span-4 lg:col-span-3">
-          <SignalDistribution counts={data.action_counts} total={data.total} />
-        </div>
+      {/* 掃描統計 + 訊號分布同卡（與 Hero 同構：左主右輔 + 1px 分隔）。
+          分成兩張卡時,四個數字那張會被較高的訊號分布撐開成一片留白;
+          併成一張,兩區高度自然相當,整頁也只剩「寬卡」一種節奏。 */}
+      <section className="reveal" style={{ animationDelay: "80ms" }}>
+        <Card>
+          <div className="grid gap-y-8 lg:grid-cols-[minmax(0,0.8fr)_1px_minmax(0,1.2fr)] lg:gap-x-10">
+            <div className="grid grid-cols-2 content-center gap-x-6 gap-y-7">
+              <Metric label="掃描標的" value={data.total} />
+              <Metric
+                label="買進候選"
+                value={data.buy_candidates}
+                accent="text-gold-bright"
+              />
+              <Metric label="觀察候選" value={data.watch_candidates} accent="text-gold" />
+              <Metric
+                label="平均籌碼分數"
+                value={data.avg_chip_score.toFixed(1)}
+                accent={scoreColor(data.avg_chip_score)}
+              />
+            </div>
+
+            <div className="hidden bg-line-soft lg:block" />
+
+            <SignalDistribution counts={data.action_counts} total={data.total} />
+          </div>
+        </Card>
       </section>
 
       {/* 全市場熱力圖：方塊面積＝成交值，顏色可切漲跌／分數／法人 */}
@@ -199,7 +221,7 @@ export default async function DashboardPage() {
                     >
                       {t.chip_score.toFixed(1)}
                     </span>
-                    <ActionBadge action={t.action} />
+                    <ActionBadge action={t.action} shortOnMobile />
                   </Link>
                 </li>
               ))}
@@ -302,7 +324,16 @@ function FlashList({
   );
 }
 
-/** 各 action 家數的橫條分布（長度＝佔掃描標的比例）。 */
+/** 決策強度由強到弱，橫條長度＝佔掃描標的比例。順序固定，不隨當日家數跳動。 */
+const ACTION_ORDER: Action[] = ["BUY", "WATCH", "HOLD", "REDUCE", "EXIT", "AVOID"];
+
+/** 橫條也分級：金色越亮＝越積極，減碼/出場/避開退成灰（動作一律金色系，不碰紅綠）。 */
+const BAR_COLOR: Record<string, string> = {
+  BUY: "bg-gold-bright",
+  WATCH: "bg-gold",
+  HOLD: "bg-gold-dim",
+};
+
 function SignalDistribution({
   counts,
   total,
@@ -310,30 +341,85 @@ function SignalDistribution({
   counts: Record<string, number>;
   total: number;
 }) {
+  const known = ACTION_ORDER.filter((a) => counts[a] != null);
+  const rest = Object.keys(counts)
+    .filter((a) => !ACTION_ORDER.includes(a as Action))
+    .sort((a, b) => counts[b] - counts[a]);
+  const rows = [...known, ...rest];
+
   return (
-    <Card className="flex h-full flex-col justify-center">
-      <SectionTitle>訊號分布</SectionTitle>
-      <div className="space-y-3">
-        {Object.entries(counts)
-          .sort((a, b) => b[1] - a[1])
-          .map(([action, count]) => (
+    <div className="min-w-0">
+      <Label>訊號分布</Label>
+      <div className="mt-4 space-y-3">
+        {rows.map((action) => {
+          const count = counts[action] ?? 0;
+          const pct = total > 0 ? (count / total) * 100 : 0;
+          return (
             <div key={action} className="flex items-center gap-3">
-              <div className="w-14">
+              <div className="w-14 shrink-0">
                 <ActionBadge action={action as Action} />
               </div>
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line-soft">
+              <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-line-soft">
+                {/* BUY 常只佔 2~3%，給個下限才看得出「有，但很少」 */}
                 <div
-                  className="bar-fill h-full rounded-full bg-gold-dim"
-                  style={{ width: `${(count / total) * 100}%` }}
+                  className={`bar-fill h-full rounded-full ${BAR_COLOR[action] ?? "bg-ink-faint/70"}`}
+                  style={{ width: `max(3px, ${pct}%)` }}
                 />
               </div>
-              <span className="w-10 text-right font-mono text-sm tnum text-ink-dim">
+              <span className="w-9 shrink-0 text-right font-mono text-sm tnum text-ink-dim">
                 {count}
               </span>
+              <span className="w-11 shrink-0 text-right font-mono text-[11px] tnum text-ink-faint">
+                {pct.toFixed(1)}%
+              </span>
             </div>
-          ))}
+          );
+        })}
       </div>
-    </Card>
+    </div>
+  );
+}
+
+/** Hero 報價欄：標籤 / 大字數值 / 漲跌。leading-none 讓相鄰報價的數字對齊同一基線。 */
+function Quote({
+  label,
+  value,
+  pts,
+  pct,
+}: {
+  label: string;
+  value: number | null | undefined;
+  pts: number | null | undefined;
+  pct: number | null | undefined;
+}) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <div className="mt-3 font-mono text-3xl font-bold tnum leading-none">
+        {value?.toLocaleString("zh-TW") ?? "—"}
+      </div>
+      <PointChange pts={pts} pct={pct} />
+    </div>
+  );
+}
+
+/** 掃描統計欄（同一張卡內以 1px 線分欄，非獨立卡片）。 */
+function Metric({
+  label,
+  value,
+  accent = "text-ink",
+}: {
+  label: string;
+  value: React.ReactNode;
+  accent?: string;
+}) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <div className={`mt-3 font-mono text-3xl font-bold tnum leading-none ${accent}`}>
+        {value}
+      </div>
+    </div>
   );
 }
 
@@ -346,7 +432,7 @@ function PointChange({
   pct: number | null | undefined;
 }) {
   return (
-    <div className="mt-1 flex items-baseline gap-2 text-sm">
+    <div className="mt-2.5 flex items-baseline gap-2 text-sm">
       <span className={`font-mono tnum ${dirColor(pts)}`}>
         {pts == null
           ? "—"
@@ -355,6 +441,15 @@ function PointChange({
             })}`}
       </span>
       <Change pct={pct} className="text-sm" />
+    </div>
+  );
+}
+
+/** 脈絡欄的補充行：對齊左側報價的漲跌行，右區才不會只有兩行、底部空一截。 */
+function SubNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-2.5 flex items-center gap-1 font-mono text-xs tnum text-ink-faint">
+      {children}
     </div>
   );
 }

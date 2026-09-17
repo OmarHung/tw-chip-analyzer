@@ -80,25 +80,39 @@ function HorizonCard({ h }: { h: ForwardHorizon }) {
   const sig = h.ic != null && h.ic_t != null && Math.abs(h.ic_t) > 2;
   return (
     <Card>
-      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+      {/* 窄螢幕：標題自己一行、統計整塊靠左（justify-between 在單欄時會把它推到右邊留一大片空）。
+          SectionTitle 自帶的 mb-5 在直排時會變成過大的行距，故窄螢幕歸零、改由 gap 控制。 */}
+      <div className="mb-4 flex flex-col items-start gap-2 max-sm:[&_h2]:mb-0 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between">
         <SectionTitle>持有 {h.horizon} 日</SectionTitle>
-        <div className="flex items-baseline gap-4 font-mono text-xs tnum">
-          <span className="text-ink-faint">
-            n={h.n.toLocaleString("zh-TW")} · {h.ic_days} 日
+        {/* 兩欄仍並排，只是窄螢幕各欄內部拆成「主值 / 佐證」兩行——
+            交給瀏覽器自動折會斷在「115 / 日」「樸素 / 1.74」，數字與單位分家就讀不出來。
+            sm 以上兩欄各自回到單行。 */}
+        <div className="flex items-baseline gap-4 font-mono text-xs tnum max-sm:w-full max-sm:gap-0">
+          <span className="whitespace-nowrap text-ink-faint max-sm:w-1/3">
+            <span className="block sm:inline">n={h.n.toLocaleString("zh-TW")}</span>
+            <span className="hidden sm:inline"> · </span>
+            <span className="block sm:inline">{h.ic_days} 日</span>
           </span>
-          <span className={icTone(h.ic, h.ic_t)}>
-            IC {h.ic != null ? (h.ic > 0 ? "+" : "") + h.ic.toFixed(4) : "—"}
-            {h.ic_t != null &&
-              ` (NW t=${h.ic_t}${h.ic_t_naive != null ? `，樸素 ${h.ic_t_naive}` : ""})`}
-            {sig && (h.ic! > 0 ? " ✓有效" : " ✗反向")}
+          <span className={`whitespace-nowrap ${icTone(h.ic, h.ic_t)}`}>
+            <span className="block sm:inline">
+              IC {h.ic != null ? (h.ic > 0 ? "+" : "") + h.ic.toFixed(4) : "—"}
+            </span>
+            {(h.ic_t != null || sig) && (
+              <span className="block sm:ml-1 sm:inline">
+                {h.ic_t != null &&
+                  `(NW t=${h.ic_t}${h.ic_t_naive != null ? `，樸素 ${h.ic_t_naive}` : ""})`}
+                {sig && (h.ic! > 0 ? " ✓有效" : " ✗反向")}
+              </span>
+            )}
           </span>
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full">
+        {/* 窄螢幕固定欄寬：上方統計的第二欄也用 1/3，兩者左緣才對得齊 */}
+        <table className="w-full max-sm:table-fixed">
           <thead>
             <tr className="border-b border-line-soft font-mono text-[10px] tracking-[0.12em] text-ink-faint uppercase">
-              <th className="py-2 pr-3 text-left font-medium">score bucket</th>
+              <th className="py-2 pr-3 text-left font-medium max-sm:w-1/3">score bucket</th>
               <th className="px-3 py-2 text-right font-medium">n</th>
               <th className="px-3 py-2 text-right font-medium">win%</th>
               <th className="py-2 pl-3 text-right font-medium">avg net</th>

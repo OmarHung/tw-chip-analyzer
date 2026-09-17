@@ -36,8 +36,7 @@ export function StatCard({
   sub?: ReactNode;
 }) {
   return (
-    // 與同列較高的卡片（例如總覽的訊號分布）並排時，數字垂直置中而不是黏在頂端
-    <Card className="relative flex h-full flex-col justify-center overflow-hidden">
+    <Card className="relative overflow-hidden">
       <div className="font-mono text-[11px] tracking-[0.15em] text-ink-faint uppercase">
         {label}
       </div>

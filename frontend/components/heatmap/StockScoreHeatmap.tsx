@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Card, SectionTitle } from "@/components/Card";
 import { api, type StockHeatCell, type StockHeatmapResponse } from "@/lib/api";
 import { NO_DATA_STYLE, scoreHeatColor } from "@/lib/heat";
@@ -46,61 +46,53 @@ export function StockScoreHeatmap({ symbol }: { symbol: string }) {
         <Empty>尚無已落地的每日分數（需盤後 EOD 累積）</Empty>
       ) : (
         <div className="overflow-x-auto">
-          <div style={{ minWidth: 60 + cells.length * 10 }}>
+          {/* 整張矩陣同一個 grid：列標籤欄用 auto（內容只有兩個字，寫死寬度會在左邊空一片），
+              日期軸掛在同一個 grid 上，刻度自然對齊格子。 */}
+          <div
+            className="grid gap-y-px"
+            style={{
+              minWidth: 34 + cells.length * 10,
+              gridTemplateColumns: `auto repeat(${cells.length}, minmax(0, 1fr))`,
+              columnGap: 1,
+            }}
+          >
             {ROWS.map((row) => (
-              <div key={row.key} className="flex items-center gap-2 py-px">
+              <Fragment key={row.key}>
                 <div
-                  className="shrink-0 text-right text-[11px] text-ink-dim"
-                  style={{ width: 40 }}
+                  className="self-center pr-2 text-right text-[11px] text-ink-dim"
                   title={row.help}
                 >
                   {row.label}
                 </div>
-                <div
-                  className="grid flex-1 gap-px"
-                  style={{
-                    gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))`,
-                  }}
-                >
-                  {cells.map((cell) => {
-                    const raw = cell[row.key];
-                    const v = typeof raw === "number" ? raw : null;
-                    return (
-                      <div
-                        key={cell.date}
-                        className={`rounded-[1px] ${row.key === "chip_score" ? "h-6" : "h-4"}`}
-                        style={{
-                          background: scoreHeatColor(v),
-                          ...(v == null ? NO_DATA_STYLE : null),
-                        }}
-                        title={`${cell.date}｜${row.label} ${v?.toFixed(1) ?? "無資料"}${
-                          cell.action ? `｜建議 ${cell.action}` : ""
-                        }`}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
+                {cells.map((cell) => {
+                  const raw = cell[row.key];
+                  const v = typeof raw === "number" ? raw : null;
+                  return (
+                    <div
+                      key={cell.date}
+                      className={`rounded-[1px] ${row.key === "chip_score" ? "h-6" : "h-4"}`}
+                      style={{
+                        background: scoreHeatColor(v),
+                        ...(v == null ? NO_DATA_STYLE : null),
+                      }}
+                      title={`${cell.date}｜${row.label} ${v?.toFixed(1) ?? "無資料"}${
+                        cell.action ? `｜建議 ${cell.action}` : ""
+                      }`}
+                    />
+                  );
+                })}
+              </Fragment>
             ))}
 
-            <div className="flex items-center gap-2 pt-1">
-              <div className="shrink-0" style={{ width: 40 }} />
+            <div />
+            {cells.map((c, i) => (
               <div
-                className="grid flex-1 gap-px"
-                style={{
-                  gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))`,
-                }}
+                key={c.date}
+                className="overflow-visible pt-1 font-mono text-[9px] whitespace-nowrap text-ink-faint"
               >
-                {cells.map((c, i) => (
-                  <div
-                    key={c.date}
-                    className="overflow-visible font-mono text-[9px] whitespace-nowrap text-ink-faint"
-                  >
-                    {i % DATE_TICK_EVERY === 0 ? c.date.slice(5) : ""}
-                  </div>
-                ))}
+                {i % DATE_TICK_EVERY === 0 ? c.date.slice(5) : ""}
               </div>
-            </div>
+            ))}
           </div>
         </div>
       )}

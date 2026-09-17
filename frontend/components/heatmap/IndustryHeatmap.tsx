@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card, SectionTitle } from "@/components/Card";
 import {
   api,
@@ -21,6 +21,8 @@ import { HeatLegend, MetricToggle } from "./MetricToggle";
 
 const CELL_MIN_W = 16; // 格子再窄就點不到也讀不出來；窄於容器時改為橫向捲動
 const DATE_TICK_EVERY = 5;
+const LABEL_CH_W = 11; // text-[11px] 的中文一字約 11px
+const LABEL_GAP = 8; // 標籤與第一格之間的呼吸
 
 function cellValue(cell: IndustryHeatCell | undefined, metric: HeatMetric): number | null {
   if (!cell) return null;
@@ -54,6 +56,15 @@ export function IndustryHeatmap() {
     });
   }, [data]);
 
+  // 標籤欄寬度依最長產業名而定。固定寬(舊做法 96px)在名稱短的日子會在左邊留一片空白，
+  // 而它又必須是固定值——每列各自 fit-content 會讓列與列對不齊。
+  const labelW = useMemo(
+    () =>
+      rows.reduce((w, r) => Math.max(w, r.industry.length * LABEL_CH_W), 0) +
+      LABEL_GAP,
+    [rows],
+  );
+
   return (
     <Card>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -69,64 +80,55 @@ export function IndustryHeatmap() {
         <Empty>尚無足夠成分股的產業資料</Empty>
       ) : (
         <div className="overflow-x-auto">
-          <div style={{ minWidth: 120 + data.dates.length * CELL_MIN_W }}>
+          {/* 整張矩陣是同一個 grid（標籤欄 + 每個交易日一欄），列與列因此自動對齊 */}
+          <div
+            className="grid gap-y-px"
+            style={{
+              minWidth: labelW + data.dates.length * CELL_MIN_W,
+              gridTemplateColumns: `${labelW}px repeat(${data.dates.length}, minmax(0, 1fr))`,
+              columnGap: 1,
+            }}
+          >
             {rows.map((row) => (
-              <div key={row.industry} className="flex items-center gap-2 py-px">
+              <Fragment key={row.industry}>
                 <div
-                  className="shrink-0 truncate text-right text-[11px] text-ink-dim"
-                  style={{ width: 96 }}
+                  className="self-center truncate pr-2 text-right text-[11px] text-ink-dim"
                   title={`${row.industry}（視窗內最多 ${row.nMax} 檔）`}
                 >
                   {row.industry}
                 </div>
-                <div
-                  className="grid flex-1 gap-px"
-                  style={{
-                    gridTemplateColumns: `repeat(${data.dates.length}, minmax(0, 1fr))`,
-                  }}
-                >
-                  {row.cells.map((cell, i) => {
-                    const v = cellValue(cell, metric);
-                    return (
-                      <div
-                        key={data.dates[i]}
-                        className="h-5 rounded-[1px]"
-                        style={{
-                          background: heatColor(metric, v, MEDIAN_RETURN_FULL),
-                          ...(v == null ? NO_DATA_STYLE : null),
-                        }}
-                        title={
-                          cell
-                            ? `${row.industry}｜${cell.date}｜${cell.n} 檔
+                {row.cells.map((cell, i) => {
+                  const v = cellValue(cell, metric);
+                  return (
+                    <div
+                      key={data.dates[i]}
+                      className="h-5 rounded-[1px]"
+                      style={{
+                        background: heatColor(metric, v, MEDIAN_RETURN_FULL),
+                        ...(v == null ? NO_DATA_STYLE : null),
+                      }}
+                      title={
+                        cell
+                          ? `${row.industry}｜${cell.date}｜${cell.n} 檔
 漲跌中位數 ${formatHeatValue("return", cell.ret)}｜分數 ${cell.score?.toFixed(1) ?? "—"}｜法人 ${cell.inst?.toFixed(1) ?? "—"}`
-                            : `${row.industry}｜${data.dates[i]}｜無資料`
-                        }
-                      />
-                    );
-                  })}
-                </div>
-              </div>
+                          : `${row.industry}｜${data.dates[i]}｜無資料`
+                      }
+                    />
+                  );
+                })}
+              </Fragment>
             ))}
 
             {/* 日期軸：每 5 格標一次，全標會擠成一團 */}
-            <div className="flex items-center gap-2 pt-1">
-              <div className="shrink-0" style={{ width: 96 }} />
+            <div />
+            {data.dates.map((d, i) => (
               <div
-                className="grid flex-1 gap-px"
-                style={{
-                  gridTemplateColumns: `repeat(${data.dates.length}, minmax(0, 1fr))`,
-                }}
+                key={d}
+                className="overflow-visible pt-1 font-mono text-[9px] whitespace-nowrap text-ink-faint"
               >
-                {data.dates.map((d, i) => (
-                  <div
-                    key={d}
-                    className="overflow-visible font-mono text-[9px] whitespace-nowrap text-ink-faint"
-                  >
-                    {i % DATE_TICK_EVERY === 0 ? d.slice(5) : ""}
-                  </div>
-                ))}
+                {i % DATE_TICK_EVERY === 0 ? d.slice(5) : ""}
               </div>
-            </div>
+            ))}
           </div>
         </div>
       )}
