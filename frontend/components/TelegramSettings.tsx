@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCanWrite } from "@/components/AuthContext";
 import { Card, SectionTitle } from "@/components/Card";
 import { OpsKeyField } from "@/components/OpsKeyField";
 import {
@@ -73,7 +74,10 @@ export function TelegramSettings() {
   const [chats, setChats] = useState<TelegramChat[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const canWrite = useCanWrite();
+  // viewer 不能改推播設定（後端同樣會擋），一律以「忙碌」狀態停用按鈕
+  const busy = saving || !canWrite;
   const ops = useOpsKey();
 
   const apply = useCallback((s: Settings) => {
@@ -91,13 +95,13 @@ export function TelegramSettings() {
   const act = async (fn: () => Promise<void>) => {
     setError(null);
     setNotice(null);
-    setBusy(true);
+    setSaving(true);
     try {
       await fn();
     } catch (e) {
       setError(e instanceof Error ? e.message : "操作失敗");
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
   };
 

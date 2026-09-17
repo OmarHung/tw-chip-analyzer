@@ -1,8 +1,11 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useAuth, useCanWrite } from "@/components/AuthContext";
 import { Card, SectionTitle, StatCard } from "@/components/Card";
 import { CoverageCard } from "@/components/CoverageCard";
+import { ReadOnlyNotice } from "@/components/ReadOnlyNotice";
 import { TaskPanel } from "@/components/TaskPanel";
 import {
   api,
@@ -65,6 +68,9 @@ function fmtNextRun(iso: string | null): string {
 const QUOTA_STOP = 95; // 對齊後端 intraday_batch.usage_stop_pct
 
 export default function SystemPage() {
+  const canWrite = useCanWrite();  // viewer 只能看：工作/回補按鈕停用（後端仍會再擋一次）
+  const authEnabled = useAuth().auth_enabled;
+  const router = useRouter();
   const [data, setData] = useState<OpsStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +152,9 @@ export default function SystemPage() {
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         sessionStorage.removeItem(OPS_KEY_STORAGE);
-        setNeedKey(true);
+        // 已建立帳號時 401＝session 過期；相容模式才是「缺 OPS_API_KEY」
+        if (authEnabled) router.replace("/login");
+        else setNeedKey(true);
       }
       setBfError(e instanceof Error ? e.message : "觸發失敗");
     } finally {
@@ -183,6 +191,8 @@ export default function SystemPage() {
           重新整理
         </button>
       </div>
+
+      <ReadOnlyNotice />
 
       {error ? (
         <div className="rounded-2xl border border-line-soft bg-panel/70 p-10 text-center text-ink-dim">
@@ -290,7 +300,7 @@ export default function SystemPage() {
 
               <button
                 onClick={submit}
-                disabled={running || submitting || ticksBlocked}
+                disabled={running || submitting || ticksBlocked || !canWrite}
                 className="rounded-lg border border-gold/40 bg-gold/10 px-5 py-2 font-mono text-xs tracking-wider text-gold transition-colors hover:bg-gold/15 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {running ? "工作進行中…" : submitting ? "觸發中…" : "觸發回補"}
@@ -373,7 +383,7 @@ export default function SystemPage() {
           <CoverageCard
             coverage={data.coverage}
             onFillMissing={fillMissing}
-            disabled={submitting || running}
+            disabled={submitting || running || !canWrite}
           />
 
           {/* 逐筆每日灌檔數(診斷配額被砍) */}

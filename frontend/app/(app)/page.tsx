@@ -4,12 +4,15 @@ import { Card, SectionTitle, StatCard } from "@/components/Card";
 import { Change } from "@/components/Change";
 import { IndustryHeatmap } from "@/components/heatmap/IndustryHeatmap";
 import { MarketTreemap } from "@/components/heatmap/MarketTreemap";
-import { ApiTimeoutError, api, type Action, type DivergenceScanRow } from "@/lib/api";
+import { ApiTimeoutError, type Action, type DivergenceScanRow } from "@/lib/api";
+import { serverApi } from "@/lib/api.server";
 import { dirColor, scoreColor } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  // SSR 走轉發使用者 cookie 的 client（見 lib/api.server.ts）
+  const api = await serverApi();
   let data;
   try {
     data = await api.dashboard();

@@ -460,12 +460,18 @@ const SSR_TIMEOUT_MS = Number(process.env.SSR_FETCH_TIMEOUT_MS ?? 12000);
 /** SSR fetch 逾時（與「後端連不上」語意不同，UI 訊息要分開）。 */
 export class ApiTimeoutError extends Error {}
 
-async function get<T>(path: string): Promise<T> {
+async function rawGet<T>(
+  path: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
   const isServer = typeof window === "undefined";
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       cache: "no-store",
+      headers: extraHeaders,
+      // 瀏覽器：帶上 session cookie（dev 的 :3000→:8000 屬跨來源，預設不會帶）
+      credentials: "include",
       signal: isServer ? AbortSignal.timeout(SSR_TIMEOUT_MS) : undefined,
     });
   } catch (e) {
@@ -477,7 +483,8 @@ async function get<T>(path: string): Promise<T> {
     throw e;
   }
   if (!res.ok) {
-    throw new Error(`API ${path} 失敗：${res.status}`);
+    // 帶狀態碼：SSR 用 401 判斷「要導去登入」，其餘維持原本的錯誤畫面
+    throw new ApiError(`API ${path} 失敗：${res.status}`, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -492,8 +499,8 @@ export class ApiError extends Error {
   }
 }
 
-async function send<T>(
-  method: "POST" | "PUT" | "DELETE",
+async function rawSend<T>(
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   body: unknown,
   headers: Record<string, string> = {},
@@ -503,6 +510,7 @@ async function send<T>(
     headers: { "Content-Type": "application/json", ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
     cache: "no-store",
+    credentials: "include",
   });
   if (!res.ok) {
     // 後端以 {detail} 回錯誤訊息(FastAPI HTTPException)
@@ -516,14 +524,6 @@ async function send<T>(
     throw new ApiError(detail, res.status);
   }
   return res.json() as Promise<T>;
-}
-
-function post<T>(
-  path: string,
-  body: unknown,
-  headers: Record<string, string> = {},
-): Promise<T> {
-  return send<T>("POST", path, body, headers);
 }
 
 const keyHeader = (opsKey?: string): Record<string, string> =>
@@ -657,7 +657,83 @@ export interface TasksResponse {
   runs: TaskRun[];
 }
 
-export const api = {
+// --- 認證 / 帳號（docs/17） ---
+export type Role = "admin" | "viewer";
+
+/** kind：session＝已登入、ops_key＝以 X-Ops-Key 呼叫、local＝本機直連、open＝尚未建立帳號 */
+export interface Me {
+  authenticated: boolean;
+  auth_enabled: boolean;
+  username: string;
+  role: Role;
+  kind: "session" | "ops_key" | "local" | "open";
+  must_change_password: boolean;
+}
+
+export interface AuthState {
+  auth_enabled: boolean;
+  has_users: boolean;
+}
+
+export interface UserRow {
+  id: number;
+  username: string;
+  display_name: string | null;
+  role: Role;
+  is_active: boolean;
+  must_change_password: boolean;
+  last_login_at: string | null;
+  created_at: string | null;
+}
+
+export interface UsersResponse {
+  users: UserRow[];
+  roles: Role[];
+}
+
+/**
+ * 建立 API client。`extraHeaders` 供 SSR 轉發使用者的 session cookie
+ * （見 lib/api.server.ts）；瀏覽器端靠 credentials: "include" 自動帶。
+ */
+export function createApi(extraHeaders: Record<string, string> = {}) {
+  const get = <T,>(path: string) => rawGet<T>(path, extraHeaders);
+  const send = <T,>(
+    method: "POST" | "PUT" | "PATCH" | "DELETE",
+    path: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ) => rawSend<T>(method, path, body, { ...extraHeaders, ...headers });
+  const post = <T,>(path: string, body: unknown, headers: Record<string, string> = {}) =>
+    send<T>("POST", path, body, headers);
+
+  return {
+    // --- 認證 / 帳號 ---
+    authState: () => get<AuthState>("/api/auth/state"),
+    me: () => get<Me>("/api/auth/me"),
+    login: (username: string, password: string) =>
+      post<Me>("/api/auth/login", { username, password }),
+    logout: () => post<{ ok: boolean }>("/api/auth/logout", {}),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      post<{ ok: boolean }>("/api/auth/password", {
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    users: () => get<UsersResponse>("/api/auth/users"),
+    createUser: (body: {
+      username: string;
+      password: string;
+      role: Role;
+      display_name?: string | null;
+    }) => post<UserRow>("/api/auth/users", body),
+    updateUser: (
+      id: number,
+      patch: { role?: Role; is_active?: boolean; display_name?: string },
+    ) => send<UserRow>("PATCH", `/api/auth/users/${id}`, patch),
+    resetUserPassword: (id: number, newPassword: string) =>
+      post<UserRow>(`/api/auth/users/${id}/password`, { new_password: newPassword }),
+    deleteUser: (id: number) =>
+      send<{ ok: boolean }>("DELETE", `/api/auth/users/${id}`, undefined),
+
   dashboard: () => get<DashboardResponse>("/api/dashboard"),
   scanner: (params: Record<string, string | number | undefined> = {}) => {
     const q = new URLSearchParams();
@@ -773,4 +849,7 @@ export const api = {
       body,
       opsKey ? { "X-Ops-Key": opsKey } : {},
     ),
-};
+  };
+}
+
+export const api = createApi();

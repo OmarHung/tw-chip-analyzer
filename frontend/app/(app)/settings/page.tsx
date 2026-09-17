@@ -2,13 +2,17 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AccountPanel } from "@/components/AccountPanel";
+import { useCanWrite } from "@/components/AuthContext";
 import { Card, SectionTitle } from "@/components/Card";
 import { OpsKeyField } from "@/components/OpsKeyField";
+import { ReadOnlyNotice } from "@/components/ReadOnlyNotice";
 import { TelegramSettings } from "@/components/TelegramSettings";
 import { api, type SettingItem, type SettingsResponse } from "@/lib/api";
 import { useOpsKey } from "@/lib/useOpsKey";
 
 export default function SettingsPage() {
+  const canWrite = useCanWrite();
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -74,6 +78,11 @@ export default function SettingsPage() {
         </div>
       )}
 
+      <ReadOnlyNotice />
+
+      {/* 帳號／密碼不依賴門檻設定是否載入成功，獨立於 data 之外 */}
+      <AccountPanel />
+
       {data && (
         <>
           {data.pending_rebuild && (
@@ -89,6 +98,7 @@ export default function SettingsPage() {
                 </div>
                 <button
                   onClick={startRebuild}
+                  disabled={!canWrite}
                   className="rounded-lg border border-gold/40 bg-gold/10 px-5 py-2 font-mono text-xs tracking-wider text-gold transition-colors hover:bg-gold/15"
                 >
                   全量重建分數
@@ -152,6 +162,7 @@ export default function SettingsPage() {
                   <SettingRow
                     key={`${item.key}:${item.effective}`}
                     item={item}
+                    readOnly={!canWrite}
                     onSave={(value, unlock) =>
                       act((k) => api.updateSetting(item.key, value, unlock, k))
                     }
@@ -205,15 +216,17 @@ function SettingRow({
   item,
   onSave,
   onReset,
+  readOnly = false,
 }: {
   item: SettingItem;
   onSave: (value: number | string, unlock: boolean) => void;
   onReset: () => void;
+  readOnly?: boolean;
 }) {
   const [value, setValue] = useState(String(item.effective ?? ""));
   const [unlock, setUnlock] = useState(false);
   const dirty = value !== String(item.effective ?? "");
-  const disabled = item.locked && !unlock;
+  const disabled = (item.locked && !unlock) || readOnly;
 
   const save = () => {
     if (item.kind === "choice") return onSave(value, unlock);
@@ -291,7 +304,7 @@ function SettingRow({
         </button>
         <button
           onClick={onReset}
-          disabled={item.override === null}
+          disabled={item.override === null || readOnly}
           className="rounded-lg border border-line-soft px-3 py-1.5 font-mono text-xs text-ink-dim transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
         >
           重設

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useCanWrite } from "@/components/AuthContext";
 import { Card, SectionTitle } from "@/components/Card";
 import { OpsKeyField } from "@/components/OpsKeyField";
 import {
@@ -27,6 +28,7 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 
 /** 系統頁「工作」：觸發白名單腳本（子行程）、看輸出、取消。 */
 export function TaskPanel({ busy }: { busy: boolean }) {
+  const canWrite = useCanWrite();
   const [data, setData] = useState<TasksResponse | null>(null);
   const [selected, setSelected] = useState<string>("rebuild_signals");
   const [params, setParams] = useState<Record<string, unknown>>({});
@@ -182,7 +184,7 @@ export function TaskPanel({ busy }: { busy: boolean }) {
             {error && <p className="text-xs text-up">{error}</p>}
             <button
               onClick={start}
-              disabled={busy}
+              disabled={busy || !canWrite}
               className="rounded-lg border border-gold/40 bg-gold/10 px-5 py-2 font-mono text-xs tracking-wider text-gold transition-colors hover:bg-gold/15 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {busy ? "已有工作進行中" : `執行「${spec.label}」`}

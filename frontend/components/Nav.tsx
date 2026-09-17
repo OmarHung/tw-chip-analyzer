@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
+import { useAuth } from "@/components/AuthContext";
+import { api } from "@/lib/api";
 
 const NAV = [
   { href: "/", label: "總覽" },
@@ -14,6 +17,20 @@ const NAV = [
 
 export function Nav() {
   const pathname = usePathname();
+  const me = useAuth();
+  const router = useRouter();
+  const [leaving, setLeaving] = useState(false);
+
+  async function logout() {
+    setLeaving(true);
+    try {
+      await api.logout();
+    } finally {
+      router.replace("/login");
+      router.refresh();
+    }
+  }
+
   return (
     <header className="sticky top-0 z-20 border-b border-line-soft bg-bg/70 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-4 sm:gap-8 sm:px-6">
@@ -45,9 +62,27 @@ export function Nav() {
             );
           })}
         </nav>
-        <span className="ml-auto hidden font-mono text-[11px] tracking-wider text-ink-faint sm:block">
-          PHASE 1 · DAILY CHIP SCANNER
-        </span>
+        {me.authenticated ? (
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <span
+              className="hidden font-mono text-[11px] tracking-wider text-ink-faint sm:block"
+              title={me.role === "admin" ? "管理者：可修改設定與執行工作" : "唯讀：僅能檢視"}
+            >
+              {me.username} · {me.role === "admin" ? "ADMIN" : "VIEWER"}
+            </span>
+            <button
+              onClick={logout}
+              disabled={leaving}
+              className="rounded-md border border-line-soft px-2.5 py-1 font-mono text-[11px] text-ink-dim transition-colors hover:text-ink disabled:opacity-40"
+            >
+              登出
+            </button>
+          </div>
+        ) : (
+          <span className="ml-auto hidden font-mono text-[11px] tracking-wider text-ink-faint sm:block">
+            PHASE 1 · DAILY CHIP SCANNER
+          </span>
+        )}
       </div>
     </header>
   );

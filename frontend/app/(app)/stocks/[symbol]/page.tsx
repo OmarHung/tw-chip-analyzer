@@ -6,7 +6,8 @@ import { StockScoreHeatmap } from "@/components/heatmap/StockScoreHeatmap";
 import { OrderFlowPanel } from "@/components/OrderFlowPanel";
 import { ScoreBar, ScoreRing } from "@/components/ScoreBar";
 import { StockCharts } from "@/components/StockCharts";
-import { api, type FeaturesResponse } from "@/lib/api";
+import { type FeaturesResponse } from "@/lib/api";
+import { serverApi } from "@/lib/api.server";
 import { fmtPrice } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export default async function StockDetailPage({
   params: Promise<{ symbol: string }>;
   searchParams: Promise<{ tab?: string; entry_price?: string; stop_loss?: string }>;
 }) {
+  const api = await serverApi();  // SSR 轉發使用者 cookie（見 lib/api.server.ts）
   const { symbol } = await params;
   const { tab, entry_price, stop_loss } = await searchParams;
   let data;
