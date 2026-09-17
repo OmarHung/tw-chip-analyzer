@@ -141,9 +141,9 @@ export default async function DashboardPage() {
         )}
       </section>
 
-      {/* 統計卡 */}
+      {/* 統計卡 + 訊號分布（lg 以下訊號分布自己佔一行，橫條才不會擠成一團） */}
       <section
-        className="reveal grid grid-cols-2 gap-4 md:grid-cols-4"
+        className="reveal grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-7"
         style={{ animationDelay: "80ms" }}
       >
         <StatCard label="掃描標的" value={data.total} />
@@ -154,6 +154,9 @@ export default async function DashboardPage() {
           value={data.avg_chip_score.toFixed(1)}
           accent={scoreColor(data.avg_chip_score)}
         />
+        <div className="col-span-2 min-w-0 md:col-span-4 lg:col-span-3">
+          <SignalDistribution counts={data.action_counts} total={data.total} />
+        </div>
       </section>
 
       {/* 全市場熱力圖：方塊面積＝成交值，顏色可切漲跌／分數／法人 */}
@@ -166,39 +169,10 @@ export default async function DashboardPage() {
         <IndustryHeatmap />
       </section>
 
-      {/* 訊號分布 + Top */}
-      <div className="grid gap-6 lg:grid-cols-5">
+      {/* 籌碼強度 Top 10 */}
+      <div className="grid gap-6">
         <section
-          className="reveal min-w-0 lg:col-span-2"
-          style={{ animationDelay: "160ms" }}
-        >
-          <Card>
-            <SectionTitle>訊號分布</SectionTitle>
-            <div className="space-y-3">
-              {Object.entries(data.action_counts)
-                .sort((a, b) => b[1] - a[1])
-                .map(([action, count]) => (
-                  <div key={action} className="flex items-center gap-3">
-                    <div className="w-14">
-                      <ActionBadge action={action as Action} />
-                    </div>
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line-soft">
-                      <div
-                        className="bar-fill h-full rounded-full bg-gold-dim"
-                        style={{ width: `${(count / data.total) * 100}%` }}
-                      />
-                    </div>
-                    <span className="w-10 text-right font-mono text-sm tnum text-ink-dim">
-                      {count}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          </Card>
-        </section>
-
-        <section
-          className="reveal min-w-0 lg:col-span-3"
+          className="reveal min-w-0"
           style={{ animationDelay: "240ms" }}
         >
           <Card className="p-0">
@@ -324,6 +298,41 @@ function FlashList({
           ))}
         </ul>
       )}
+    </Card>
+  );
+}
+
+/** 各 action 家數的橫條分布（長度＝佔掃描標的比例）。 */
+function SignalDistribution({
+  counts,
+  total,
+}: {
+  counts: Record<string, number>;
+  total: number;
+}) {
+  return (
+    <Card className="flex h-full flex-col justify-center">
+      <SectionTitle>訊號分布</SectionTitle>
+      <div className="space-y-3">
+        {Object.entries(counts)
+          .sort((a, b) => b[1] - a[1])
+          .map(([action, count]) => (
+            <div key={action} className="flex items-center gap-3">
+              <div className="w-14">
+                <ActionBadge action={action as Action} />
+              </div>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line-soft">
+                <div
+                  className="bar-fill h-full rounded-full bg-gold-dim"
+                  style={{ width: `${(count / total) * 100}%` }}
+                />
+              </div>
+              <span className="w-10 text-right font-mono text-sm tnum text-ink-dim">
+                {count}
+              </span>
+            </div>
+          ))}
+      </div>
     </Card>
   );
 }
