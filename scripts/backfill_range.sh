@@ -79,6 +79,32 @@ wait_off_peak() {
   done
 }
 
+RETRIES=3
+RETRY_SLEEP=30
+
+# daily 對非核心來源 fail-soft（結束碼 0），外部端點偶發回 0 筆也不拋錯——
+# 實測 2026-02-09 上櫃行情 0 筆、02-06 上櫃融資券 0 筆，當日橫斷面因此缺整個上櫃。
+# 故以「匯入完成」那行的筆數判定：核心來源任一為 0 即視為不完整、重試。
+check_complete() {
+  local line
+  line=$(grep -o '匯入完成.*' "$1" | head -1)
+  [ -n "$line" ] || { echo "無匯入完成紀錄"; return 1; }
+  local zero=()
+  for k in price institutional margin sbl; do
+    [ "$(echo "$line" | sed -nE "s/.*[ ：]$k=([0-9]+).*/\1/p")" = "0" ] && zero+=("$k")
+  done
+  local tpx
+  tpx=$(echo "$line" | sed -nE 's/.*tpex=([0-9]+)\/([0-9]+)\/([0-9]+).*/\1 \2 \3/p')
+  read -r t_price t_inst t_margin <<< "$tpx"
+  [ "${t_price:-0}" = "0" ] && zero+=("tpex行情")
+  [ "${t_inst:-0}" = "0" ] && zero+=("tpex法人")
+  [ "${t_margin:-0}" = "0" ] && zero+=("tpex融資券")
+  if [ ${#zero[@]} -gt 0 ]; then
+    echo "0 筆：${zero[*]}"
+    return 1
+  fi
+}
+
 PREP_START=$(date -d "$START -4 month" +%F)
 echo "=== [$(ts)] 回補 $START ~ $END（sleep=${SLEEP}s，prep 起點 $PREP_START）==="
 
@@ -115,13 +141,26 @@ for d in $DAYS; do
   fi
   wait_off_peak
   t0=$(date +%s)
-  if api app.jobs.daily "$d" > "$STATE/last_day.log" 2>&1; then
+  ok=0
+  for attempt in $(seq 1 "$RETRIES"); do
+    if api app.jobs.daily "$d" > "$STATE/last_day.log" 2>&1; then
+      if reason=$(check_complete "$STATE/last_day.log"); then
+        ok=1; break
+      fi
+    else
+      reason="exit≠0：$(tail -1 "$STATE/last_day.log")"
+    fi
+    echo "[$(ts)] [$i/$TOTAL] $d 第 ${attempt}/${RETRIES} 次不完整（$reason）"
+    [ "$attempt" -lt "$RETRIES" ] && sleep $((RETRY_SLEEP * attempt))
+  done
+  summary=$(grep -o '匯入完成.*' "$STATE/last_day.log" | head -1)
+  if [ "$ok" -eq 1 ]; then
     echo "$d" >> "$STATE/done.txt"
     sed -i "/^$d\$/d" "$STATE/failed.txt"
-    echo "[$(ts)] [$i/$TOTAL] $d OK ($(( $(date +%s) - t0 ))s) $(grep -o '匯入完成.*' "$STATE/last_day.log" | head -1)"
+    echo "[$(ts)] [$i/$TOTAL] $d OK ($(( $(date +%s) - t0 ))s) $summary"
   else
     grep -qxF "$d" "$STATE/failed.txt" || echo "$d" >> "$STATE/failed.txt"
-    echo "[$(ts)] [$i/$TOTAL] $d FAIL：$(tail -1 "$STATE/last_day.log")"
+    echo "[$(ts)] [$i/$TOTAL] $d FAIL：$reason"
   fi
   sleep "$SLEEP"
 done
