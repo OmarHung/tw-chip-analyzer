@@ -67,8 +67,10 @@ api() { docker compose exec -T api python -m "$@"; }
 psql_q() { docker compose exec -T db psql -U twchip -d twchip -Atc "$1"; }
 
 # EOD 排程（16:00）與信用補抓（21:00）時段暫停，避免與排程同時打外部來源、同時寫庫。
+# 兩者都只在週一~五執行（scheduler day_of_week=mon-fri），週末不必讓。
 wait_off_peak() {
   while :; do
+    [ "$(TZ=Asia/Taipei date +%u)" -ge 6 ] && return
     hm=$((10#$(TZ=Asia/Taipei date +%H%M)))
     if { [ "$hm" -ge 1550 ] && [ "$hm" -lt 1650 ]; } || { [ "$hm" -ge 2050 ] && [ "$hm" -lt 2120 ]; }; then
       echo "[$(ts)] EOD 排程時段，暫停 5 分鐘"
